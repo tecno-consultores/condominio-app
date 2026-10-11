@@ -52,8 +52,10 @@
   - **Adhesión ("Me sumo"):** Si el daño ya está reportado, el usuario pulsa "Me sumo", lo cual aumenta la prioridad del reporte existente.
   - **Notificación:** Al crearse un reporte nuevo, el Worker envía un correo al Presidente y Vicepresidente.
 
-## 7. Despliegue y Distribución (DevOps)
-- **CI/CD:** Github Actions integrado con el estándar de pruebas *QA Blueprint x11*.
+## 7. Despliegue, DevOps y Estándar QA (Nivel 11X)
+- **CI/CD:** Github Actions integrado con el estándar de pruebas *QA Blueprint x11*. Toda validación se ejecuta efímeramente en contenedores sin compilaciones locales (`docker build`).
+- **Piso de Calidad Innegociable:** 95% de cobertura en Backend (`pytest-cov`) y Frontend (`Vitest`), pruebas de mutación (`mutmut`, `Stryker`), auditoría SAST/DAST y resiliencia con Ingeniería del Caos (`Pumba` + `Locust`).
+- **Documentación Completa de Pruebas:** Consulta la [Guía y Manual de QA Nivel 11X](qa/README.md) para detalles de arquitectura, comandos de Makefiles y configuraciones.
 - **Publicación:** Compilación automática y empuje (push) a Docker Hub de imágenes bajo licencia MIT.
 - **Instalación de Usuario Final:** Despliegue mediante un archivo `docker-compose.yml` preconfigurado.
 
