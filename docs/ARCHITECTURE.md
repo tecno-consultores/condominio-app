@@ -46,6 +46,7 @@
 
 ## 6. Operaciones y Mantenimiento
 - **Gestión de Tareas:** El Presidente define Plantillas de tareas recurrentes (Diarias/Semanales). Un Cronjob (Worker) genera las tareas asignadas reales a medianoche para no saturar la base de datos a futuro.
+- **Visibilidad de Tareas:** Los propietarios tienen acceso de solo lectura al estado de las tareas del conserje para verificar su cumplimiento. El conserje puede subir fotos como evidencia de cumplimiento.
 - **Embudo de Incidencias (UX/UX):**
   - Al reportar un daño, el usuario debe ver primero las incidencias recientes.
   - **Adhesión ("Me sumo"):** Si el daño ya está reportado, el usuario pulsa "Me sumo", lo cual aumenta la prioridad del reporte existente.
