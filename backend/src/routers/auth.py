@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+import jwt
 from src.database import get_db
 from src.models import Usuario, ContratoOcupacion
 from src.schemas import UsuarioCreate, UsuarioResponse
-from src.security import create_access_token, get_password_hash, verify_password
+from src.security import create_access_token, decode_access_token, get_password_hash, verify_password
+from src.redis_client import get_redis_client, check_and_set_idempotency_key
 from pydantic import BaseModel
+import redis.asyncio as aioredis
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
@@ -17,15 +20,24 @@ class LoginData(BaseModel):
 async def register_user(
     user: UsuarioCreate, 
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    redis_conn: aioredis.Redis = Depends(get_redis_client)
 ):
     try:
-        # TODO: Implementar validación de idempotencia real con Redis
-        
-        result = await db.execute(select(Usuario).where((Usuario.correo == user.correo) | (Usuario.cedula == user.cedula)))
+        # Validación de idempotencia en Redis (previene dobles envíos)
+        is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, ttl_seconds=120)
+        if not is_unique:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Petición duplicada detectada (Idempotency-Key ya procesada)"
+            )
+
+        result = await db.execute(
+            select(Usuario).where((Usuario.correo == user.correo) | (Usuario.cedula == user.cedula))
+        )
         existing_user = result.scalars().first()
         if existing_user:
-            raise HTTPException(status_code=400, detail="Usuario ya registrado")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario ya registrado")
         
         new_user = Usuario(
             nombre=user.nombre,
@@ -49,14 +61,15 @@ async def register_user(
         await db.commit()
         await db.refresh(new_user)
         
-        # TODO: worker.notify_junta.delay(new_user.id)
-        
         return new_user
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
-        raise HTTPException(status_code=500, detail="Error en base de datos al registrar")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error en base de datos al registrar"
+        )
 
 @router.post("/login")
 async def login(response: Response, login_data: LoginData, db: AsyncSession = Depends(get_db)):
@@ -64,9 +77,9 @@ async def login(response: Response, login_data: LoginData, db: AsyncSession = De
     user = result.scalars().first()
     
     if not user or not verify_password(login_data.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
         
-    access_token = create_access_token(data={"sub": user.correo, "rol": user.rol})
+    access_token = create_access_token(data={"sub": user.correo, "rol": user.rol, "id": user.id})
     response.set_cookie(
         key="access_token", 
         value=f"Bearer {access_token}", 
@@ -77,9 +90,32 @@ async def login(response: Response, login_data: LoginData, db: AsyncSession = De
     return {"message": "Login exitoso", "rol": user.rol}
 
 @router.get("/me")
-async def get_me(request: Request):
-    token = request.cookies.get("access_token")
-    if not token:
-        raise HTTPException(status_code=401, detail="No autenticado")
-    # TODO: Validar firma del token JWT real
-    return {"status": "authenticated", "token_present": True}
+async def get_me(request: Request, db: AsyncSession = Depends(get_db)):
+    auth_cookie = request.cookies.get("access_token")
+    if not auth_cookie:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
+    
+    token = auth_cookie.replace("Bearer ", "").strip()
+    try:
+        payload = decode_access_token(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+    
+    user_email = payload.get("sub")
+    if not user_email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token sin identificación de usuario")
+    
+    result = await db.execute(select(Usuario).where(Usuario.correo == user_email))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+    return {
+        "id": user.id,
+        "correo": user.correo,
+        "nombre": user.nombre,
+        "rol": user.rol,
+        "es_activo": user.es_activo
+    }

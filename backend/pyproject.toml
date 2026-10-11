@@ -1,0 +1,72 @@
+[project]
+name = "condominio-app-backend"
+version = "1.0.0"
+description = "API para administración y control financiero de condominios"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "sqlalchemy>=2.0.0",
+    "aiosqlite>=0.20.0",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "pydantic[email]>=2.6.0",
+    "python-dotenv>=1.0.0",
+    "pyjwt>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
+    "httpx>=0.27.0",
+    "redis>=5.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    # Core Testing & Mocking
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.5",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.14.0",
+    
+    # Linting & Tipado
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+    
+    # Seguridad y Mutación
+    "bandit>=1.7.8",
+    "mutmut>=2.4.5",
+    
+    # Complejidad y Profiling
+    "radon>=6.0.1",
+    "py-spy>=0.3.14",
+    
+    # Contratos y Estrés
+    "schemathesis>=3.25.0",
+    "locust>=2.24.0",
+    
+    # Observabilidad
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "prometheus-client>=0.20.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.unit.py", "test_*.spec.py"]
+addopts = "--strict-markers --cov=src/ --cov-report=html --cov-report=term-missing --cov-fail-under=95"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+
+[tool.mutmut]
+paths_to_mutate = "src/"
+backup = false
+runner = "python -m pytest -x tests/"
+tests_dir = "tests/"

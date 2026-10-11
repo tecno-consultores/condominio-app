@@ -1,0 +1,119 @@
+services:
+  api:
+    image: sinfallas/base-python-uv:3.13
+    container_name: condominio_backend_api
+    hostname: condominio_backend_api
+    pull_policy: always
+    environment:
+      TZ: 'America/Caracas'
+      UV_CACHE_DIR: /root/.cache/uv
+      DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
+    volumes:
+      - .:/app
+      - uv-cache:/root/.cache/uv
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    command: bash -c "uv pip install --system -e '.[dev]' && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  qa-backend:
+    image: sinfallas/base-python-uv:3.13
+    container_name: condominio_qa_backend
+    hostname: condominio_qa_backend
+    pull_policy: always
+    environment:
+      TZ: 'America/Caracas'
+      UV_PYTHON_DOWNLOADS: 'true'
+      UV_CACHE_DIR: /root/.cache/uv
+      DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
+    volumes:
+      - .:/app
+      - uv-cache:/root/.cache/uv
+    working_dir: /app
+    cap_add:
+      - SYS_PTRACE
+    command: bash -c "echo 'Contenedor QA Backend listo para Lint, Pytest y Mutmut'; sleep infinity"
+
+  karatelabs:
+    image: sinfallas/karatelabs:latest
+    container_name: condominio_backend_karate
+    hostname: condominio_backend_karate
+    pull_policy: always
+    depends_on:
+      - api
+    volumes:
+      - ./test:/app/src/test/java/examples/test
+    command: bash -c "echo 'Contenedor Karate listo'; sleep infinity"
+
+  zap:
+    image: owasp/zap2docker-stable:latest
+    container_name: condominio_backend_zap
+    hostname: condominio_backend_zap
+    pull_policy: always
+    depends_on:
+      - api
+    user: root
+    volumes:
+      - .:/zap/wrk/:rw
+    command: bash -c "echo 'Contenedor ZAP listo'; sleep infinity"
+
+  pumba:
+    image: gaiaadm/pumba:latest
+    container_name: condominio_backend_pumba
+    hostname: condominio_backend_pumba
+    profiles:
+      - chaos
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - api
+    command: netem --tc-image gaiadocker/iproute2 --duration 1m delay --time 500 --jitter 50 re2:^condominio_backend_api$
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: condominio_backend_prometheus
+    hostname: condominio_backend_prometheus
+    profiles:
+      - chaos
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "
+        global:
+          scrape_interval: 2s
+        scrape_configs:
+          - job_name: 'fastapi_qa'
+            metrics_path: '/metrics'
+            static_configs:
+              - targets: ['api:8000']
+        " > /tmp/prometheus.yml
+        /bin/prometheus --config.file=/tmp/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  stress_test:
+    image: sinfallas/base-python-uv:3.13
+    container_name: condominio_backend_chaos_locust
+    hostname: condominio_backend_chaos_locust
+    profiles:
+      - chaos
+    depends_on:
+      - api
+    environment:
+      UV_CACHE_DIR: /root/.cache/uv
+    volumes:
+      - .:/app
+      - uv-cache:/root/.cache/uv
+    working_dir: /app
+    command: bash -c "uv pip install --system -e '.[dev]' && echo 'Esperando API...' && sleep 5 && locust -f tests/locustfile.py --headless -u 100 -r 10 -t 1m --host http://api:8000 --html chaos-report.html"
+
+volumes:
+  uv-cache:
+    name: condominio_backend_uv_cache

@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from src.schemas import UsuarioCreate
+from src.schemas import UsuarioCreate, UsuarioResponse
 
 def test_usuario_schema_valido():
     """Valida que Pydantic acepta un payload de registro correcto con los nuevos campos"""
@@ -16,6 +16,8 @@ def test_usuario_schema_valido():
     user = UsuarioCreate(**data)
     assert user.nombre == "Juan Perez"
     assert user.password == "SecurePassword123!"
+    assert user.unidad_solicitada_id == 1
+    assert user.tipo_ocupante_solicitado == "PROPIETARIO"
 
 def test_usuario_schema_correo_invalido():
     """Valida que Pydantic rechaza correos malformados de acuerdo a EmailStr"""
@@ -32,3 +34,20 @@ def test_usuario_schema_correo_invalido():
         UsuarioCreate(**data)
     
     assert "correo" in str(exc_info.value)
+
+def test_usuario_response_from_attributes():
+    """Valida que UsuarioResponse construye correctamente el modelo a partir de atributos"""
+    class MockUsuario:
+        id = 10
+        nombre = "Ana Morales"
+        cedula = "V-20000000"
+        correo = "ana@example.com"
+        telefono = "+584140000000"
+        es_activo = False
+        rol = "FANTASMA"
+
+    response = UsuarioResponse.model_validate(MockUsuario())
+    assert response.id == 10
+    assert response.nombre == "Ana Morales"
+    assert response.es_activo is False
+    assert response.rol == "FANTASMA"
