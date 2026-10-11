@@ -2,10 +2,18 @@
 
 COMPOSE_FILE = docker-compose.qa.yml
 SERVICE_NAME = qa-backend
+# Detección automática de la ruta host para Docker-in-Docker / bind mounts
+HOST_WORKSPACE ?= $(shell docker inspect $$(hostname) 2>/dev/null | grep -B1 '"Destination": "/workspace"' | grep '"Source"' | sed -E 's/.*"Source": "([^"]+)".*/\1/')
+ifeq ($(HOST_WORKSPACE),)
+  HOST_PWD ?= $(PWD)
+else
+  HOST_PWD ?= $(HOST_WORKSPACE)/condominio-app/backend
+endif
+export HOST_PWD
 
 qa-lint:
 	@echo "🔍 Ejecutando Ruff, Mypy y Bandit (SAST)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run ruff check . && uv run mypy . && uv run bandit -r src/"
+	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run ruff check . --fix && uv run mypy . && uv run bandit -r src/"
 
 qa-complexity:
 	@echo "📊 Verificando Complejidad Ciclomática (Radon)..."

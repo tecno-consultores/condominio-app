@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import jwt
 
-SECRET_KEY = os.getenv("SECRET_KEY", "qa-blueprint-11x-secret-key")
+SECRET_KEY = os.getenv("SECRET_KEY", "qa-blueprint-11x-secret-key-super-secure-32bytes")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

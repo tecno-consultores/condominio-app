@@ -31,9 +31,16 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
 
 ---
 
-## 2. Ejecución Efímera en Docker
+## 2. Pruebas BDD, Caos y Resiliencia
 
-Todas las pruebas se ejecutan utilizando el contenedor efímero `sinfallas/base-python-uv:3.13` a través de los siguientes comandos definidos en `backend/Makefile`:
+- `test/api_test.feature`: Escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva.
+- `tests/locustfile.py`: Perfil de carga concurrente y saturación para inyección de caos y estrés con Pumba + Locust + Prometheus.
+
+---
+
+## 3. Ejecución Efímera en Docker
+
+Todas las pruebas se ejecutan utilizando contenedores efímeros sin dependencias instaladas en el host mediante `backend/Makefile`:
 
 ### Pruebas Unitarias y Cobertura (mínimo 95%):
 ```bash
@@ -53,6 +60,21 @@ make qa-complexity
 ### Pruebas de Mutación (Mutmut):
 ```bash
 make qa-mutation
+```
+
+### Fuzzing y Contratos OpenAPI (Schemathesis):
+```bash
+make qa-contracts
+```
+
+### Seguridad Dinámica DAST (OWASP ZAP):
+```bash
+make qa-dast
+```
+
+### Certificación de Resiliencia y Caos (Pumba + Locust + Prometheus):
+```bash
+make qa-chaos
 ```
 
 ### Ejecución Integral de Calidad:

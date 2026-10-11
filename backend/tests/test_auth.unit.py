@@ -12,10 +12,15 @@ def test_register_user_success(client):
     mock_result = MagicMock()
     mock_result.scalars().first.return_value = None
     mock_session.execute.return_value = mock_result
-    
+    mock_session.add = MagicMock()
+
     async def mock_flush(*args, **kwargs):
         pass
     mock_session.flush = mock_flush
+
+    async def mock_refresh(instance, *args, **kwargs):
+        instance.id = 1
+    mock_session.refresh = mock_refresh
 
     mock_redis = AsyncMock()
     mock_redis.set.return_value = True  # Clave nueva
@@ -123,6 +128,7 @@ def test_register_user_db_failure(client):
     mock_result = MagicMock()
     mock_result.scalars().first.return_value = None
     mock_session.execute.return_value = mock_result
+    mock_session.add = MagicMock()
     mock_session.commit.side_effect = Exception("DB Connection Lost")
     
     mock_redis = AsyncMock()
@@ -170,7 +176,7 @@ def test_login_set_httponly_cookie(client):
     response = client.post("/api/auth/login", json=payload)
     
     assert response.status_code == 200
-    cookies = response.headers.get_all("set-cookie")
+    cookies = response.headers.get_list("set-cookie") if hasattr(response.headers, "get_list") else [response.headers.get("set-cookie", "")]
     assert any("access_token" in c and "HttpOnly" in c for c in cookies)
     
     app.dependency_overrides = {}

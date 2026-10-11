@@ -18,6 +18,35 @@ dependencies = [
     "redis>=5.0.0"
 ]
 
+[dependency-groups]
+dev = [
+    # Core Testing & Mocking
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.5",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.14.0",
+    
+    # Linting & Tipado
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+    
+    # Seguridad y Mutación
+    "bandit>=1.7.8",
+    "mutmut>=2.4.5",
+    
+    # Complejidad y Profiling
+    "radon>=6.0.1",
+    "py-spy>=0.3.14",
+    
+    # Contratos y Estrés
+    "schemathesis>=3.25.0",
+    "locust>=2.24.0",
+    
+    # Observabilidad
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "prometheus-client>=0.20.0"
+]
+
 [project.optional-dependencies]
 dev = [
     # Core Testing & Mocking
@@ -51,15 +80,27 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.unit.py", "test_*.spec.py"]
-addopts = "--strict-markers --cov=src/ --cov-report=html --cov-report=term-missing --cov-fail-under=95"
+pythonpath = ["."]
+addopts = "--import-mode=importlib --strict-markers --cov=src/ --cov-report=html --cov-report=term-missing --cov-fail-under=95"
 
 [tool.ruff]
 line-length = 120
 target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/*" = ["F401", "I001"]
+"tests/*" = ["F401", "I001"]
 
 [tool.mypy]
 strict = true
