@@ -124,10 +124,9 @@ strict = true
 ignore_missing_imports = true
 
 [tool.mutmut]
-paths_to_mutate = "src/"
+source_paths = ["src/"]
 backup = false
-runner = "python -m pytest -x tests/"
-tests_dir = "tests/"
+runner = "uv run pytest -x tests/"
 ```
 
 ---

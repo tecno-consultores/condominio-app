@@ -28,6 +28,23 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
   - Inicio de sesión (`POST /api/auth/login`) con verificación de credenciales y creación de cookie `HttpOnly` `access_token`.
   - Rechazo de inicio de sesión con credenciales inválidas (código 401).
   - Endpoint `/api/auth/me`: rechazo sin cookie (401), validación de firma y expiración de token JWT (401 en caso de token expirado o inválido), y retorno exitoso de perfil autenticado.
+- `tests/test_dependencies.unit.py`:
+  - Dependencia `get_current_user`: rechazo sin cookie (401), token expirado, token adulterado y token sin `sub` (401), usuario inexistente (401) y continuación exitosa hacia el endpoint protegido.
+- `tests/test_finanzas_core.unit.py` (núcleo matemático, fronteras súper estrictas para mutmut):
+  - Redondeo `HALF_UP` a centavos y conversión USD/VES por la tasa del día (incluye tasa cero/negativa y moneda no soportada).
+  - Regla de referencia obligatoria por método (`ZELLE`, `PAGO_MOVIL`, `TRANSFERENCIA` vs `EFECTIVO`).
+  - Frontera exacta de "pago parcial vs total" (igual, excedente, acumulación de pagos previos y pago en cero).
+  - Cálculo de saldo pendiente (nunca negativo) y deuda total agregada.
+- `tests/test_pagos.unit.py`:
+  - `POST /api/pagos/reportar`: conversión por tasa del día, idempotencia (409), referencia obligatoria (400), tasa no registrada (400), recibo inexistente (404), periodo bloqueado por Candado Contable (409), moneda inválida (422), falta de `Idempotency-Key` (422) y fallo de BD (500).
+  - `PUT /api/pagos/{id}/aprobar`: aplicación de pago parcial, pago total exacto y acumulación sobre saldo previo; auditoría; conflictos 404/409.
+  - `PUT /api/pagos/{id}/rechazar`: motivo obligatorio (422), registro de auditoría con motivo y conflictos 404/409.
+  - `GET /api/pagos/revision`: listado de pagos `EN_REVISION`.
+- `tests/test_finanzas_router.unit.py`:
+  - `POST/GET /api/finanzas/tasa`: alta, actualización (upsert), validación de tasa positiva (422) y 404 si no está registrada.
+  - `POST /api/finanzas/egresos`: conversión multimoneda, falta de tasa (400), periodo inválido (422), tasa cero (400) y fallo de BD (500).
+  - `GET /api/finanzas/resumen`: deuda total, total de egresos, egresos por categoría y estado de cobranza.
+  - `POST /api/finanzas/cierre-mensual`: bloqueo de recibos/egresos, inmutabilidad del Candado Contable (409 si ya cerrado) y periodo inválido (422).
 
 ---
 

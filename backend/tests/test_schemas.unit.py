@@ -1,6 +1,16 @@
 import pytest
+from decimal import Decimal
 from pydantic import ValidationError
-from src.schemas import UsuarioCreate, UsuarioResponse
+from src.schemas import (
+    CierreMensualRequest,
+    EgresoCreate,
+    PagoRechazo,
+    PagoReportar,
+    ReciboCreate,
+    TasaCambioCreate,
+    UsuarioCreate,
+    UsuarioResponse,
+)
 
 
 def test_usuario_schema_valido() -> None:
@@ -52,3 +62,71 @@ def test_usuario_response_from_attributes() -> None:
     assert response.nombre == "Ana Morales"
     assert response.es_activo is False
     assert response.rol == "FANTASMA"
+
+
+def test_pago_reportar_schema_valido() -> None:
+    pago = PagoReportar(recibo_id=1, monto=Decimal("100.00"), moneda="USD", metodo_pago="EFECTIVO")
+    assert pago.moneda == "USD"
+    assert pago.numero_referencia is None
+    assert pago.url_comprobante is None
+
+
+def test_pago_reportar_moneda_invalida() -> None:
+    with pytest.raises(ValidationError):
+        PagoReportar.model_validate(
+            {"recibo_id": 1, "monto": "100.00", "moneda": "EUR", "metodo_pago": "EFECTIVO"}
+        )
+
+
+def test_pago_reportar_monto_no_positivo() -> None:
+    with pytest.raises(ValidationError):
+        PagoReportar(recibo_id=1, monto=Decimal("0"), moneda="USD", metodo_pago="EFECTIVO")
+
+
+def test_pago_rechazo_motivo_vacio_invalido() -> None:
+    with pytest.raises(ValidationError):
+        PagoRechazo(motivo="")
+
+
+def test_pago_rechazo_motivo_valido() -> None:
+    assert PagoRechazo(motivo="Sin comprobante").motivo == "Sin comprobante"
+
+
+def test_tasa_cambio_schema_tasa_no_positiva() -> None:
+    with pytest.raises(ValidationError):
+        TasaCambioCreate(tasa_usd_ves=Decimal("0"))
+
+
+def test_tasa_cambio_schema_fecha_opcional() -> None:
+    tasa = TasaCambioCreate(tasa_usd_ves=Decimal("36.5000"))
+    assert tasa.fecha is None
+
+
+def test_recibo_schema_periodo_invalido() -> None:
+    with pytest.raises(ValidationError):
+        ReciboCreate(unidad_id=1, periodo="2026/10", monto_usd=Decimal("100.00"))
+
+
+def test_recibo_schema_valido() -> None:
+    recibo = ReciboCreate(unidad_id=1, periodo="2026-10", monto_usd=Decimal("100.00"))
+    assert recibo.periodo == "2026-10"
+
+
+def test_egreso_create_schema_valido() -> None:
+    egreso = EgresoCreate(
+        periodo="2026-10",
+        categoria="LIMPIEZA",
+        descripcion="Insumos",
+        monto=Decimal("50.00"),
+        moneda="VES",
+    )
+    assert egreso.categoria == "LIMPIEZA"
+
+
+def test_cierre_mensual_request_valido() -> None:
+    assert CierreMensualRequest(periodo="2026-10").periodo == "2026-10"
+
+
+def test_cierre_mensual_request_periodo_invalido() -> None:
+    with pytest.raises(ValidationError):
+        CierreMensualRequest(periodo="octubre")
