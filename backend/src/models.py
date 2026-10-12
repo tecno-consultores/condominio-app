@@ -1,36 +1,42 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
+
 from src.database import Base
+
 
 class Usuario(Base):
     __tablename__ = "usuarios"
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String, index=True)
-    cedula = Column(String, unique=True, index=True)
-    correo = Column(String, unique=True, index=True)
-    telefono = Column(String)
-    password_hash = Column(String, nullable=False)
-    es_activo = Column(Boolean, default=False)  # Usuario Fantasma = False
-    rol = Column(String, default="FANTASMA")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    nombre: Mapped[str] = mapped_column(String, index=True)
+    cedula: Mapped[str] = mapped_column(String, unique=True, index=True)
+    correo: Mapped[str] = mapped_column(String, unique=True, index=True)
+    telefono: Mapped[str] = mapped_column(String)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    es_activo: Mapped[bool] = mapped_column(Boolean, default=False)
+    rol: Mapped[str] = mapped_column(String, default="FANTASMA")
+
 
 class Estructura(Base):
     __tablename__ = "estructuras"
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String)
-    tipo = Column(String)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    nombre: Mapped[str] = mapped_column(String)
+    tipo: Mapped[str] = mapped_column(String)
+
 
 class Unidad(Base):
     __tablename__ = "unidades"
-    id = Column(Integer, primary_key=True, index=True)
-    identificador = Column(String, unique=True, index=True)
-    estructura_id = Column(Integer, ForeignKey("estructuras.id"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    identificador: Mapped[str] = mapped_column(String, unique=True, index=True)
+    estructura_id: Mapped[int] = mapped_column(ForeignKey("estructuras.id"))
+
 
 class ContratoOcupacion(Base):
     __tablename__ = "contratos_ocupacion"
-    id = Column(Integer, primary_key=True, index=True)
-    usuario_id = Column(Integer, ForeignKey("usuarios.id"))
-    unidad_id = Column(Integer, ForeignKey("unidades.id"))
-    tipo_ocupante = Column(String)  # PROPIETARIO o INQUILINO
-    es_activo = Column(Boolean, default=False)
-    fecha_inicio = Column(DateTime(timezone=True), server_default=func.now())
-    fecha_fin = Column(DateTime(timezone=True), nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"))
+    tipo_ocupante: Mapped[str] = mapped_column(String)
+    es_activo: Mapped[bool] = mapped_column(Boolean, default=False)
+    fecha_inicio: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    fecha_fin: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)

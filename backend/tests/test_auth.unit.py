@@ -1,12 +1,15 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 from datetime import timedelta
-from src.main import app
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+from fastapi.testclient import TestClient
 from src.database import get_db
+from src.main import app
 from src.redis_client import get_redis_client
 from src.security import create_access_token, get_password_hash
 
-def test_register_user_success(client):
+
+def test_register_user_success(client: TestClient) -> None:
     """Simula el registro exitoso aislando la base de datos y Redis"""
     mock_session = AsyncMock()
     mock_result = MagicMock()
@@ -14,16 +17,16 @@ def test_register_user_success(client):
     mock_session.execute.return_value = mock_result
     mock_session.add = MagicMock()
 
-    async def mock_flush(*args, **kwargs):
+    async def mock_flush(*args: object, **kwargs: object) -> None:
         pass
     mock_session.flush = mock_flush
 
-    async def mock_refresh(instance, *args, **kwargs):
+    async def mock_refresh(instance: Any, *args: object, **kwargs: object) -> None:
         instance.id = 1
     mock_session.refresh = mock_refresh
 
     mock_redis = AsyncMock()
-    mock_redis.set.return_value = True  # Clave nueva
+    mock_redis.set.return_value = True
 
     app.dependency_overrides[get_db] = lambda: mock_session
     app.dependency_overrides[get_redis_client] = lambda: mock_redis
@@ -41,18 +44,19 @@ def test_register_user_success(client):
         "Idempotency-Key": "123e4567-e89b-12d3-a456-426614174000"
     }
     response = client.post("/api/auth/register", json=payload, headers=headers)
-    
+
     assert response.status_code == 201
     assert response.json()["es_activo"] is False
     assert response.json()["rol"] == "FANTASMA"
-    
+
     app.dependency_overrides = {}
 
-def test_register_user_duplicate_idempotency_key(client):
+
+def test_register_user_duplicate_idempotency_key(client: TestClient) -> None:
     """Falla con 409 Conflict si la Idempotency-Key ya fue procesada en Redis"""
     mock_session = AsyncMock()
     mock_redis = AsyncMock()
-    mock_redis.set.return_value = False  # Clave ya existente
+    mock_redis.set.return_value = False
 
     app.dependency_overrides[get_db] = lambda: mock_session
     app.dependency_overrides[get_redis_client] = lambda: mock_redis
@@ -70,17 +74,18 @@ def test_register_user_duplicate_idempotency_key(client):
         "Idempotency-Key": "123e4567-e89b-12d3-a456-426614174000"
     }
     response = client.post("/api/auth/register", json=payload, headers=headers)
-    
+
     assert response.status_code == 409
     assert "Petición duplicada detectada" in response.json()["detail"]
-    
+
     app.dependency_overrides = {}
 
-def test_register_user_already_registered(client):
+
+def test_register_user_already_registered(client: TestClient) -> None:
     """Falla con 400 si el usuario (correo o cédula) ya existe en base de datos"""
     mock_session = AsyncMock()
     mock_result = MagicMock()
-    mock_result.scalars().first.return_value = MagicMock()  # Usuario encontrado
+    mock_result.scalars().first.return_value = MagicMock()
     mock_session.execute.return_value = mock_result
 
     mock_redis = AsyncMock()
@@ -102,13 +107,14 @@ def test_register_user_already_registered(client):
         "Idempotency-Key": "unique-idempotency-key-1"
     }
     response = client.post("/api/auth/register", json=payload, headers=headers)
-    
+
     assert response.status_code == 400
     assert "Usuario ya registrado" in response.json()["detail"]
-    
+
     app.dependency_overrides = {}
 
-def test_register_missing_idempotency_key(client):
+
+def test_register_missing_idempotency_key(client: TestClient) -> None:
     """Falla con 422 si no se envía el header de idempotencia"""
     payload = {
         "nombre": "Pedro QA",
@@ -122,7 +128,8 @@ def test_register_missing_idempotency_key(client):
     response = client.post("/api/auth/register", json=payload)
     assert response.status_code == 422
 
-def test_register_user_db_failure(client):
+
+def test_register_user_db_failure(client: TestClient) -> None:
     """Simula una falla catastrófica en la BD durante el registro"""
     mock_session = AsyncMock()
     mock_result = MagicMock()
@@ -130,7 +137,7 @@ def test_register_user_db_failure(client):
     mock_session.execute.return_value = mock_result
     mock_session.add = MagicMock()
     mock_session.commit.side_effect = Exception("DB Connection Lost")
-    
+
     mock_redis = AsyncMock()
     mock_redis.set.return_value = True
 
@@ -150,38 +157,44 @@ def test_register_user_db_failure(client):
         "Idempotency-Key": "123e4567-e89b-12d3-a456-426614174001"
     }
     response = client.post("/api/auth/register", json=payload, headers=headers)
-    
+
     assert response.status_code == 500
     assert "Error en base de datos" in response.json()["detail"]
-    
+
     app.dependency_overrides = {}
 
-def test_login_set_httponly_cookie(client):
+
+def test_login_set_httponly_cookie(client: TestClient) -> None:
     """Simula un login exitoso validando la creación de la cookie HttpOnly"""
     mock_session = AsyncMock()
     mock_result = MagicMock()
-    
+
     class FakeUser:
-        id = 1
-        correo = "admin@test.com"
-        rol = "PRESIDENTE"
-        password_hash = get_password_hash("secure")
-        
+        id: int = 1
+        correo: str = "admin@test.com"
+        rol: str = "PRESIDENTE"
+        password_hash: str = get_password_hash("secure")
+
     mock_result.scalars().first.return_value = FakeUser()
     mock_session.execute.return_value = mock_result
-    
+
     app.dependency_overrides[get_db] = lambda: mock_session
-    
+
     payload = {"correo": "admin@test.com", "password": "secure"}
     response = client.post("/api/auth/login", json=payload)
-    
+
     assert response.status_code == 200
-    cookies = response.headers.get_list("set-cookie") if hasattr(response.headers, "get_list") else [response.headers.get("set-cookie", "")]
+    if hasattr(response.headers, "get_list"):
+        cookies = response.headers.get_list("set-cookie")
+    else:
+        raw = response.headers.get("set-cookie", "")
+        cookies = [raw] if raw else []
     assert any("access_token" in c and "HttpOnly" in c for c in cookies)
-    
+
     app.dependency_overrides = {}
 
-def test_login_invalid_credentials(client):
+
+def test_login_invalid_credentials(client: TestClient) -> None:
     """Simula un login con credenciales erróneas devolviendo 401"""
     mock_session = AsyncMock()
     mock_result = MagicMock()
@@ -198,25 +211,27 @@ def test_login_invalid_credentials(client):
 
     app.dependency_overrides = {}
 
-def test_me_without_cookie_fails(client):
+
+def test_me_without_cookie_fails(client: TestClient) -> None:
     """Llamada a /api/auth/me sin cookie debe responder 401"""
     response = client.get("/api/auth/me")
     assert response.status_code == 401
     assert "No autenticado" in response.json()["detail"]
 
-def test_me_with_valid_token_success(client):
+
+def test_me_with_valid_token_success(client: TestClient) -> None:
     """Llamada a /api/auth/me con token válido y usuario en base de datos"""
     token = create_access_token(data={"sub": "pedro@test.com", "rol": "FANTASMA", "id": 5})
-    
+
     mock_session = AsyncMock()
     mock_result = MagicMock()
-    
+
     class FakeUser:
-        id = 5
-        correo = "pedro@test.com"
-        nombre = "Pedro QA"
-        rol = "FANTASMA"
-        es_activo = False
+        id: int = 5
+        correo: str = "pedro@test.com"
+        nombre: str = "Pedro QA"
+        rol: str = "FANTASMA"
+        es_activo: bool = False
 
     mock_result.scalars().first.return_value = FakeUser()
     mock_session.execute.return_value = mock_result
@@ -236,7 +251,8 @@ def test_me_with_valid_token_success(client):
     client.cookies.clear()
     app.dependency_overrides = {}
 
-def test_me_with_expired_token(client):
+
+def test_me_with_expired_token(client: TestClient) -> None:
     """Llamada a /api/auth/me con token expirado debe responder 401"""
     expired_token = create_access_token(
         data={"sub": "expired@test.com"},
@@ -251,7 +267,8 @@ def test_me_with_expired_token(client):
 
     client.cookies.clear()
 
-def test_me_with_invalid_token(client):
+
+def test_me_with_invalid_token(client: TestClient) -> None:
     """Llamada a /api/auth/me con token adulterado/inválido debe responder 401"""
     client.cookies.set("access_token", "Bearer token_completamente_invalido")
     response = client.get("/api/auth/me")

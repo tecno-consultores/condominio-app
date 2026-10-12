@@ -1,28 +1,33 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status, Header, Request
+from typing import Any
+
+import jwt
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import jwt
+
 from src.database import get_db
-from src.models import Usuario, ContratoOcupacion
+from src.models import ContratoOcupacion, Usuario
+from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import UsuarioCreate, UsuarioResponse
 from src.security import create_access_token, decode_access_token, get_password_hash, verify_password
-from src.redis_client import get_redis_client, check_and_set_idempotency_key
-from pydantic import BaseModel
-import redis.asyncio as aioredis
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
+
 
 class LoginData(BaseModel):
     correo: str
     password: str
 
+
 @router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
-    user: UsuarioCreate, 
+    user: UsuarioCreate,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
     redis_conn: aioredis.Redis = Depends(get_redis_client)
-):
+) -> Any:
     try:
         # Validación de idempotencia en Redis (previene dobles envíos)
         is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, ttl_seconds=120)
@@ -38,7 +43,7 @@ async def register_user(
         existing_user = result.scalars().first()
         if existing_user:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario ya registrado")
-        
+
         new_user = Usuario(
             nombre=user.nombre,
             cedula=user.cedula,
@@ -50,7 +55,7 @@ async def register_user(
         )
         db.add(new_user)
         await db.flush()
-        
+
         nuevo_contrato = ContratoOcupacion(
             usuario_id=new_user.id,
             unidad_id=user.unidad_solicitada_id,
@@ -60,7 +65,7 @@ async def register_user(
         db.add(nuevo_contrato)
         await db.commit()
         await db.refresh(new_user)
-        
+
         return new_user
     except HTTPException:
         raise
@@ -71,30 +76,32 @@ async def register_user(
             detail="Error en base de datos al registrar"
         )
 
+
 @router.post("/login")
-async def login(response: Response, login_data: LoginData, db: AsyncSession = Depends(get_db)):
+async def login(response: Response, login_data: LoginData, db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     result = await db.execute(select(Usuario).where(Usuario.correo == login_data.correo))
     user = result.scalars().first()
-    
+
     if not user or not verify_password(login_data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
-        
+
     access_token = create_access_token(data={"sub": user.correo, "rol": user.rol, "id": user.id})
     response.set_cookie(
-        key="access_token", 
-        value=f"Bearer {access_token}", 
-        httponly=True, 
-        secure=True, 
+        key="access_token",
+        value=f"Bearer {access_token}",
+        httponly=True,
+        secure=True,
         samesite="lax"
     )
     return {"message": "Login exitoso", "rol": user.rol}
 
+
 @router.get("/me")
-async def get_me(request: Request, db: AsyncSession = Depends(get_db)):
+async def get_me(request: Request, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     auth_cookie = request.cookies.get("access_token")
     if not auth_cookie:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
-    
+
     token = auth_cookie.replace("Bearer ", "").strip()
     try:
         payload = decode_access_token(token)
@@ -102,11 +109,11 @@ async def get_me(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expirado")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
-    
+
     user_email = payload.get("sub")
     if not user_email:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token sin identificación de usuario")
-    
+
     result = await db.execute(select(Usuario).where(Usuario.correo == user_email))
     user = result.scalars().first()
     if not user:

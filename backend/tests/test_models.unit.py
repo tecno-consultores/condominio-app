@@ -1,7 +1,7 @@
-import pytest
 from src.models import Usuario, Estructura, Unidad, ContratoOcupacion
 
-def test_modelo_usuario_instanciacion():
+
+def test_modelo_usuario_instanciacion() -> None:
     """Valida la creación y valores por defecto del modelo Usuario"""
     usuario = Usuario(
         nombre="Carlos Gomez",
@@ -17,7 +17,8 @@ def test_modelo_usuario_instanciacion():
     assert usuario.es_activo is False
     assert usuario.rol == "FANTASMA"
 
-def test_modelo_estructura_instanciacion():
+
+def test_modelo_estructura_instanciacion() -> None:
     """Valida la instanciación de Estructura (Torre, Edificio o Calle)"""
     estructura = Estructura(
         nombre="Torre A",
@@ -26,7 +27,8 @@ def test_modelo_estructura_instanciacion():
     assert estructura.nombre == "Torre A"
     assert estructura.tipo == "EDIFICIO"
 
-def test_modelo_unidad_instanciacion():
+
+def test_modelo_unidad_instanciacion() -> None:
     """Valida la instanciación de Unidad asociada a una estructura"""
     unidad = Unidad(
         identificador="A-101",
@@ -35,7 +37,8 @@ def test_modelo_unidad_instanciacion():
     assert unidad.identificador == "A-101"
     assert unidad.estructura_id == 1
 
-def test_modelo_contrato_ocupacion_instanciacion():
+
+def test_modelo_contrato_ocupacion_instanciacion() -> None:
     """Valida la tabla histórica ContratoOcupacion con sus campos y valores por defecto"""
     contrato = ContratoOcupacion(
         usuario_id=1,
