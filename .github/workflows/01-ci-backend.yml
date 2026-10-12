@@ -1,0 +1,31 @@
+name: "Paso 1: QA Backend Nivel 11X (efímero en Docker)"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  qa-backend:
+    name: 🧪 Lint, Complejidad, Dependencias y Cobertura
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@v4
+
+      - name: 🔍 Lint, Tipado y SAST (Ruff + Mypy + Bandit)
+        run: make qa-lint
+
+      - name: 📊 Gates de Complejidad (Radon ≤ B)
+        run: make qa-complexity
+
+      - name: 🔐 Auditoría de Vulnerabilidades en Dependencias (uv audit)
+        run: make qa-deps
+
+      - name: 🧪 Pruebas Unitarias con Cobertura ≥ 95%
+        run: make qa-unit

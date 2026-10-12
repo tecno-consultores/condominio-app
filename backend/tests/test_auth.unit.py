@@ -3,6 +3,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from src.database import get_db
 from src.main import app
 from src.redis_client import get_redis_client
@@ -108,7 +109,7 @@ def test_register_user_already_registered(client: TestClient) -> None:
     }
     response = client.post("/api/auth/register", json=payload, headers=headers)
 
-    assert response.status_code == 400
+    assert response.status_code == 409
     assert "Usuario ya registrado" in response.json()["detail"]
 
     app.dependency_overrides = {}
@@ -160,6 +161,39 @@ def test_register_user_db_failure(client: TestClient) -> None:
 
     assert response.status_code == 500
     assert "Error en base de datos" in response.json()["detail"]
+
+    app.dependency_overrides = {}
+
+
+def test_register_user_integrity_error(client: TestClient) -> None:
+    """Un error de integridad en BD se traduce en 400 (dato inválido), nunca en 500"""
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars().first.return_value = None
+    mock_session.execute.return_value = mock_result
+    mock_session.add = MagicMock()
+    mock_session.commit.side_effect = IntegrityError("INSERT usuarios", {}, Exception("duplicado"))
+
+    mock_redis = AsyncMock()
+    mock_redis.set.return_value = True
+
+    app.dependency_overrides[get_db] = lambda: mock_session
+    app.dependency_overrides[get_redis_client] = lambda: mock_redis
+
+    payload = {
+        "nombre": "Pedro Integridad",
+        "cedula": "V-2222222",
+        "correo": "integridad@test.com",
+        "telefono": "123",
+        "password": "Mypassword1!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+    }
+    headers = {"Idempotency-Key": "integridad-key-1"}
+    response = client.post("/api/auth/register", json=payload, headers=headers)
+
+    assert response.status_code == 400
+    assert "Datos inválidos o duplicados" in response.json()["detail"]
 
     app.dependency_overrides = {}
 

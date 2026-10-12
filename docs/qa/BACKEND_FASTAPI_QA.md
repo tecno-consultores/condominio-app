@@ -10,7 +10,7 @@ Toda validación de Backend se ejecuta dentro de contenedores efímeros usando i
 
 * **Imagen Base Python/API/Tests:** `sinfallas/base-python-uv:3.13` (o tag compatible).
 * **Pruebas BDD de Caja Negra:** `sinfallas/karatelabs:latest`.
-* **Seguridad Dinámica (DAST):** `owasp/zap2docker-stable:latest`.
+* **Seguridad Dinámica (DAST):** `zaproxy/zap-stable:latest`.
 * **Ingeniería del Caos:** `gaiaadm/pumba:latest`.
 * **Observabilidad RED:** `prom/prometheus:latest`.
 * **Servidor MCP de Contexto IA:** `sinfallas/remote-graphify:latest`.
@@ -188,7 +188,7 @@ services:
     command: bash -c "echo 'Contenedor Karate listo'; sleep infinity"
 
   zap:
-    image: owasp/zap2docker-stable:latest
+    image: zaproxy/zap-stable:latest
     container_name: condominio_backend_zap
     hostname: condominio_backend_zap
     pull_policy: always

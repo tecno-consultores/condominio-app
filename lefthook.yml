@@ -1,0 +1,40 @@
+# ==============================================================================
+# LEFTHOOK - BARRERA DE ENTRADA (Pre-commit, Commit-msg & Pre-push)
+# ==============================================================================
+# Intercepta los comandos de Git y ejecuta validaciones efímeras en Docker ANTES
+# de permitir que el código entre al historial o sea enviado al remoto.
+
+pre-commit:
+  parallel: true
+  commands:
+    # --------------------------------------------------------------------------
+    # ECOSISTEMA PYTHON & FASTAPI
+    # --------------------------------------------------------------------------
+    python-lint:
+      glob: "backend/**/*.py"
+      # Usa --check para rechazar el commit si el código no está formateado.
+      # El desarrollador deberá correr `make qa-lint` manualmente.
+      run: docker compose -f {1}/docker-compose.qa.yml run --rm qa-backend bash -c "uv sync -q && ruff check {staged_files} && ruff format --check {staged_files}"
+
+    # --------------------------------------------------------------------------
+    # PROTECCIÓN DE SECRETOS (Global)
+    # --------------------------------------------------------------------------
+    leaks-check:
+      glob: "**/*"
+      run: 'if grep -qiE "(password|secret|api_key|token)[=:] *[\"''][a-zA-Z0-9]{8,}[\"'']" {staged_files}; then echo "🚨 ERROR: Posible secreto hardcodeado detectado."; exit 1; fi'
+
+commit-msg:
+  commands:
+    conventional-commits:
+      # Exige que el mensaje de commit respete el commitlint.config.js ejecutándose
+      # efímeramente en la imagen oficial de Node (sinfallas/base-node-ionic).
+      # El paquete bloquea npm: las dependencias se instalan con pnpm.
+      # node_modules/ queda cacheado (gitignored) entre commits.
+      run: docker run --rm -v "${PWD}:/repo" -w /repo sinfallas/base-node-ionic:26 sh -c "pnpm install --ignore-scripts --silent && ./node_modules/.bin/commitlint --edit {1}"
+
+pre-push:
+  commands:
+    trivy-iac-scan:
+      # Bloquea el `git push` si hay puertos expuestos, contenedores en modo
+      # root o vulnerabilidades críticas en dependencias (File System).
+      run: ./auditar-infra.sh

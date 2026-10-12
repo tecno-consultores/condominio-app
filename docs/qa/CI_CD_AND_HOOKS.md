@@ -111,14 +111,17 @@ pre-commit:
 commit-msg:
   commands:
     conventional-commits:
-      # Exige respetar el formato de Conventional Commits (feat:, fix:, docs:, etc.)
-      run: npx --no-install commitlint --edit {1}
+      # Exige respetar el formato de Conventional Commits ejecutándose efímeramente
+      # en la imagen oficial de Node (sinfallas/base-node-ionic) sin Node local.
+      # El paquete bloquea npm: las dependencias se instalan con pnpm.
+      # node_modules/ queda cacheado (gitignored) entre commits.
+      run: docker run --rm -v "${PWD}:/repo" -w /repo sinfallas/base-node-ionic:26 sh -c "pnpm install --ignore-scripts --silent && ./node_modules/.bin/commitlint --edit {1}"
 
 pre-push:
   commands:
     trivy-iac-scan:
       # Escanea configuraciones de Docker Compose antes de permitir el push
-      run: docker run --rm -v "${PWD}:/app:ro" -w /app aquasec/trivy:latest config . --severity HIGH,CRITICAL --exit-code 1
+      run: docker run --rm -v "${PWD}:/app:ro" -w /app aquasec/trivy:latest config . --severity HIGH,CRITICAL --exit-code 1 --skip-dirs backend/.venv
 ```
 
 ---

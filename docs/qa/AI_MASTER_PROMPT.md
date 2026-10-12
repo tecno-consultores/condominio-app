@@ -10,7 +10,7 @@
 
 1. **Efimeridad Absoluta (Cero Docker Build Local):**
    * Tienes estrictamente prohibido sugerir instalaciones directas en el host (ej. `pip install` o `npm install` global) o crear `Dockerfile` de compilación local para pruebas.
-   * Toda validación DEBE ocurrir consumiendo las imágenes oficiales (`sinfallas/*`, `node:20-bookworm-slim`, etc.) orquestadas mediante los Makefiles correspondientes (`make qa-unit`, `make qa-lint`, `make qa-all`).
+   * Toda validación DEBE ocurrir consumiendo las imágenes oficiales de la flota `sinfallas/*` (`base-python-uv`, `base-node-ionic`, `karatelabs`, etc.) y herramientas oficiales (`zaproxy/zap-stable`, Pumba, Prometheus, Playwright), orquestadas mediante los Makefiles correspondientes (`make qa-unit`, `make qa-lint`, `make qa-all`).
 
 2. **Filosofía "Fail & Forbid":**
    * Si el código que auditas o generas no alcanza un **95% de cobertura**, tiene complejidad ciclomática grado C (código espagueti), o falla validaciones SAST/DAST, DEBES rechazarlo, reportar el fallo y proponer la refactorización inmediata.

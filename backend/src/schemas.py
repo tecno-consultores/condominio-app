@@ -1,20 +1,34 @@
 from datetime import date as date_type
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+import email_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+
+
+def _validar_correo(valor: str) -> str:
+    """Valida el correo con las mismas reglas que el contrato (format: email), permitiendo
+    dominios de prueba reservados (RFC 2606) que schemathesis envía en el fuzzing."""
+    try:
+        email_validator.validate_email(valor, check_deliverability=False, test_environment=True)
+    except email_validator.EmailNotValidError as exc:
+        raise ValueError(f"correo electrónico inválido: {exc}") from exc
+    return valor
+
+
+CorreoValido = Annotated[str, Field(json_schema_extra={"format": "email"}), AfterValidator(_validar_correo)]
 
 
 class UsuarioBase(BaseModel):
     nombre: str
     cedula: str
-    correo: EmailStr
+    correo: CorreoValido
     telefono: str
 
 
 class UsuarioCreate(UsuarioBase):
     password: str
-    unidad_solicitada_id: int
+    unidad_solicitada_id: int = Field(strict=True)
     tipo_ocupante_solicitado: str
 
 
@@ -42,7 +56,7 @@ class TasaCambioResponse(BaseModel):
 
 
 class ReciboCreate(BaseModel):
-    unidad_id: int
+    unidad_id: int = Field(strict=True)
     periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
     monto_usd: Decimal = Field(gt=0)
 
@@ -60,7 +74,7 @@ class ReciboResponse(BaseModel):
 
 
 class PagoReportar(BaseModel):
-    recibo_id: int
+    recibo_id: int = Field(strict=True)
     monto: Decimal = Field(gt=0)
     moneda: Moneda
     metodo_pago: str

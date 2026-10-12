@@ -17,4 +17,6 @@ class CondominioStressUser(HttpUser):
     @task(1)
     def invalid_login(self) -> None:
         payload: dict[str, str] = {"correo": "inexistente@correo.com", "password": "wrong"}
-        self.client.post("/api/auth/login", json=payload)
+        with self.client.post("/api/auth/login", json=payload, catch_response=True) as response:
+            if response.status_code == 401:
+                response.success()

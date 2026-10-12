@@ -1,0 +1,52 @@
+# Entorno
+.env
+.env.*
+!.env.example
+
+# Python / uv
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.Python
+build/
+dist/
+.uv/
+
+# Herramientas QA (cachés y reportes)
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.schemathesis/
+schemathesis-report/
+mutants/
+.mutmut-cache/
+profile.svg
+
+# Reportes de auditoría (DAST / Caos / Observabilidad)
+zap-report.html
+chaos-report.html
+chaos-report.json
+profile.speedscope.json
+graphify-out/
+prometheus_data/
+
+# BDD / Karate
+target/
+test/target/
+
+# Logs
+*.log
+
+# Node (hooks / commitlint)
+node_modules/
+package-lock.json
+
+# Editores
+.vscode/
+.idea/
+.DS_Store

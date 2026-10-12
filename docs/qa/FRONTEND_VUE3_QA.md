@@ -9,7 +9,7 @@ Este documento describe la estrategia corporativa **Nivel 11X** para pruebas aut
 * **Gestor de Paquetes:** Uso obligatorio de `pnpm` con configuración Zero-Trust (`.npmrc` con `ignore-scripts=true`).
 * **Caché Persistente:** El volumen `pnpm-store` evita descargas redundantes entre corridas.
 * **Contenedores Utilizados:**
-  * `qa-vue3` (`node:20-bookworm-slim`): Para linting, type-checking, Vitest y mutación con Stryker.
+  * `qa-vue3` (`sinfallas/base-node-ionic:26`): Para linting, type-checking, Vitest y mutación con Stryker.
   * `ui-e2e` (`mcr.microsoft.com/playwright:v1.43.0-jammy`): Para regresión visual de Playwright y auditorías de Lighthouse CI.
   * `ui-prod` (`nginx:alpine`): Servidor estático que levanta el bundle compilado de Vue para pruebas E2E.
   * `karatelabs` (`sinfallas/karatelabs:latest`): Pruebas de aceptación BDD en navegador headless.
@@ -230,7 +230,7 @@ services:
       - "8080:80"
 
   qa-vue3:
-    image: node:20-bookworm-slim
+    image: sinfallas/base-node-ionic:26
     container_name: condominio_qa_vue3
     hostname: condominio_qa_vue3
     pull_policy: if_not_present

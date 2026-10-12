@@ -4,6 +4,7 @@ import jwt
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -21,7 +22,15 @@ class LoginData(BaseModel):
     password: str
 
 
-@router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UsuarioResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        409: {"description": "Usuario ya registrado o petición duplicada (Idempotency-Key ya procesada)"},
+    },
+)
 async def register_user(
     user: UsuarioCreate,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
@@ -42,7 +51,7 @@ async def register_user(
         )
         existing_user = result.scalars().first()
         if existing_user:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario ya registrado")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Usuario ya registrado")
 
         new_user = Usuario(
             nombre=user.nombre,
@@ -69,6 +78,12 @@ async def register_user(
         return new_user
     except HTTPException:
         raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Datos inválidos o duplicados en el registro"
+        )
     except Exception:
         await db.rollback()
         raise HTTPException(
@@ -77,7 +92,13 @@ async def register_user(
         )
 
 
-@router.post("/login")
+@router.post(
+    "/login",
+    responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        401: {"description": "Credenciales inválidas"},
+    },
+)
 async def login(response: Response, login_data: LoginData, db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     result = await db.execute(select(Usuario).where(Usuario.correo == login_data.correo))
     user = result.scalars().first()
@@ -96,7 +117,13 @@ async def login(response: Response, login_data: LoginData, db: AsyncSession = De
     return {"message": "Login exitoso", "rol": user.rol}
 
 
-@router.get("/me")
+@router.get(
+    "/me",
+    responses={
+        401: {"description": "No autenticado"},
+        404: {"description": "Usuario no encontrado"},
+    },
+)
 async def get_me(request: Request, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     auth_cookie = request.cookies.get("access_token")
     if not auth_cookie:

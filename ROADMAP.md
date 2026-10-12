@@ -4,8 +4,9 @@
 
 - **Fase 1 (Backend FastAPI):** en curso — Hitos 1, 2 y 3 completados; Hito 4 pendiente.
 - **Fase 2 (Frontend Vue 3):** pendiente.
-- **Fase 3 (Integración y Caos):** pendiente.
+- **Fase 3 (Integración y Caos):** parcial — Hito 9 ejecutado y verde (2026-10-12).
 - **Leyenda:** `[COMPLETADO]` = hito verificado con la QA Nivel 11X (unitarios, lint, complejidad).
+- **QA 11X del backend (2026-10-12):** contracts (Schemathesis) 626/626 ✅, DAST (ZAP) FAIL-NEW: 0 ✅, caos (Pumba+Locust+Prometheus) 0 fallos ✅, 122 unitarias al 99.66% ✅, lint/SAST/complejidad ✅, deps (`uv audit`) sin CVEs ✅, Infra (Trivy) limpio ✅, profiling (py-spy) funcional ✅. Único bloqueo: `make qa-mutation` (mutmut v3 + Docker-in-Docker). Infraestructura 11X implementada: gates de Radon, barrera de Git (lefthook + commitlint), CI/CD (`00-iac-audit.yml`, `01-ci-backend.yml`), `tox.ini`, `limpieza.sh`, `auditar-infra.sh` y perfil `graphify`.
 
 ---
 
@@ -50,5 +51,6 @@ La Tarea para la IA: Constructor de estructuras, asignación de usuarios, UI del
 ### Hito 8: End-to-End y Accesibilidad.
 La Tarea para la IA: Escribir los scripts de Playwright (.e2e.ts) interceptando la API (mocking de rutas) para validar el flujo visual completo (Accessibility / Snapshots).
 
-### Hito 9: Resiliencia Extrema.
+### Hito 9: Resiliencia Extrema. [COMPLETADO]
 Tú, como arquitecto, levantas la app viva y corres docker compose --profile chaos up. Observas Prometheus mientras Pumba inyecta latencia y Locust ataca.
+Resultado (2026-10-12): `make qa-chaos` ✅ — 2786 peticiones contra la API bajo `netem` (500 ms ± 50), 0 fallos, sin bloqueos ni latencia acumulada (p99 ≈ 1.4 s); Prometheus scrapeando job `condominio_backend`.

@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: condominio_backend_redis
+    hostname: condominio_backend_redis
+    pull_policy: always
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
     image: sinfallas/base-python-uv:3.13
     container_name: condominio_backend_api
@@ -8,6 +20,10 @@ services:
       TZ: 'America/Caracas'
       UV_CACHE_DIR: /root/.cache/uv
       DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
+      REDIS_URL: 'redis://redis:6379/0'
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
       - ${HOST_PWD:-.}:/app
       - uv-cache:/root/.cache/uv
@@ -30,6 +46,7 @@ services:
       UV_PYTHON_DOWNLOADS: 'true'
       UV_CACHE_DIR: /root/.cache/uv
       DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
+      REDIS_URL: 'redis://redis:6379/0'
     volumes:
       - ${HOST_PWD:-.}:/app
       - uv-cache:/root/.cache/uv
@@ -50,7 +67,7 @@ services:
     command: bash -c "echo 'Contenedor Karate listo'; sleep infinity"
 
   zap:
-    image: owasp/zap2docker-stable:latest
+    image: zaproxy/zap-stable:latest
     container_name: condominio_backend_zap
     hostname: condominio_backend_zap
     pull_policy: always
@@ -87,7 +104,7 @@ services:
         global:
           scrape_interval: 2s
         scrape_configs:
-          - job_name: 'fastapi_qa'
+          - job_name: 'condominio_backend'
             metrics_path: '/metrics'
             static_configs:
               - targets: ['api:8000']
@@ -106,13 +123,39 @@ services:
       - chaos
     depends_on:
       - api
+      - pumba
+      - prometheus
     environment:
       UV_CACHE_DIR: /root/.cache/uv
+      REDIS_URL: 'redis://redis:6379/0'
     volumes:
       - ${HOST_PWD:-.}:/app
       - uv-cache:/root/.cache/uv
     working_dir: /app
     command: bash -c "uv pip install --system -e '.[dev]' && echo 'Esperando API...' && sleep 5 && locust -f tests/locustfile.py --headless -u 100 -r 10 -t 1m --host http://api:8000 --html chaos-report.html"
+
+  graphify:
+    image: sinfallas/remote-graphify:latest
+    container_name: condominio_backend_graphify
+    hostname: condominio_backend_graphify
+    profiles:
+      - graphify
+    restart: always
+    command: uvx --from graphifyy python -m graphify.serve /app/graphify-out/graph.json --transport http --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - GRAPHIFY_OLLAMA_KEEP_ALIVE=10
+    volumes:
+      - ${HOST_PWD:-.}:/app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
 
 volumes:
   uv-cache:

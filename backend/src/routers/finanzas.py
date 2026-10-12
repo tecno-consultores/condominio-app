@@ -17,7 +17,15 @@ from src.schemas import CierreMensualRequest, EgresoCreate, TasaCambioCreate, Ta
 router = APIRouter(prefix="/api/finanzas", tags=["Finanzas"])
 
 
-@router.post("/tasa", response_model=TasaCambioResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/tasa",
+    response_model=TasaCambioResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        401: {"description": "No autenticado"},
+    },
+)
 async def registrar_tasa(
     datos: TasaCambioCreate,
     db: AsyncSession = Depends(get_db),
@@ -36,7 +44,14 @@ async def registrar_tasa(
     return tasa
 
 
-@router.get("/tasa", response_model=TasaCambioResponse)
+@router.get(
+    "/tasa",
+    response_model=TasaCambioResponse,
+    responses={
+        401: {"description": "No autenticado"},
+        404: {"description": "Tasa del día no registrada"},
+    },
+)
 async def obtener_tasa(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
@@ -51,7 +66,14 @@ async def obtener_tasa(
     return tasa
 
 
-@router.post("/egresos", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/egresos",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"description": "Tasa del día no registrada o monto inválido"},
+        401: {"description": "No autenticado"},
+    },
+)
 async def registrar_egreso(
     datos: EgresoCreate,
     db: AsyncSession = Depends(get_db),
@@ -92,7 +114,7 @@ async def registrar_egreso(
         )
 
 
-@router.get("/resumen")
+@router.get("/resumen", responses={401: {"description": "No autenticado"}})
 async def resumen_financiero(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
@@ -127,7 +149,14 @@ async def resumen_financiero(
     }
 
 
-@router.post("/cierre-mensual")
+@router.post(
+    "/cierre-mensual",
+    responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        401: {"description": "No autenticado"},
+        409: {"description": "El mes ya fue cerrado (acción inmutable)"},
+    },
+)
 async def cierre_mensual(
     datos: CierreMensualRequest,
     db: AsyncSession = Depends(get_db),

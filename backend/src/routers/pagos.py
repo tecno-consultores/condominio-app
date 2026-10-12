@@ -47,7 +47,17 @@ async def _obtener_recibo(db: AsyncSession, recibo_id: int) -> Recibo:
     return recibo
 
 
-@router.post("/reportar", response_model=PagoResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/reportar",
+    response_model=PagoResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"description": "Tasa del día no registrada o referencia inválida"},
+        401: {"description": "No autenticado"},
+        404: {"description": "Recibo no encontrado"},
+        409: {"description": "Petición duplicada o periodo cerrado (Candado Contable)"},
+    },
+)
 async def reportar_pago(
     pago: PagoReportar,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
@@ -101,7 +111,7 @@ async def reportar_pago(
         )
 
 
-@router.get("/revision", response_model=list[PagoResponse])
+@router.get("/revision", response_model=list[PagoResponse], responses={401: {"description": "No autenticado"}})
 async def listar_pagos_en_revision(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
@@ -110,7 +120,15 @@ async def listar_pagos_en_revision(
     return list(result.scalars().all())
 
 
-@router.put("/{pago_id}/aprobar", response_model=PagoResponse)
+@router.put(
+    "/{pago_id}/aprobar",
+    response_model=PagoResponse,
+    responses={
+        401: {"description": "No autenticado"},
+        404: {"description": "Pago o recibo no encontrado"},
+        409: {"description": "El pago no está en revisión o periodo cerrado"},
+    },
+)
 async def aprobar_pago(
     pago_id: int,
     db: AsyncSession = Depends(get_db),
@@ -146,7 +164,16 @@ async def aprobar_pago(
     return pago
 
 
-@router.put("/{pago_id}/rechazar", response_model=PagoResponse)
+@router.put(
+    "/{pago_id}/rechazar",
+    response_model=PagoResponse,
+    responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        401: {"description": "No autenticado"},
+        404: {"description": "Pago o recibo no encontrado"},
+        409: {"description": "El pago no está en revisión o periodo cerrado"},
+    },
+)
 async def rechazar_pago(
     pago_id: int,
     body: PagoRechazo,
