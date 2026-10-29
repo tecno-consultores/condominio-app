@@ -3,12 +3,13 @@ from typing import Any
 import jwt
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import get_db
+from src.dependencies import extract_bearer_or_cookie_token
 from src.models import ContratoOcupacion, Usuario
 from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import UsuarioCreate, UsuarioResponse
@@ -18,6 +19,8 @@ router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
 
 class LoginData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     correo: str
     password: str
 
@@ -35,15 +38,14 @@ async def register_user(
     user: UsuarioCreate,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
-    redis_conn: aioredis.Redis = Depends(get_redis_client)
+    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> Any:
     try:
-        # Validación de idempotencia en Redis (previene dobles envíos)
-        is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, ttl_seconds=120)
+        is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, ttl_seconds=120, scope="register")
         if not is_unique:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Petición duplicada detectada (Idempotency-Key ya procesada)"
+                detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
             )
 
         result = await db.execute(
@@ -60,7 +62,7 @@ async def register_user(
             telefono=user.telefono,
             password_hash=get_password_hash(user.password),
             es_activo=False,
-            rol="FANTASMA"
+            rol="FANTASMA",
         )
         db.add(new_user)
         await db.flush()
@@ -69,7 +71,7 @@ async def register_user(
             usuario_id=new_user.id,
             unidad_id=user.unidad_solicitada_id,
             tipo_ocupante=user.tipo_ocupante_solicitado,
-            es_activo=False
+            es_activo=False,
         )
         db.add(nuevo_contrato)
         await db.commit()
@@ -82,13 +84,13 @@ async def register_user(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Datos inválidos o duplicados en el registro"
+            detail="Datos inválidos o duplicados en el registro",
         )
     except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error en base de datos al registrar"
+            detail="Error en base de datos al registrar",
         )
 
 
@@ -112,7 +114,7 @@ async def login(response: Response, login_data: LoginData, db: AsyncSession = De
         value=f"Bearer {access_token}",
         httponly=True,
         secure=True,
-        samesite="lax"
+        samesite="lax",
     )
     return {"message": "Login exitoso", "rol": user.rol}
 
@@ -125,11 +127,10 @@ async def login(response: Response, login_data: LoginData, db: AsyncSession = De
     },
 )
 async def get_me(request: Request, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
-    auth_cookie = request.cookies.get("access_token")
-    if not auth_cookie:
+    token = extract_bearer_or_cookie_token(request)
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
 
-    token = auth_cookie.replace("Bearer ", "").strip()
     try:
         payload = decode_access_token(token)
     except jwt.ExpiredSignatureError:
@@ -151,5 +152,5 @@ async def get_me(request: Request, db: AsyncSession = Depends(get_db)) -> dict[s
         "correo": user.correo,
         "nombre": user.nombre,
         "rol": user.rol,
-        "es_activo": user.es_activo
+        "es_activo": user.es_activo,
     }

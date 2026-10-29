@@ -1,4 +1,4 @@
-.PHONY: qa-lint qa-unit qa-mutation qa-complexity qa-deps qa-contracts qa-dast qa-chaos qa-infra qa-profile qa-all clean-cache
+.PHONY: qa-lint qa-unit qa-parity qa-bdd qa-mutation qa-complexity qa-deps qa-contracts qa-dast qa-chaos qa-infra qa-profile qa-all clean-cache
 
 COMPOSE_FILE = docker-compose.qa.yml
 SERVICE_NAME = qa-backend
@@ -27,6 +27,17 @@ qa-unit:
 	@echo "🧪 Ejecutando Pruebas Unitarias Aisladas (Pytest con cobertura >=95%)..."
 	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run pytest --cov=src --cov-fail-under=95"
 
+qa-parity:
+	@echo "🗄️ Verificando Paridad ORM vs Migraciones Alembic y Motor Real PostgreSQL 17..."
+	python3 ../.agents/scripts/verify_alembic_orm_parity.py
+	docker compose -f $(COMPOSE_FILE) up -d postgres
+	docker compose -f $(COMPOSE_FILE) run --rm -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
+
+qa-bdd:
+	@echo "📚 Ejecutando Pruebas BDD de Caja Negra (Karate Labs API)..."
+	docker compose -f $(COMPOSE_FILE) up -d api
+	docker compose -f $(COMPOSE_FILE) run --rm karatelabs mvn clean test
+
 qa-mutation:
 	@echo "👽 Ejecutando Pruebas de Mutación (Mutmut)..."
 	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run mutmut run"
@@ -51,7 +62,7 @@ qa-chaos:
 	@echo "🌪️ Certificación de Resiliencia y Caos (Pumba + Locust + Prometheus)..."
 	docker compose -f $(COMPOSE_FILE) --profile chaos up --abort-on-container-exit stress_test
 
-qa-all: qa-lint qa-complexity qa-unit qa-mutation
+qa-all: qa-lint qa-complexity qa-unit qa-parity
 	@echo "✅ Pipeline QA Backend completado exitosamente."
 
 qa-infra:

@@ -1,26 +1,54 @@
 services:
   redis:
-    image: redis:7-alpine
+    image: eqalpha/keydb:alpine
     container_name: condominio_backend_redis
-    hostname: condominio_backend_redis
-    pull_policy: always
-    command: redis-server --save "" --appendonly no
+    hostname: redis
+    pull_policy: if_not_present
+    command: >
+      keydb-server
+      --server-threads 2
+      --appendonly no
+      --save ""
+      --maxmemory 256mb
+      --maxmemory-policy volatile-lru
+    networks:
+      default:
+        aliases:
+          - keydb
+          - condominio_backend_redis
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "keydb-cli ping | grep PONG"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: condominio_backend_postgres
+    hostname: postgres
+    pull_policy: if_not_present
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: qa_db
+      POSTGRES_USER: qa_user
+      POSTGRES_PASSWORD: qa_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qa_user -d qa_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   api:
     image: sinfallas/base-python-uv:3.13
     container_name: condominio_backend_api
     hostname: condominio_backend_api
-    pull_policy: always
+    pull_policy: if_not_present
     environment:
       TZ: 'America/Caracas'
       UV_CACHE_DIR: /root/.cache/uv
       DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
       REDIS_URL: 'redis://redis:6379/0'
+      APP_ENV: 'qa_test'
     depends_on:
       redis:
         condition: service_healthy
@@ -40,13 +68,14 @@ services:
     image: sinfallas/base-python-uv:3.13
     container_name: condominio_qa_backend
     hostname: condominio_qa_backend
-    pull_policy: always
+    pull_policy: if_not_present
     environment:
       TZ: 'America/Caracas'
       UV_PYTHON_DOWNLOADS: 'true'
       UV_CACHE_DIR: /root/.cache/uv
       DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
       REDIS_URL: 'redis://redis:6379/0'
+      APP_ENV: 'qa_unit'
     volumes:
       - ${HOST_PWD:-.}:/app
       - uv-cache:/root/.cache/uv
@@ -59,7 +88,7 @@ services:
     image: sinfallas/karatelabs:latest
     container_name: condominio_backend_karate
     hostname: condominio_backend_karate
-    pull_policy: always
+    pull_policy: if_not_present
     depends_on:
       - api
     volumes:
@@ -70,7 +99,7 @@ services:
     image: zaproxy/zap-stable:latest
     container_name: condominio_backend_zap
     hostname: condominio_backend_zap
-    pull_policy: always
+    pull_policy: if_not_present
     depends_on:
       - api
     user: root
@@ -141,7 +170,7 @@ services:
     profiles:
       - graphify
     restart: always
-    command: uvx --from graphifyy python -m graphify.serve /app/graphify-out/graph.json --transport http --host 0.0.0.0 --port 8080
+    command: graphify-mcp /app/graphify-out/graph.json --transport http --host 0.0.0.0 --port 8080
     ports:
       - "8080:8080"
     extra_hosts:
@@ -156,6 +185,10 @@ services:
       options:
         max-size: "1m"
         max-file: "1"
+
+networks:
+  default:
+    driver: bridge
 
 volumes:
   uv-cache:

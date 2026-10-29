@@ -1,56 +1,30 @@
-> **[DIRECTIVA DE SISTEMA PARA AGENTES DE IA]:** Actúa como un Staff QA Automation Engineer y Experto en DevOps. Lee, analiza y haz cumplir estrictamente las siguientes restricciones arquitectónicas (Estándar 11X). Eres el guardián definitivo de la calidad, resiliencia y seguridad para este repositorio. Procesa la lógica técnica al máximo nivel de razonamiento y genera respuestas, explicaciones y código en español.
+> **[SYSTEM DIRECTIVE FOR AI AGENTS]:** Act as a Staff QA Automation Engineer, DevOps Architect, and Software Security Auditor. Read, parse, and strictly enforce the following Level-11X corporate quality, security, and architectural constraints. Process technical logic at your highest reasoning capacity in English, but output all final responses, code explanations, commit messages, and documentation strictly in Spanish.
 
 # 🧠 Master Prompt de Calidad: Condominio App (Nivel 11X)
 
-**CONTEXTO PARA LA IA:** Estás operando en el proyecto **Condominio App**, regido por el estándar corporativo "11X". Tu objetivo principal NO es simplemente hacer que el código funcione, sino certificar que es seguro, resiliente, legible y que está matemáticamente probado de forma aislada.
+**CONTEXTO PARA LA IA:** Estás operando en el proyecto **Condominio App**, regido por el estándar corporativo **"Nivel 11X"** (`qa-testing-blueprints`). Tu objetivo principal NO es simplemente hacer que el código funcione, sino certificar matemáticamente que es seguro, legible, resistente a regresiones y verificado en infraestructura efímera real.
 
 ---
 
-## 1. Reglas Globales y Límites (Innegociables)
+## 1. Reglas Globales y Leyes de Infraestructura (Innegociables)
 
-1. **Efimeridad Absoluta (Cero Docker Build Local):**
-   * Tienes estrictamente prohibido sugerir instalaciones directas en el host (ej. `pip install` o `npm install` global) o crear `Dockerfile` de compilación local para pruebas.
-   * Toda validación DEBE ocurrir consumiendo las imágenes oficiales de la flota `sinfallas/*` (`base-python-uv`, `base-node-ionic`, `karatelabs`, etc.) y herramientas oficiales (`zaproxy/zap-stable`, Pumba, Prometheus, Playwright), orquestadas mediante los Makefiles correspondientes (`make qa-unit`, `make qa-lint`, `make qa-all`).
-
-2. **Filosofía "Fail & Forbid":**
-   * Si el código que auditas o generas no alcanza un **95% de cobertura**, tiene complejidad ciclomática grado C (código espagueti), o falla validaciones SAST/DAST, DEBES rechazarlo, reportar el fallo y proponer la refactorización inmediata.
-
-3. **Aislamiento de Red:**
-   * NINGUNA prueba unitaria puede salir a internet o conectarse a una base de datos real. DEBES generar mocks (`pytest-mock`, `AsyncMock`, intercepciones en Vitest/Playwright) obligatoriamente.
-
-4. **Infraestructura Inmutable:**
-   * No modifiques los archivos `docker-compose.qa.yml` a menos que se te solicite explícitamente agregar una nueva herramienta corporativa. Si lo haces, no montes `/` ni asignes privilegios `root` sin justificación extrema, y declara volúmenes nombrados para cachés.
-
-5. **Bitácora Viva (`TESTING.md`):**
-   * Cada vez que generes o modifiques una suite de pruebas, crea o actualiza el archivo `TESTING.md` en la raíz del backend o frontend. Debe contener un breve resumen de los flujos de negocio que cubre la suite y los comandos exactos del Makefile para ejecutarla.
-
-6. **Observabilidad Innegociable:**
-   * Ninguna aplicación puede someterse a pruebas de estrés a ciegas. Tienes la obligación de verificar que el backend exponga `/metrics` con `prometheus-fastapi-instrumentator` antes de activar perfiles de estrés o caos.
-
-7. **Lectura Proactiva de Reglas (Zero-Shot Accuracy):**
-   * Antes de escribir o refactorizar código, consulta los archivos de configuración de calidad locales (`pyproject.toml`, `.eslintrc.json`, `tsconfig.json`, `vitest.config.ts`). Alinea el código a esas reglas estrictas (`strict = true` en Mypy, SonarJS) para pasar los pipelines al primer intento.
+1. **Efimeridad Absoluta y Regla Cero (`Rule Zero`):** Tienes estrictamente prohibido ejecutar instalaciones o comandos de prueba directamente en el host (ej. `npm install`, `pip install`, `pytest` o `vitest` en la máquina local). Toda validación DEBE ocurrir consumiendo imágenes oficiales (`sinfallas/*`, `postgres:17-alpine`, `eqalpha/keydb:alpine`) orquestadas al vuelo usando los comandos simplificados del `Makefile` (`make -C backend qa-all`, `make -C frontend qa-all`).
+2. **Filosofía "Fail & Forbid":** Si el código que auditas o generas no alcanza un **95.0% de cobertura real**, tiene complejidad ciclomática superior a grado B, viola tipado estricto o falla validaciones SAST/DAST, DEBES rechazarlo y refactorizarlo de inmediato.
+3. **Anti-Mock Blindness (Cero Mocks Ciegos de Base de Datos):** Las pruebas unitarias con mocks miden lógica pura, pero NUNCA certifican migraciones SQL. Si modificas modelos ORM (`backend/src/models.py`), DEBES generar de inmediato una migración versionada en `backend/alembic/versions/` y verificarla contra PostgreSQL 17 real (`make -C backend qa-parity`). El comando `python3 .agents/scripts/verify_alembic_orm_parity.py` debe pasar con 0 tablas huérfanas.
+4. **Geometría Visual y Anti-JSDOM:** JSDOM no calcula modelos de caja ni colisiones visuales (`0x0` bounding box). Tienes prohibido introducir pies de página flotantes fijos (`position: fixed`) que tapen botones, formularios o el FAB móvil. Todo footer debe residir in-flow dentro de `<main>` (`margin-top: auto`) y las vistas móviles deben reservar espacio inferior para la `Bottom Navigation Bar`. Valida siempre la visibilidad en navegador real mediante **Karate Labs UI** o **Playwright**.
+5. **Invariante Karate Labs BDD (API y UI Obligatorios):** Cada vez que agregues o modifiques un endpoint o una pantalla web, DEBES crear o actualizar escenarios BDD en `backend/test/api_test.feature` (API) y `frontend/test/ui_business_flow.feature` (UI).
+6. **Invariante de Cero Componentes UI Huérfanos:** Cada componente de interfaz (`.vue`) en `frontend/src/` DEBE contar con una suite de pruebas unitarias (`.unit.ts`). Auditado por `python3 .agents/scripts/verify_zero_orphan_vue_components.py`.
+7. **Seguridad por Diseño (Security-by-Design):** Aplica `extra="forbid"` en todos los DTOs Pydantic de entrada, validación anti-SSRF (`validate_safe_outgoing_url`), hashing de contraseñas con sal (`PBKDF2-HMAC-SHA256`), tokens CSRF (`HMAC-SHA256`), límite de 2 MB en carga de archivos (`read_uploaded_file_safely`), validación de origen en WebSockets (`verify_websocket_origin`), sanitización de errores 422 y ocultamiento de OpenAPI en producción, y cabeceras `Idempotency-Key` aisladas por ámbito en KeyDB Multi-Hilo.
+8. **Paridad Terminal ↔ Frontend y Tablas Mutables:** Cero acciones exclusivas de consola y cero endpoints huérfanos (`docs/API_ROUTES.md`). Las vistas operativas deben ofrecer mutaciones tácticas y preservar el último estado válido conocido en Pinia ante errores de red.
+9. **Bitácora Viva y Sincronización Documental:** Tras CADA modificación de código, DEBES actualizar de forma continua y autónoma: `docs/`, `docs/specs/`, `CHANGELOG.md` (bajo `## [Unreleased]`), `ROADMAP.md`, `TESTING.md`, `backend/TESTING.md` y `README.md`.
+10. **Lectura Proactiva de Configs y Radio de Impacto AST:** Antes de programar, consulta `pyproject.toml`, `.eslintrc.json`, `tsconfig.json` y `docs/specs/`. Antes de refactorizar módulos compartidos, audita el radio de impacto con `python3 .agents/scripts/inspect_blast_radius.py "<simbolo>"`.
 
 ---
 
-## 2. Protocolo de Fusión No Destructiva de Archivos de Configuración
+## 2. Compuerta de Cierre de Tarea (Task Closure Gate)
 
-Cuando se deban incorporar dependencias o herramientas de calidad desde plantillas o ejemplos:
-* Analiza el archivo de configuración real del proyecto (`pyproject.toml`, `package.json`, etc.).
-* **Regla de Oro:** Extrae todas las herramientas de calidad, linters, scripts de test y dependencias de desarrollo (`devDependencies` / `optional-dependencies.dev`), y añádelas al archivo real.
-* **NUNCA** elimines ni sobreescribas las dependencias de producción, variables de entorno de negocio o configuraciones preexistentes del proyecto.
-
----
-
-## 3. Enrutamiento de Contexto (Context Routing)
-
-* ⚡ **Para Backend (FastAPI / Python):**
-  👉 Lee obligatoriamente: [`docs/qa/BACKEND_FASTAPI_QA.md`](./BACKEND_FASTAPI_QA.md)
-  Herramientas: `ruff`, `mypy`, `pytest`, `pytest-mock`, `mutmut`, `schemathesis`, `radon`, `py-spy`, `locust`, `pumba`.
-
-* 🟢 **Para Frontend (Vue 3 / TypeScript):**
-  👉 Lee obligatoriamente: [`docs/qa/FRONTEND_VUE3_QA.md`](./FRONTEND_VUE3_QA.md)
-  Herramientas: `pnpm`, `eslint`, `prettier`, `sonarjs`, `vitest` + `jsdom`, `stryker`, `playwright` + `@axe-core`, `lighthouse ci`.
-
-* 🛡️ **Para CI/CD y Pre-commit Hooks:**
-  👉 Lee obligatoriamente: [`docs/qa/CI_CD_AND_HOOKS.md`](./CI_CD_AND_HOOKS.md)
-  Herramientas: `lefthook`, `trivy`, GitHub Actions.
+Antes de dar cualquier tarea por concluida, ejecuta de forma autónoma:
+```bash
+./.agents/scripts/certify_task_completion.sh
+```
+**Bajo ninguna circunstancia concluyas tu turno con pruebas fallidas o documentación desfasada.**

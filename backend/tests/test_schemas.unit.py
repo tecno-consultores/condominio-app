@@ -22,7 +22,7 @@ def test_usuario_schema_valido() -> None:
         telefono="+584121234567",
         password="SecurePassword123!",
         unidad_solicitada_id=1,
-        tipo_ocupante_solicitado="PROPIETARIO"
+        tipo_ocupante_solicitado="PROPIETARIO",
     )
     assert user.nombre == "Juan Perez"
     assert user.password == "SecurePassword123!"
@@ -40,7 +40,7 @@ def test_usuario_schema_correo_invalido() -> None:
             telefono="+584129876543",
             password="SecurePassword123!",
             unidad_solicitada_id=1,
-            tipo_ocupante_solicitado="INQUILINO"
+            tipo_ocupante_solicitado="INQUILINO",
         )
 
     assert "correo" in str(exc_info.value)
@@ -48,6 +48,7 @@ def test_usuario_schema_correo_invalido() -> None:
 
 def test_usuario_response_from_attributes() -> None:
     """Valida que UsuarioResponse construye correctamente el modelo a partir de atributos"""
+
     class MockUsuario:
         id: int = 10
         nombre: str = "Ana Morales"
@@ -73,9 +74,7 @@ def test_pago_reportar_schema_valido() -> None:
 
 def test_pago_reportar_moneda_invalida() -> None:
     with pytest.raises(ValidationError):
-        PagoReportar.model_validate(
-            {"recibo_id": 1, "monto": "100.00", "moneda": "EUR", "metodo_pago": "EFECTIVO"}
-        )
+        PagoReportar.model_validate({"recibo_id": 1, "monto": "100.00", "moneda": "EUR", "metodo_pago": "EFECTIVO"})
 
 
 def test_pago_reportar_monto_no_positivo() -> None:

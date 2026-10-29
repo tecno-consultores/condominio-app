@@ -1,12 +1,15 @@
+"""Cliente asíncrono KeyDB/Redis: idempotencia aislada por ámbito y grace period de tokens."""
+
 import os
 from typing import Optional
 
 import redis.asyncio as redis
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+GRACE_PERIOD_SECONDS = 5
 
-# Instancia global o fábrica para conexión asíncrona a Redis
 _redis_client: Optional[redis.Redis] = None
+
 
 def get_redis_client() -> redis.Redis:
     global _redis_client
@@ -14,12 +17,47 @@ def get_redis_client() -> redis.Redis:
         _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     return _redis_client
 
-async def check_and_set_idempotency_key(client: redis.Redis, key: str, ttl_seconds: int = 120) -> bool:
-    """
-    Verifica y almacena una clave de idempotencia atómicamente.
+
+def build_idempotency_key(scope: str, key: str) -> str:
+    """Construye una clave de idempotencia aislada por ámbito/usuario (Patrón 11)."""
+    clean_scope = scope.strip() or "global"
+    return f"idemp:{clean_scope}:{key.strip()}"
+
+
+async def check_and_set_idempotency_key(
+    client: redis.Redis,
+    key: str,
+    ttl_seconds: int = 120,
+    scope: str = "global",
+) -> bool:
+    """Verifica y almacena una clave de idempotencia atómicamente en KeyDB/Redis.
+
     Retorna True si la clave es NUEVA (se adquirió el candado).
     Retorna False si la clave ya existía (petición duplicada).
     """
-    redis_key = f"idempotency:{key}"
+    redis_key = build_idempotency_key(scope, key)
     is_new = await client.set(redis_key, "1", nx=True, ex=ttl_seconds)
     return bool(is_new)
+
+
+async def rotate_refresh_token_with_grace_period(
+    client: redis.Redis,
+    old_token_family_id: str,
+    new_token: str,
+    grace_seconds: int = GRACE_PERIOD_SECONDS,
+) -> None:
+    """Almacena un token rotado con ventana de cortesía de 5s para pestañas concurrentes (Patrón 10)."""
+    await client.set(
+        f"grace_period:{old_token_family_id}",
+        new_token,
+        ex=grace_seconds,
+    )
+
+
+async def get_refresh_token_from_grace_period(
+    client: redis.Redis,
+    old_token_family_id: str,
+) -> Optional[str]:
+    """Recupera el nuevo token si la rotación ocurrió dentro del grace period de 5s."""
+    val = await client.get(f"grace_period:{old_token_family_id}")
+    return str(val) if val is not None else None

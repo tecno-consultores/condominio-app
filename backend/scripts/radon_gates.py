@@ -19,11 +19,7 @@ def _grado(calificacion: str) -> int:
 def main() -> int:
     fallos: list[str] = []
 
-    radon_cc = json.loads(
-        subprocess.check_output(
-            ["radon", "cc", "src/", "-s", "-nb", "--json"], text=True
-        )
-    )
+    radon_cc = json.loads(subprocess.check_output(["radon", "cc", "src/", "-s", "-nb", "--json"], text=True))
     for archivo, bloques in sorted(radon_cc.items()):
         for bloque in bloques:
             if _grado(bloque["rank"]) > MAX_GRADE:

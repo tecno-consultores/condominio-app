@@ -230,12 +230,33 @@ def test_registrar_egreso_tasa_cero_falla(client: TestClient) -> None:
 
 def test_resumen_financiero(client: TestClient) -> None:
     recibos = [
-        Recibo(id=1, unidad_id=1, periodo="2026-10", monto_usd=Decimal("100.00"),
-               monto_pagado_usd=Decimal("0.00"), estado="PENDIENTE", bloqueado=False),
-        Recibo(id=2, unidad_id=2, periodo="2026-10", monto_usd=Decimal("50.00"),
-               monto_pagado_usd=Decimal("50.00"), estado="PAGADO", bloqueado=False),
-        Recibo(id=3, unidad_id=3, periodo="2026-10", monto_usd=Decimal("200.00"),
-               monto_pagado_usd=Decimal("100.00"), estado="PAGADO_PARCIAL", bloqueado=False),
+        Recibo(
+            id=1,
+            unidad_id=1,
+            periodo="2026-10",
+            monto_usd=Decimal("100.00"),
+            monto_pagado_usd=Decimal("0.00"),
+            estado="PENDIENTE",
+            bloqueado=False,
+        ),
+        Recibo(
+            id=2,
+            unidad_id=2,
+            periodo="2026-10",
+            monto_usd=Decimal("50.00"),
+            monto_pagado_usd=Decimal("50.00"),
+            estado="PAGADO",
+            bloqueado=False,
+        ),
+        Recibo(
+            id=3,
+            unidad_id=3,
+            periodo="2026-10",
+            monto_usd=Decimal("200.00"),
+            monto_pagado_usd=Decimal("100.00"),
+            estado="PAGADO_PARCIAL",
+            bloqueado=False,
+        ),
     ]
     egresos = [_egreso(monto_usd="30.00"), _egreso(categoria="LIMPIEZA", monto_usd="70.00")]
     session = _mock_session(_result_list(recibos), _result_list(egresos))

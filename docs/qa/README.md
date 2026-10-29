@@ -1,63 +1,28 @@
 # 🛡️ QA Testing & Calidad Nivel 11X - Condominio App
 
-Bienvenido al centro de documentación del estándar de calidad, pruebas automatizadas y resiliencia para el proyecto **Condominio App**.
+Bienvenido al centro de documentación del estándar de calidad, desarrollo seguro, pruebas automatizadas y resiliencia para el proyecto **Condominio App**.
 
-Este repositorio sigue rigurosamente el estándar corporativo **Nivel 11X (QA Blueprint x11)**, lo que garantiza que todo el software producido (Backend en FastAPI y Frontend en Vue 3) esté matemáticamente probado, aislado de la red durante pruebas unitarias, libre de vulnerabilidades de seguridad estáticas y dinámicas, y certificado contra fallos catastróficos mediante Ingeniería del Caos.
-
----
-
-## 📚 Índice de Documentación de QA
-
-1. **[Filosofía y Principios Nivel 11X (`QA_PHILOSOPHY_11X.md`)](./QA_PHILOSOPHY_11X.md):**
-   * Los 11 pilares innegociables de calidad.
-   * La regla del **95% de cobertura como piso mínimo**.
-   * Paranoia positiva (pruebas de mutación).
-   * Efimeridad absoluta: Cero compilaciones locales (`docker build`), uso exclusivo de imágenes base oficiales (`sinfallas/*`) y cachés persistentes.
-   * Monitoreo y Observabilidad universal (Métricas RED).
-
-2. **[Guía de Pruebas para Backend FastAPI (`BACKEND_FASTAPI_QA.md`)](./BACKEND_FASTAPI_QA.md):**
-   * Pila tecnológica completa: `ruff`, `mypy`, `pytest`, `pytest-cov`, `pytest-mock`, `mutmut`, `schemathesis`, `Karate Labs`, `locust`, `radon`, `py-spy`, `OWASP ZAP`, `Pumba`.
-   * Estructura del `docker-compose.qa.yml` y targets del `Makefile` (`make qa-unit`, `make qa-lint`, `make qa-mutation`, `make qa-all`).
-   * Configuración de referencia de `pyproject.toml`.
-   * Observabilidad obligatoria con `prometheus-fastapi-instrumentator`.
-   * Ejemplos de pruebas unitarias con mocking, pruebas de contratos BDD y pruebas de caos/estrés con Locust.
-
-3. **[Guía de Pruebas para Frontend Vue 3 (`FRONTEND_VUE3_QA.md`)](./FRONTEND_VUE3_QA.md):**
-   * Pila tecnológica completa: `pnpm` (Zero-Trust), `Vitest` + `jsdom`, `ESLint` + `Prettier` + `SonarJS`, `Stryker`, `Playwright` + `@axe-core`, `Lighthouse CI`, `Karate Labs`.
-   * Estructura del `docker-compose.qa.yml` y targets del `Makefile` (`make qa-unit`, `make qa-perf`, `make qa-e2e`, etc.).
-   * Configuraciones de referencia: `package.json`, `vitest.config.ts`, `playwright.config.ts`, `stryker.conf.json`, `lighthouserc.js`.
-   * Regresión visual pixel-perfect y accesibilidad estricta WCAG 2.1 AA.
-
-4. **[CI/CD Pipelines y Git Hooks Locales (`CI_CD_AND_HOOKS.md`)](./CI_CD_AND_HOOKS.md):**
-   * Paridad absoluta: el runner de CI ejecuta exactamente los mismos comandos de Docker/Make que en local.
-   * Pipeline completo para GitHub Actions (`qa-pipeline.yml`).
-   * Auditoría de infraestructura con Trivy (`auditar-infra.sh`).
-   * Barrera de entrada local con `Lefthook` (pre-commit, commit-msg, pre-push) para bloquear commits con fallos de linting o secretos expuestos.
-
-5. **[Directivas de Sistema para Inteligencia Artificial (`AI_MASTER_PROMPT.md`)](./AI_MASTER_PROMPT.md):**
-   * Rol y reglas para agentes de IA (Staff QA Automation Engineer).
-   * Filosofía *Fail & Forbid*.
-   * Protocolo de fusión no destructiva de archivos de configuración (`.example`).
-   * Enrutamiento de contexto y directivas de generación de código.
+Este repositorio sigue rigurosamente el estándar corporativo **Nivel 11X (`qa-testing-blueprints`)**, garantizando que todo el software producido (Backend en FastAPI y Frontend en Vue 3) esté matemáticamente probado, ejecutado en contenedores efímeros (`Rule Zero`), verificado contra motores reales de base de datos y protegido por diseño contra los 13 vectores de ataque en plataformas híbridas.
 
 ---
 
-## 🛠 Matriz Resumida de Herramientas para Condominio App
+## 📚 Índice de Documentación de QA y Seguridad 11X
 
-| Capa de Validación | Backend (FastAPI / Python) | Frontend (Vue 3 / TypeScript) |
-| :--- | :--- | :--- |
-| **Linting y Tipado** | `ruff` + `mypy (strict=true)` | `ESLint` + `Prettier` + `vue-tsc` |
-| **Pruebas Unitarias & Mocking** | `pytest` + `TestClient` + `pytest-mock` | `Vitest` + `jsdom` + `v8` |
-| **Piso de Cobertura** | **≥ 95%** obligatorio (`pytest-cov`) | **≥ 95%** obligatorio (`@vitest/coverage-v8`) |
-| **Pruebas de Mutación** | `mutmut` | `Stryker` (`@stryker-mutator/vitest-runner`) |
-| **Deuda Técnica & Complejidad** | `radon` (Grado A/B) | `eslint-plugin-sonarjs` (Complejidad cognitiva baja) |
-| **Profiling de Rendimiento** | `py-spy` (*Flamegraphs* CPU/RAM) | `Lighthouse CI` (Core Web Vitals ≥ 90) |
-| **Seguridad Estática (SAST)** | `bandit` + `uv pip audit` | `eslint-plugin-security` + `npm/pnpm audit` |
-| **Seguridad Dinámica (DAST)** | `OWASP ZAP` (Baseline Scan en red interna) | N/A (Consumido desde API) |
-| **Contratos y Fuzzing** | `schemathesis` (Ataque a `openapi.json`) | N/A |
-| **Aceptación y BDD** | `Karate Labs` (Escenarios Gherkin `.feature`) | `Karate Labs` (UI Headless) |
-| **E2E & Accesibilidad** | N/A | `Playwright` + `@axe-core` (WCAG 2.1 AA) |
-| **Ingeniería del Caos** | `Pumba` + `Locust` (Jitter de red y estrés) | N/A |
-| **Observabilidad en Vivo** | `prometheus-fastapi-instrumentator` (`/metrics`) | `nginx-prometheus-exporter` |
-| **Auditoría de Infraestructura** | `aquasec/trivy` (IaC + FileSystem) | `aquasec/trivy` (IaC + FileSystem) |
-| **Control Pre-Commit Local** | `Lefthook` | `Lefthook` |
+1. **[Arquitectura y Gobernanza de Agentes de IA (`01_ARQUITECTURA_Y_GOBERNANZA_AGENTES_IA.md`)](./01_ARQUITECTURA_Y_GOBERNANZA_AGENTES_IA.md):**
+   * Estructura `.agents/` (`rules/`, `skills/`, `scripts/`), estrategia bimodal de ahorro de tokens (~35%) y compuerta de cierre `certify_task_completion.sh`.
+2. **[Buenas Prácticas de Programación 11X (`02_BUENAS_PRACTICAS_PROGRAMACION_11X.md`)](./02_BUENAS_PRACTICAS_PROGRAMACION_11X.md):**
+   * Erradicación de la ceguera de mocks (*Anti-Mock Blindness*), Geometría Visual *Anti-JSDOM*, ergonomía in-flow en móviles y manejo de errores no destructivo en Pinia.
+3. **[Tipos de Pruebas y Pirámide de 13 Capas (`03_TIPOS_DE_PRUEBAS_Y_COMO_UTILIZARLOS.md`)](./03_TIPOS_DE_PRUEBAS_Y_COMO_UTILIZARLOS.md):**
+   * Desglose de las 13 capas de aseguramiento y comandos de los `Makefiles`.
+4. **[Guía de Desarrollo Seguro y Mitigación de Vulnerabilidades (`04_GUIA_DESARROLLO_SEGURO_Y_MITIGACION_DE_VULNERABILIDADES.md`)](./04_GUIA_DESARROLLO_SEGURO_Y_MITIGACION_DE_VULNERABILIDADES.md):**
+   * Catálogo de los 13 patrones defensivos implementados (Prevención de Asignación Masiva `extra="forbid"`, Anti-SSRF, PBKDF2-HMAC-SHA256, CSRF HMAC, Cuota 2MB Anti-DoS, Anti-CSWSH, Idempotencia aislada en KeyDB Multi-Hilo, Anti-XSS y Anti-Prototype Pollution).
+5. **[Filosofía y Principios Nivel 11X (`QA_PHILOSOPHY_11X.md`)](./QA_PHILOSOPHY_11X.md):**
+   * Los pilares innegociables de calidad, piso de cobertura del 95%, mutación y observabilidad RED.
+6. **[Guía de Pruebas para Backend FastAPI (`BACKEND_FASTAPI_QA.md`)](./BACKEND_FASTAPI_QA.md):**
+   * Pila tecnológica del Backend con `PostgreSQL 17`, `KeyDB Multi-Hilo`, `Karate Labs API`, `Schemathesis`, `OWASP ZAP` y `Pumba + Locust`.
+7. **[Guía de Pruebas para Frontend Vue 3 (`FRONTEND_VUE3_QA.md`)](./FRONTEND_VUE3_QA.md):**
+   * Pila tecnológica del Frontend con `Vitest`, `qa-orphans`, `Stryker`, `Playwright + @axe-core`, `Lighthouse CI` y `Karate Labs UI`.
+8. **[CI/CD Pipelines y Git Hooks Locales (`CI_CD_AND_HOOKS.md`)](./CI_CD_AND_HOOKS.md):**
+   * Workflows de GitHub Actions, `auditar-infra.sh`, `scripts/verificar-secretos.sh` y barrera `Lefthook`.
+9. **[Directivas de Sistema para Inteligencia Artificial (`AI_MASTER_PROMPT.md`)](./AI_MASTER_PROMPT.md):**
+   * Master Prompt operativo actualizado con las 10 leyes de infraestructura y la compuerta de certificación de 7 pasos.

@@ -20,6 +20,8 @@ CorreoValido = Annotated[str, Field(json_schema_extra={"format": "email"}), Afte
 
 
 class UsuarioBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     nombre: str
     cedula: str
     correo: CorreoValido
@@ -33,35 +35,41 @@ class UsuarioCreate(UsuarioBase):
 
 
 class UsuarioResponse(UsuarioBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     es_activo: bool
     rol: str
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 Moneda = Literal["USD", "VES"]
 
 
 class TasaCambioCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     fecha: date_type | None = None
     tasa_usd_ves: Decimal = Field(gt=0)
 
 
 class TasaCambioResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     fecha: date_type
     tasa_usd_ves: Decimal
 
-    model_config = ConfigDict(from_attributes=True)
-
 
 class ReciboCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     unidad_id: int = Field(strict=True)
     periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
     monto_usd: Decimal = Field(gt=0)
 
 
 class ReciboResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     unidad_id: int
     periodo: str
@@ -70,10 +78,10 @@ class ReciboResponse(BaseModel):
     estado: str
     bloqueado: bool
 
-    model_config = ConfigDict(from_attributes=True)
-
 
 class PagoReportar(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     recibo_id: int = Field(strict=True)
     monto: Decimal = Field(gt=0)
     moneda: Moneda
@@ -83,6 +91,8 @@ class PagoReportar(BaseModel):
 
 
 class PagoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     recibo_id: int
     usuario_id: int
@@ -94,14 +104,16 @@ class PagoResponse(BaseModel):
     numero_referencia: str | None
     estado: str
 
-    model_config = ConfigDict(from_attributes=True)
-
 
 class PagoRechazo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     motivo: str = Field(min_length=1)
 
 
 class EgresoCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
     categoria: str = Field(min_length=1)
     descripcion: str = Field(min_length=1)
@@ -111,4 +123,6 @@ class EgresoCreate(BaseModel):
 
 
 class CierreMensualRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     periodo: str = Field(pattern=r"^\d{4}-\d{2}$")

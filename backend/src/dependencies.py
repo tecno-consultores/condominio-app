@@ -1,4 +1,4 @@
-"""Dependencias compartidas de FastAPI (autenticación de usuario actual)."""
+"""Dependencias compartidas de FastAPI (autenticación de usuario actual por Cookie o Bearer)."""
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -10,13 +10,23 @@ from src.models import Usuario
 from src.security import decode_access_token
 
 
-async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> Usuario:
-    """Extrae y valida el usuario autenticado a partir de la cookie JWT HttpOnly."""
+def extract_bearer_or_cookie_token(request: Request) -> str | None:
+    """Extrae el JWT desde la cookie HttpOnly o desde la cabecera Authorization: Bearer."""
     auth_cookie = request.cookies.get("access_token")
-    if not auth_cookie:
+    if auth_cookie:
+        return auth_cookie.replace("Bearer ", "").strip()
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header.removeprefix("Bearer ").strip()
+    return None
+
+
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> Usuario:
+    """Extrae y valida el usuario autenticado a partir de la cookie JWT HttpOnly o token Bearer."""
+    token = extract_bearer_or_cookie_token(request)
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
 
-    token = auth_cookie.replace("Bearer ", "").strip()
     try:
         payload = decode_access_token(token)
     except jwt.ExpiredSignatureError:

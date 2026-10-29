@@ -66,7 +66,7 @@ async def reportar_pago(
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     try:
-        is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key)
+        is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"user:{usuario.id}")
         if not is_unique:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

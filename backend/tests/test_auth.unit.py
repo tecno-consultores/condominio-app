@@ -20,10 +20,12 @@ def test_register_user_success(client: TestClient) -> None:
 
     async def mock_flush(*args: object, **kwargs: object) -> None:
         pass
+
     mock_session.flush = mock_flush
 
     async def mock_refresh(instance: Any, *args: object, **kwargs: object) -> None:
         instance.id = 1
+
     mock_session.refresh = mock_refresh
 
     mock_redis = AsyncMock()
@@ -39,11 +41,9 @@ def test_register_user_success(client: TestClient) -> None:
         "telefono": "12345",
         "password": "Mypassword1!",
         "unidad_solicitada_id": 1,
-        "tipo_ocupante_solicitado": "PROPIETARIO"
+        "tipo_ocupante_solicitado": "PROPIETARIO",
     }
-    headers = {
-        "Idempotency-Key": "123e4567-e89b-12d3-a456-426614174000"
-    }
+    headers = {"Idempotency-Key": "123e4567-e89b-12d3-a456-426614174000"}
     response = client.post("/api/auth/register", json=payload, headers=headers)
 
     assert response.status_code == 201
@@ -69,11 +69,9 @@ def test_register_user_duplicate_idempotency_key(client: TestClient) -> None:
         "telefono": "12345",
         "password": "Mypassword1!",
         "unidad_solicitada_id": 1,
-        "tipo_ocupante_solicitado": "PROPIETARIO"
+        "tipo_ocupante_solicitado": "PROPIETARIO",
     }
-    headers = {
-        "Idempotency-Key": "123e4567-e89b-12d3-a456-426614174000"
-    }
+    headers = {"Idempotency-Key": "123e4567-e89b-12d3-a456-426614174000"}
     response = client.post("/api/auth/register", json=payload, headers=headers)
 
     assert response.status_code == 409
@@ -102,11 +100,9 @@ def test_register_user_already_registered(client: TestClient) -> None:
         "telefono": "12345",
         "password": "Mypassword1!",
         "unidad_solicitada_id": 1,
-        "tipo_ocupante_solicitado": "PROPIETARIO"
+        "tipo_ocupante_solicitado": "PROPIETARIO",
     }
-    headers = {
-        "Idempotency-Key": "unique-idempotency-key-1"
-    }
+    headers = {"Idempotency-Key": "unique-idempotency-key-1"}
     response = client.post("/api/auth/register", json=payload, headers=headers)
 
     assert response.status_code == 409
@@ -124,7 +120,7 @@ def test_register_missing_idempotency_key(client: TestClient) -> None:
         "telefono": "12345",
         "password": "Mypassword1!",
         "unidad_solicitada_id": 1,
-        "tipo_ocupante_solicitado": "PROPIETARIO"
+        "tipo_ocupante_solicitado": "PROPIETARIO",
     }
     response = client.post("/api/auth/register", json=payload)
     assert response.status_code == 422
@@ -152,11 +148,9 @@ def test_register_user_db_failure(client: TestClient) -> None:
         "telefono": "123",
         "password": "Mypassword1!",
         "unidad_solicitada_id": 1,
-        "tipo_ocupante_solicitado": "PROPIETARIO"
+        "tipo_ocupante_solicitado": "PROPIETARIO",
     }
-    headers = {
-        "Idempotency-Key": "123e4567-e89b-12d3-a456-426614174001"
-    }
+    headers = {"Idempotency-Key": "123e4567-e89b-12d3-a456-426614174001"}
     response = client.post("/api/auth/register", json=payload, headers=headers)
 
     assert response.status_code == 500
@@ -187,7 +181,7 @@ def test_register_user_integrity_error(client: TestClient) -> None:
         "telefono": "123",
         "password": "Mypassword1!",
         "unidad_solicitada_id": 1,
-        "tipo_ocupante_solicitado": "PROPIETARIO"
+        "tipo_ocupante_solicitado": "PROPIETARIO",
     }
     headers = {"Idempotency-Key": "integridad-key-1"}
     response = client.post("/api/auth/register", json=payload, headers=headers)
@@ -288,10 +282,7 @@ def test_me_with_valid_token_success(client: TestClient) -> None:
 
 def test_me_with_expired_token(client: TestClient) -> None:
     """Llamada a /api/auth/me con token expirado debe responder 401"""
-    expired_token = create_access_token(
-        data={"sub": "expired@test.com"},
-        expires_delta=timedelta(seconds=-10)
-    )
+    expired_token = create_access_token(data={"sub": "expired@test.com"}, expires_delta=timedelta(seconds=-10))
 
     client.cookies.set("access_token", f"Bearer {expired_token}")
     response = client.get("/api/auth/me")

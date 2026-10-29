@@ -8,7 +8,7 @@ on:
 
 jobs:
   qa-backend:
-    name: 🧪 Lint, Complejidad, Dependencias y Cobertura
+    name: 🧪 Lint, Complejidad, Dependencias, Cobertura y Paridad ORM
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -17,6 +17,10 @@ jobs:
     steps:
       - name: 📥 Checkout del código
         uses: actions/checkout@v4
+
+      - name: 🔐 Escaneo de Secretos y Credenciales
+        working-directory: .
+        run: ./scripts/verificar-secretos.sh
 
       - name: 🔍 Lint, Tipado y SAST (Ruff + Mypy + Bandit)
         run: make qa-lint
@@ -29,3 +33,6 @@ jobs:
 
       - name: 🧪 Pruebas Unitarias con Cobertura ≥ 95%
         run: make qa-unit
+
+      - name: 🗄️ Paridad Real Alembic ↔ ORM en PostgreSQL 17
+        run: make qa-parity
