@@ -75,3 +75,53 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method get
     Then status 401
     And match response.detail == 'No autenticado'
+
+  # ==============================================================================
+  # Grupo 3: Estructura, Operaciones e Invariante de Bloqueo de Usuario Fantasma (Hito 4)
+  # ==============================================================================
+
+  Scenario: 8. Listado público de unidades disponibles devuelve 200 y un arreglo JSON
+    Given path '/api/estructura/unidades'
+    When method get
+    Then status 200
+    And match response == '#[]'
+
+  Scenario: 9. Acceso a incidencias y conserjería sin autenticación devuelve 401
+    Given path '/api/incidencias/abiertas'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+  Scenario: 10. Usuario Fantasma autenticado recibe 403 Forbidden al intentar acceder a módulos operativos
+    Given path '/api/auth/register'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000000404'
+    And request
+      """
+      {
+        "nombre": "Fantasma BDD",
+        "cedula": "V-40404040",
+        "correo": "fantasma.bdd@test.com",
+        "telefono": "+584144040404",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    And match response.es_activo == false
+    And match response.rol == 'FANTASMA'
+
+    Given path '/api/auth/login'
+    And request { correo: "fantasma.bdd@test.com", password: "Password123!" }
+    When method post
+    Then status 200
+
+    Given path '/api/incidencias/abiertas'
+    When method get
+    Then status 403
+    And match response.detail contains 'pendiente de aprobación'
+
+    Given path '/api/usuarios/pendientes'
+    When method get
+    Then status 403

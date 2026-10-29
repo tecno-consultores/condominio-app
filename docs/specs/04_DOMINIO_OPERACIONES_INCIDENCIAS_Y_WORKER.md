@@ -1,6 +1,6 @@
 # 🛠️ Especificación 04: Dominio de Operaciones, Incidencias y Tareas Asíncronas (Hito 4 y Hito 7)
 
-**Estado:** Especificado para implementación en Hito 4 (Backend) e Hito 7 (Frontend Vue 3)
+**Estado:** Hito 4 Completado en Backend (`administracion.py`, `incidencias.py`, `operaciones.py`, `worker.py`) / GUI en Hito 7
 
 ---
 

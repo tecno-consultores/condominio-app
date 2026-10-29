@@ -12,7 +12,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.database import Base, engine
-from src.routers import auth, finanzas, pagos
+from src.routers import administracion, auth, finanzas, incidencias, operaciones, pagos
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +67,10 @@ Instrumentator().instrument(app).expose(app, include_in_schema=False)
 def _metodos_permitidos(path: str) -> set[str]:
     """Métodos HTTP documentados para un path, resolviendo también plantillas con parámetros."""
     permitidos: set[str] = set()
-    for plantilla, operaciones in app.openapi().get("paths", {}).items():
+    for plantilla, ops_ruta in app.openapi().get("paths", {}).items():
         patron = re.sub(r"\{[^}]+\}", r"[^/]+", plantilla)
         if re.fullmatch(patron, path):
-            permitidos.update(metodo.upper() for metodo in operaciones if metodo.lower() in _METODOS_OPENAPI)
+            permitidos.update(metodo.upper() for metodo in ops_ruta if metodo.lower() in _METODOS_OPENAPI)
     return permitidos
 
 
@@ -104,6 +104,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 app.include_router(auth.router)
 app.include_router(pagos.router)
 app.include_router(finanzas.router)
+app.include_router(administracion.router)
+app.include_router(incidencias.router)
+app.include_router(operaciones.router)
 
 
 @app.get("/health", tags=["System"])

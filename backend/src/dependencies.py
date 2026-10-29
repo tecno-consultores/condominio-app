@@ -43,3 +43,24 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
     return user
+
+
+def verificar_usuario_activo(usuario: Usuario) -> None:
+    """Rechaza a Usuarios Fantasma (es_activo=False o rol='FANTASMA') con HTTP 403."""
+    es_activo = getattr(usuario, "es_activo", True)
+    rol = getattr(usuario, "rol", "")
+    if not es_activo or rol == "FANTASMA":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cuenta pendiente de aprobación por la Junta de Condominio.",
+        )
+
+
+def verificar_roles(usuario: Usuario, roles_permitidos: tuple[str, ...]) -> None:
+    """Valida que el usuario esté activo y posea uno de los roles autorizados (RBAC)."""
+    verificar_usuario_activo(usuario)
+    if getattr(usuario, "rol", "") not in roles_permitidos:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permisos para ejecutar esta acción.",
+        )

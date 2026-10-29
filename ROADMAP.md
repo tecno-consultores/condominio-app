@@ -7,8 +7,8 @@
 
 ## 📊 Estado General del Proyecto
 
-- **Fase 1 (Backend FastAPI & Seguridad 11X):** En curso — Hitos 1, 2, 3 y 3.5 **`[COMPLETADOS]`**; Hito 4 pendiente.
-- **Fase 2 (Frontend Vue 3 Mobile-First):** Lista para iniciar con especificaciones completas (`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`) — Hitos 5, 6 y 7 pendientes.
+- **Fase 1 (Backend FastAPI & Seguridad 11X):** **`[100% COMPLETADA]`** — Hitos 1, 2, 3, 3.5 y 4 completados y certificados.
+- **Fase 2 (Frontend Vue 3 Mobile-First):** Lista para iniciar con el Backend 100% operativo (`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`) — Hitos 5, 6 y 7 pendientes.
 - **Fase 3 (Integración E2E, Accesibilidad y Caos Nivel 11X):** Parcial — Hito 9 **`[COMPLETADO]`**; Hito 8 pendiente tras Fase 2.
 - **Leyenda:**
   - `[COMPLETADO]` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
@@ -55,14 +55,14 @@
 - **Certificación QA 11X:**
   - [x] Suite unitaria `tests/test_security_11x.unit.py`, paridad `make qa-parity` en PostgreSQL 17 y 7 escenarios BDD en `backend/test/api_test.feature`.
 
-### Hito 4: Módulos Operativos, Estructura, Incidencias y Tareas Asíncronas `[PENDIENTE]`
+### Hito 4: Módulos Operativos, Estructura, Incidencias y Tareas Asíncronas `[COMPLETADO]`
 - **Especificaciones:** [`docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md`](./docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md), [`docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md`](./docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 4.1 (Estructura y Activación de Usuarios Fantasma):** Implementar endpoints `POST /api/estructuras`, `GET /api/estructuras`, `POST /api/unidades`, `GET /api/usuarios/pendientes` y `PUT /api/usuarios/{id}/aprobar` (asignación de `Unidad`, creación de `ContratoOcupacion` activo, activación `es_activo=True` y registro en `RegistroAuditoria`).
-  - [ ] **Sub-tarea 4.2 (Embudo de Incidencias Vecinales y Cuota de Fotos):** Modelar `Incidencia`, `ApoyoIncidencia` (`UNIQUE(incidencia_id, usuario_id)`) y `EvidenciaIncidencia` con su migración Alembic verificada en PostgreSQL 17 (`make qa-parity`). Implementar `GET/POST /api/incidencias`, `POST /api/incidencias/{id}/me-sumo` (transición a `PRIORITARIA` al alcanzar umbral $\ge 5$ apoyos) y control estricto de cuota de **30 fotos/mes calendario** para el rol `VOCERO` con `read_uploaded_file_safely` (máx. 2 MB, HTTP 413/429).
-  - [ ] **Sub-tarea 4.3 (Checklist del Conserje y Cronjob Diario):** Modelar `PlantillaTarea` y `TareaConserje` (`UNIQUE(plantilla_id, fecha_asignacion)`). Implementar el generador idempotente diario, `GET /api/tareas/hoy` y `PUT /api/tareas/{id}/completar`.
-  - [ ] **Sub-tarea 4.4 (Worker Asíncrono AVIF, Webhooks Seguros y Notificaciones):** Integrar cola asíncrona sobre KeyDB para conversión de evidencias a formato AVIF en MinIO y envío de notificaciones validando cualquier webhook saliente con `validate_safe_outgoing_url` (Anti-SSRF).
-  - [ ] **Sub-tarea 4.5 (Certificación QA 11X del Hito 4):** Pruebas unitarias (`>= 95%`), paridad `make qa-parity` en PostgreSQL 17, contratos Schemathesis y nuevos escenarios BDD en `backend/test/api_test.feature`.
+  - [x] **Sub-tarea 4.1 (Estructura, Activación de Usuarios Fantasma y Junta):** Implementados `GET /api/estructura/unidades`, `POST /api/estructura/generar` (`Idempotency-Key`), `GET /api/usuarios/pendientes`, `PUT /api/usuarios/{id}/asignar` y `PUT /api/junta/cargos` (validando contrato activo de `PROPIETARIO`) en `backend/src/routers/administracion.py`.
+  - [x] **Sub-tarea 4.2 (Embudo de Incidencias Vecinales y Cuota de 30 Fotos/Mes):** Modeladas las 7 tablas operativas en `backend/src/models.py` con migración `0002_hito4_operaciones.py` verificada en PostgreSQL 17. Implementados `GET /api/incidencias/abiertas`, `POST /api/incidencias/crear` y `POST /api/incidencias/{id}/adherir` en `backend/src/routers/incidencias.py`, más `POST /api/voceros/fotos` (límite estricto de 30 fotos/mes calendario devolviendo `429 Too Many Requests`) y `GET /api/voceros/galeria` en `backend/src/routers/operaciones.py`.
+  - [x] **Sub-tarea 4.3 (Checklist del Conserje, Bitácora y Comunicados):** Implementados `POST /api/tareas/plantillas`, `POST /api/tareas/diarias`, `POST /api/tareas/generar-diarias`, `GET /api/tareas/diarias` y `PUT /api/tareas/{id}/completar` (con cierre automático de la incidencia vinculada), además de `POST /api/bitacora/acta`, `GET /api/bitacora/historial`, `POST /api/comunicados` (protegido con `validate_safe_outgoing_url`) y `GET /api/comunicados/recientes`.
+  - [x] **Sub-tarea 4.4 (Worker Asíncrono AVIF y Notificaciones):** Implementado `backend/src/worker.py` (`convertir_y_subir_avif`, `encolar_notificacion_correo`, `generar_tareas_diarias_desde_plantillas`).
+  - [x] **Sub-tarea 4.5 (Certificación QA 11X del Hito 4):** Suite unitaria `tests/test_hito4_operaciones.unit.py` (159 pruebas totales, 99.83% cobertura), paridad `make qa-parity` de las 17 tablas en PostgreSQL 17 y 10 escenarios BDD en `backend/test/api_test.feature`.
 
 ---
 

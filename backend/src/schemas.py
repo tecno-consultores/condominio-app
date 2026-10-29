@@ -126,3 +126,180 @@ class CierreMensualRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
+
+
+TipoEstructura = Literal["EDIFICIO", "CALLE"]
+TipoOcupante = Literal["PROPIETARIO", "INQUILINO"]
+RolResidente = Literal["PROPIETARIO", "INQUILINO", "CONSERJE"]
+CargoJunta = Literal["PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "VOCERO"]
+FrecuenciaTarea = Literal["UNICA", "DIARIA", "SEMANAL", "MENSUAL"]
+
+
+class EstructuraGenerarRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: str = Field(min_length=1)
+    tipo: TipoEstructura
+    identificadores: list[str] = Field(min_length=1)
+
+
+class UnidadResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    identificador: str
+    estructura_id: int
+
+
+class EstructuraGenerarResponse(BaseModel):
+    estructura_id: int
+    nombre: str
+    tipo: str
+    unidades_creadas: int
+    unidades: list[UnidadResponse]
+
+
+class UsuarioAsignarRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unidad_id: int = Field(strict=True)
+    tipo_ocupante: TipoOcupante
+    rol: RolResidente = "PROPIETARIO"
+
+
+class JuntaCargoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    usuario_id: int = Field(strict=True)
+    cargo: CargoJunta
+
+
+class IncidenciaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    area: str = Field(min_length=1)
+    descripcion: str = Field(min_length=1)
+    url_foto: str | None = None
+
+
+class IncidenciaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    usuario_creador_id: int
+    area: str
+    descripcion: str
+    url_foto: str | None
+    estado: str
+    adhesiones_count: int
+
+
+class PlantillaTareaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    titulo: str = Field(min_length=1)
+    area: str = Field(min_length=1)
+    frecuencia: FrecuenciaTarea = "DIARIA"
+
+
+class PlantillaTareaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    titulo: str
+    area: str
+    frecuencia: str
+    activa: bool
+
+
+class TareaDiariaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    titulo: str = Field(min_length=1)
+    area: str = Field(min_length=1)
+    fecha: date_type | None = None
+    incidencia_id: int | None = Field(default=None, strict=True)
+
+
+class TareaCompletarRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url_evidencia: str | None = None
+
+
+class TareaDiariaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    plantilla_id: int | None
+    incidencia_id: int | None
+    titulo: str
+    area: str
+    fecha: date_type
+    completada: bool
+    url_evidencia: str | None
+
+
+class FotoVoceroCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
+    area: str = Field(min_length=1)
+    comentario: str = Field(min_length=1)
+    url_foto: str = Field(min_length=1)
+
+
+class FotoVoceroResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    usuario_id: int
+    periodo: str
+    area: str
+    comentario: str
+    url_foto: str
+
+
+class GaleriaVoceroResponse(BaseModel):
+    periodo: str
+    fotos_usadas_mes: int
+    limite_mensual: int
+    fotos: list[FotoVoceroResponse]
+
+
+class BitacoraActaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fecha: date_type
+    hora: str = Field(min_length=1)
+    ubicacion: str = Field(min_length=1)
+    contenido: str = Field(min_length=1)
+
+
+class BitacoraActaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    fecha: date_type
+    hora: str
+    ubicacion: str
+    contenido: str
+    autor_id: int
+
+
+class ComunicadoCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    titulo: str = Field(min_length=1)
+    contenido: str = Field(min_length=1)
+    enlace_externo: str | None = None
+
+
+class ComunicadoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    titulo: str
+    contenido: str
+    enlace_externo: str | None
+    activo: bool

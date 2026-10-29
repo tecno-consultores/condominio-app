@@ -54,6 +54,11 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
   - `POST /api/finanzas/egresos`: conversión multimoneda, falta de tasa (400), periodo inválido (422), tasa cero (400) y fallo de BD (500).
   - `GET /api/finanzas/resumen`: deuda total, total de egresos, egresos por categoría y estado de cobranza.
   - `POST /api/finanzas/cierre-mensual`: bloqueo de recibos/egresos, inmutabilidad del Candado Contable (409 si ya cerrado) y periodo inválido (422).
+- `tests/test_hito4_operaciones.unit.py`:
+  - `src/worker.py`: conversión determinista AVIF (`convertir_y_subir_avif`), cola de notificaciones en KeyDB (`encolar_notificacion_correo`) y generador idempotente diario de tareas (`generar_tareas_diarias_desde_plantillas`).
+  - `src/routers/administracion.py`: generación idempotente de estructura/unidades (`POST /api/estructura/generar`), listado de unidades (`GET /api/estructura/unidades`), listado de Usuarios Fantasma (`GET /api/usuarios/pendientes`), activación/asignación de unidad (`PUT /api/usuarios/{id}/asignar`) y designación de cargos de Junta (`PUT /api/junta/cargos` validando contrato activo de `PROPIETARIO`).
+  - `src/routers/incidencias.py`: listado de incidencias abiertas por prioridad (`GET /api/incidencias/abiertas`), creación idempotente (`POST /api/incidencias/crear`) y adhesión única por vecino (`POST /api/incidencias/{id}/adherir`).
+  - `src/routers/operaciones.py`: plantillas y tareas del conserje con cierre automático de incidencia vinculada (`PUT /api/tareas/{id}/completar`), galería de voceros con límite estricto de 30 fotos/mes (`POST /api/voceros/fotos` devolviendo `429 Too Many Requests`), bitácora del secretario (`POST /api/bitacora/acta`, `GET /api/bitacora/historial`) y comunicados con validación Anti-SSRF (`POST /api/comunicados`, `GET /api/comunicados/recientes`).
 
 ---
 

@@ -1,6 +1,6 @@
 # 👥 Especificación 02: Dominio de Identidad, Estructura Polimórfica y RBAC
 
-**Estado:** Hitos 1 y 2 Completados en Backend / Endpoints Administrativos en Hito 4 / GUI en Hitos 5 y 7
+**Estado:** Hitos 1, 2 y 4 Completados en Backend (`auth.py`, `administracion.py`) / GUI en Hitos 5 y 7
 
 ---
 
