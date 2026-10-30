@@ -217,6 +217,7 @@ class UsuarioAsignarRequest(BaseModel):
     unidad_id: int = Field(strict=True)
     tipo_ocupante: TipoOcupante
     rol: RolResidente = "PROPIETARIO"
+    puede_votar_asamblea: bool | None = None
 
 
 class JuntaCargoRequest(BaseModel):
@@ -461,3 +462,116 @@ class VerificarSolvenciaResponse(BaseModel):
     vigente: bool
     deuda_verificada_usd: Decimal
     firma_hmac: str
+
+
+TipoConsulta = Literal[
+    "CARTA_CONSULTA_1RA",
+    "CARTA_CONSULTA_2DA",
+    "ASAMBLEA_ORDINARIA",
+    "ASAMBLEA_EXTRAORDINARIA",
+]
+ReglaQuorum = Literal["DOS_TERCIOS", "MAYORIA_SIMPLE", "UNANIMIDAD"]
+EstadoConsulta = Literal[
+    "ABIERTA",
+    "CERRADA_APROBADA",
+    "CERRADA_RECHAZADA",
+    "CERRADA_SIN_QUORUM",
+]
+
+
+class OpcionConsultaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    etiqueta: str = Field(..., min_length=2, max_length=120)
+    es_opcion_aprobatoria: bool = False
+
+
+class ConsultaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    titulo: str = Field(..., min_length=5, max_length=160)
+    descripcion_legal: str = Field(..., min_length=10)
+    tipo_consulta: TipoConsulta = "CARTA_CONSULTA_1RA"
+    regla_quorum: ReglaQuorum = "DOS_TERCIOS"
+    fecha_cierre: datetime
+    opciones: list[OpcionConsultaCreate] = Field(..., min_length=2, max_length=10)
+
+
+class OpcionConsultaResultadoResponse(BaseModel):
+    id: int
+    etiqueta: str
+    es_opcion_aprobatoria: bool
+    votos_cantidad: int = 0
+    alicuota_acumulada: Decimal = Decimal("0.0000")
+
+
+class VotoReciboResumenResponse(BaseModel):
+    voto_id: int
+    unidad_id: int
+    identificador_unidad: str
+    opcion_id: int
+    opcion_etiqueta: str
+    alicuota_capturada: Decimal
+    fecha_voto: datetime
+    firma_hmac: str
+
+
+class ConsultaResumenResponse(BaseModel):
+    id: int
+    titulo: str
+    descripcion_legal: str
+    tipo_consulta: str
+    regla_quorum: str
+    quorum_minimo_alicuota: Decimal
+    participacion_alicuota: Decimal
+    alicuota_aprobatoria: Decimal
+    total_votos: int
+    fecha_apertura: datetime
+    fecha_cierre: datetime
+    estado: str
+    creada_por_id: int
+    acta_bitacora_id: int | None = None
+    ya_voto_usuario: bool = False
+
+
+class ConsultaDetalleResponse(ConsultaResumenResponse):
+    opciones: list[OpcionConsultaResultadoResponse]
+    mi_voto: VotoReciboResumenResponse | None = None
+
+
+class VotarConsultaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unidad_id: int = Field(..., strict=True, gt=0)
+    opcion_id: int = Field(..., strict=True, gt=0)
+
+
+class ReciboVotoResponse(BaseModel):
+    voto_id: int
+    consulta_id: int
+    titulo_consulta: str
+    unidad_id: int
+    identificador_unidad: str
+    usuario_id: int
+    opcion_id: int
+    opcion_etiqueta: str
+    alicuota_capturada: Decimal
+    participacion_total_alicuota: Decimal
+    quorum_minimo_alicuota: Decimal
+    fecha_voto: datetime
+    ip_hash: str
+    firma_hmac: str
+    mensaje_verificacion: str
+
+
+class CerrarConsultaResponse(BaseModel):
+    consulta_id: int
+    titulo: str
+    estado: str
+    regla_quorum: str
+    quorum_minimo_alicuota: Decimal
+    participacion_alicuota: Decimal
+    alicuota_aprobatoria: Decimal
+    total_votos: int
+    acta_bitacora_id: int
+    hash_global_escrutinio: str

@@ -81,6 +81,7 @@ async def register_user(
             unidad_id=user.unidad_solicitada_id,
             tipo_ocupante=user.tipo_ocupante_solicitado,
             es_activo=False,
+            puede_votar_asamblea=(user.tipo_ocupante_solicitado == "PROPIETARIO"),
         )
         db.add(nuevo_contrato)
         await db.commit()

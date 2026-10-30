@@ -160,10 +160,16 @@ async def asignar_y_activar_usuario(
         )
     )
     contratos_previos = list(res_contratos.scalars().all())
+    puede_votar = (
+        datos.puede_votar_asamblea
+        if datos.puede_votar_asamblea is not None
+        else (datos.tipo_ocupante == "PROPIETARIO")
+    )
     if contratos_previos:
         for contrato in contratos_previos:
             contrato.tipo_ocupante = datos.tipo_ocupante
             contrato.es_activo = True
+            contrato.puede_votar_asamblea = puede_votar
     else:
         db.add(
             ContratoOcupacion(
@@ -171,6 +177,7 @@ async def asignar_y_activar_usuario(
                 unidad_id=unidad.id,
                 tipo_ocupante=datos.tipo_ocupante,
                 es_activo=True,
+                puede_votar_asamblea=puede_votar,
             )
         )
 

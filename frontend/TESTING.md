@@ -33,8 +33,11 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
 - `src/stores/operationsStore.unit.ts`, `src/components/operations/*.unit.ts`, `src/views/operations/*.unit.ts` y `src/views/admin/*.unit.ts` (Hitos 7 y 10):
   - `operationsStore.unit.ts` (estructura, actualización de alícuota y cuota fija por unidad, activación de usuarios fantasma, cargos de junta, embudo de incidencias, checklist diario de conserjería, galería de voceros con límite de 30 fotos/mes, bitácora de secretaría y catch no destructivo).
   - `IncidentCard.unit.ts`, `TaskChecklistItem.unit.ts`, `IncidentsFeedView.unit.ts`, `OperationsTasksView.unit.ts`, `SpokespersonGalleryView.unit.ts`, `SecretaryLogbookView.unit.ts`, `AdminStructureView.unit.ts`, `AdminGhostUsersView.unit.ts` y `AdminBoardRolesView.unit.ts`.
+- `src/stores/governanceStore.unit.ts`, `src/components/governance/*.unit.ts` y `src/views/governance/*.unit.ts` (Hito 11):
+  - `governanceStore.unit.ts` (listado, detalle, creación idempotente de Cartas Consulta y Asambleas, emisión de voto ponderado con recibo `HMAC-SHA256`, cierre de consulta con `acta_generada_id` y catch no destructivo).
+  - `VoteReceiptModal.unit.ts` (modal `<dialog closedby="any">` con recibo criptográfico verificable y cierre por backdrop), `ConsultationsListView.unit.ts` (`/consultas`) y `ConsultationDetailView.unit.ts` (`/consultas/:id` con `<progress id="quorum-progress-bar">` y escrutinio en tiempo real).
 - `src/App.unit.ts`: Montaje del contenedor raíz.
-- **Total Certificado (Hitos 5, 6, 7 y 10):** **30 componentes `.vue` auditados (0 huérfanos)**, **37 suites `.unit.ts` (75/75 tests aprobados)** con **99.84% líneas/sentencias, 98.26% funciones y 95.37% ramas**.
+- **Total Certificado (Hitos 5, 6, 7, 10 y 11):** **33 componentes `.vue` auditados (0 huérfanos)**, **41 suites `.unit.ts` (83/83 tests aprobados)** con **99.31% líneas, 99.06% sentencias, 97.67% funciones y 95.85% ramas**.
 
 ---
 

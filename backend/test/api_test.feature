@@ -150,8 +150,25 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match response.detail == 'No autenticado'
 
   Scenario: 12. Usuario Fantasma recibe 403 Forbidden en endpoints de Alícuotas, Fondos, Facturación y Solvencia
+    Given path '/api/auth/register'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001010'
+    And request
+      """
+      {
+        "nombre": "Fantasma Hito 10 BDD",
+        "cedula": "V-40404010",
+        "correo": "fantasma.hito10@test.com",
+        "telefono": "+584144040410",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
     Given path '/api/auth/login'
-    And request { correo: "fantasma.bdd@test.com", password: "Password123!" }
+    And request { correo: "fantasma.hito10@test.com", password: "Password123!" }
     When method post
     Then status 200
 
@@ -185,3 +202,63 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method get
     Then status 404
     And match response.detail contains 'no encontrado'
+
+  # ==============================================================================
+  # Grupo 5: Gobernanza Digital, Cartas Consulta (Art. 23 LPH) y Asambleas (Hito 11)
+  # ==============================================================================
+
+  Scenario: 14. Listado y detalle de Cartas Consulta sin sesión devuelve 401 Unauthorized
+    Given path '/api/consultas'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+    Given path '/api/consultas/1'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+  Scenario: 15. Usuario Fantasma recibe 403 Forbidden al listar, crear, votar o cerrar Cartas Consulta LPH
+    Given path '/api/auth/register'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001100'
+    And request
+      """
+      {
+        "nombre": "Fantasma Hito 11 BDD",
+        "cedula": "V-40404011",
+        "correo": "fantasma.hito11@test.com",
+        "telefono": "+584144040411",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "fantasma.hito11@test.com", password: "Password123!" }
+    When method post
+    Then status 200
+
+    Given path '/api/consultas'
+    When method get
+    Then status 403
+
+    Given path '/api/consultas'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001101'
+    And request { titulo: "Carta Consulta BDD", descripcion_legal: "Sustento legal Art. 23 LPH", tipo_consulta: "CARTA_CONSULTA_1RA", regla_quorum: "DOS_TERCIOS", fecha_cierre: "2026-12-31T23:59:00Z", opciones: [{ etiqueta: "APROBAR", es_opcion_aprobatoria: true }, { etiqueta: "RECHAZAR", es_opcion_aprobatoria: false }] }
+    When method post
+    Then status 403
+
+    Given path '/api/consultas/1/votar'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001102'
+    And request { unidad_id: 1, opcion_id: 1 }
+    When method post
+    Then status 403
+
+    Given path '/api/consultas/1/cerrar'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001103'
+    And request {}
+    When method post
+    Then status 403

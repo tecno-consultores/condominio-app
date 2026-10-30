@@ -10,7 +10,9 @@ services:
       - ./dist:/usr/share/nginx/html:ro
       - nginx-logs:/var/log/nginx
     ports:
-      - "8080:80"
+      - "${UI_HOST_PORT:-0}:80"
+    command: >
+      sh -c "printf 'server { listen 80; root /usr/share/nginx/html; index index.html; location / { try_files \$$uri \$$uri/ /index.html; } }\n' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
 
   qa-vue3:
     image: sinfallas/base-node-ionic:26

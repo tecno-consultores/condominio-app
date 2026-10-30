@@ -36,3 +36,13 @@ For **EVERY** component, service, or integration, the test suite MUST include an
    - Tests must assert that unapproved users (`FANTASMA`) or locked months (`CERRADO`) do NOT mutate balances, receipts, or expenses.
 2. **Fail-Closed Rule:**
    - If a virgin/locked fixture allows a state mutation or returns a false positive, the test suite aborts with exit code 1.
+
+---
+
+## 4. Parallel BDD Scenario Isolation & Multi-Connection SQLite (`Karate Labs`)
+
+1. **Zero Inter-Scenario State Coupling (`threads = 5`):**
+   - `ExamplesTest.java` executes Karate Labs scenarios in parallel across 5 threads (`Runner.path("classpath:examples").parallel(5)`).
+   - Every scenario in `backend/test/api_test.feature` that requires an authenticated Ghost or Nominal user MUST register its own isolated fixture (`POST /api/auth/register` with a scenario-unique email, cedula, and `Idempotency-Key`) before calling `POST /api/auth/login`. Never depend on another scenario's execution order.
+2. **Avoid `StaticPool` on Multi-Threaded Live API Containers:**
+   - The `api` service in `backend/docker-compose.qa.yml` (exercised concurrently by Karate Labs, Schemathesis, ZAP, and Locust) MUST use a file-backed ephemeral SQLite URL (`sqlite+aiosqlite:////tmp/qa_api.db`) rather than `:memory:` (`StaticPool`), preventing concurrent `AsyncSession.close()` rollbacks on a single shared connection.

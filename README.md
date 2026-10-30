@@ -2,7 +2,7 @@
 
 **Condominio App** es una plataforma de código abierto (MIT) diseñada para modernizar y transparentar la administración de condominios, edificios y urbanizaciones bajo el estándar corporativo **Gobernanza y Calidad Nivel 11X**.
 
-Construida con una arquitectura modular **Mobile-First**, resuelve los problemas críticos de la gestión condominal: control de pagos multimoneda (USD / VES con tasa BCV), inmutabilidad del **Candado Contable**, auditoría forense de rechazos, activación controlada de residentes (**Usuarios Fantasma**), embudo vecinal de incidencias ("¡Me sumo!") y checklist diario de conserjería.
+Construida con una arquitectura modular **Mobile-First**, resuelve los problemas críticos de la gestión condominal: control de pagos multimoneda (USD / VES con tasa BCV), facturación trimodal LPH por alícuotas (Método de Hamilton), certificados digitales de solvencia e inmutabilidad del **Candado Contable**, Cartas Consulta (Art. 23 LPH) y Asambleas con voto ponderado firmado con `HMAC-SHA256`, auditoría forense de rechazos, activación controlada de residentes (**Usuarios Fantasma**), embudo vecinal de incidencias ("¡Me sumo!") y checklist diario de conserjería.
 
 ---
 

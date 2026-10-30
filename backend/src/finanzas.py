@@ -12,6 +12,7 @@ from collections.abc import Iterable, Sequence
 from decimal import ROUND_HALF_UP, Decimal
 
 CENTAVO = Decimal("0.01")
+CUATRO_DECIMALES = Decimal("0.0001")
 
 MONEDAS_VALIDAS = frozenset({"USD", "VES"})
 METODOS_CON_REFERENCIA = frozenset({"ZELLE", "PAGO_MOVIL", "TRANSFERENCIA"})
@@ -247,3 +248,107 @@ def construir_qr_token_solvencia(
     payload = _construir_payload_solvencia(folio, identificador_unidad, fecha_vencimiento_iso)
     b64_payload = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
     return f"{b64_payload}.{firma_hmac}"
+
+
+_UMBRALES_QUORUM: dict[str, Decimal] = {
+    "DOS_TERCIOS": Decimal("66.6700"),
+    "MAYORIA_SIMPLE": Decimal("50.0100"),
+    "UNANIMIDAD": Decimal("100.0000"),
+}
+
+
+def umbral_quorum_por_regla(regla_quorum: str) -> Decimal:
+    """Retorna el porcentaje mínimo de alícuota requerido según la regla legal LPH (Art. 23/24)."""
+    umbral = _UMBRALES_QUORUM.get(regla_quorum)
+    if umbral is None:
+        raise ErrorFinanciero(f"Regla de quórum inválida: {regla_quorum}")
+    return umbral
+
+
+def construir_mensaje_voto_consulta(
+    consulta_id: int,
+    unidad_id: int,
+    opcion_id: int,
+    alicuota_capturada: Decimal,
+    fecha_voto_iso: str,
+) -> str:
+    """Construye el mensaje canónico VOTO|v1 para el recibo criptográfico de Carta Consulta."""
+    alicuota_norm = Decimal(str(alicuota_capturada)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+    return f"VOTO|v1|{consulta_id}|{unidad_id}|{opcion_id}|{alicuota_norm:.4f}|{fecha_voto_iso.strip()}"
+
+
+def generar_firma_voto_consulta(
+    consulta_id: int,
+    unidad_id: int,
+    opcion_id: int,
+    alicuota_capturada: Decimal,
+    fecha_voto_iso: str,
+    secret_key: str,
+) -> str:
+    """Genera la firma HMAC-SHA256 para un voto emitido en una Carta Consulta o Asamblea."""
+    mensaje = construir_mensaje_voto_consulta(
+        consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso
+    )
+    return hmac.new(
+        secret_key.encode("utf-8"),
+        mensaje.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verificar_firma_voto_consulta(
+    consulta_id: int,
+    unidad_id: int,
+    opcion_id: int,
+    alicuota_capturada: Decimal,
+    fecha_voto_iso: str,
+    firma_recibida: str,
+    secret_key: str,
+) -> bool:
+    """Verifica en tiempo constante la autenticidad criptográfica de un recibo de voto."""
+    if not firma_recibida or not firma_recibida.strip():
+        return False
+    esperada = generar_firma_voto_consulta(
+        consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso, secret_key
+    )
+    return hmac.compare_digest(firma_recibida.strip(), esperada)
+
+
+def calcular_ip_hash_voto(ip_origen: str, consulta_id: int, secret_key: str) -> str:
+    """Calcula el hash HMAC-SHA256 salado de la IP del votante para auditoría forense preservando privacidad."""
+    ip_norm = (ip_origen or "DESCONOCIDA").strip()
+    payload = f"IP|v1|{consulta_id}|{ip_norm}"
+    return hmac.new(
+        secret_key.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def evaluar_escrutinio_consulta(
+    quorum_minimo_alicuota: Decimal,
+    opciones_aprobatorias_ids: set[int],
+    alicuotas_por_opcion: dict[int, Decimal],
+) -> tuple[str, Decimal, Decimal]:
+    """Evalúa el resultado de una Carta Consulta o Asamblea ponderada por alícuota.
+
+    Retorna (estado_final, participacion_total_alicuota, alicuota_aprobatoria).
+    """
+    quorum_min = Decimal(str(quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+    participacion_total = Decimal("0.0000")
+    alicuota_aprobatoria = Decimal("0.0000")
+
+    for op_id, alic in alicuotas_por_opcion.items():
+        alic_norm = Decimal(str(alic)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+        participacion_total += alic_norm
+        if op_id in opciones_aprobatorias_ids:
+            alicuota_aprobatoria += alic_norm
+
+    participacion_total = participacion_total.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+    alicuota_aprobatoria = alicuota_aprobatoria.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+
+    if participacion_total < quorum_min:
+        return "CERRADA_SIN_QUORUM", participacion_total, alicuota_aprobatoria
+    if alicuota_aprobatoria >= quorum_min:
+        return "CERRADA_APROBADA", participacion_total, alicuota_aprobatoria
+    return "CERRADA_RECHAZADA", participacion_total, alicuota_aprobatoria

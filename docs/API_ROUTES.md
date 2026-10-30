@@ -150,17 +150,17 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 
 ---
 
-## 10. Gobernanza Digital: Cartas Consulta (Art. 23 LPH) y Asambleas (Fase 4 — Spec 08)
+## 10. Gobernanza Digital: Cartas Consulta (Art. 23 LPH) y Asambleas (Fase 4 — Spec 08 — Implementado en Hito 11)
 
 ### 🖥️ Vistas: Cartas Consulta y Votación Ponderada por Alícuota
 * **Rutas Vue:** `/consultas`, `/consultas/:id`
 * **Diseño GUI:**
-  * **Listado y Detalle:** Muestra el quórum requerido ($66.67\%$ en 1ra consulta o $50.01\%$ en 2da consulta), barra de progreso en tiempo real por alícuota acumulada y opciones de votación.
-  * **Recibo Criptográfico:** Al votar, presenta modal (`VoteReceiptModal.vue`) con el hash `HMAC-SHA256` del voto y la alícuota capturada.
+  * **Listado (`ConsultationsListView.vue`) y Detalle (`ConsultationDetailView.vue`):** Muestra el quórum requerido ($66.6700\%$ en `DOS_TERCIOS`, $50.0100\%$ en `MAYORIA_SIMPLE` o $100.0000\%$ en `UNANIMIDAD`), barra nativa `<progress id="quorum-progress-bar">` en tiempo real por alícuota acumulada y opciones de votación.
+  * **Recibo Criptográfico (`VoteReceiptModal.vue`):** Al votar, presenta modal `<dialog id="modal-vote-receipt" closedby="any">` con el hash `HMAC-SHA256` del voto, la unidad inmobiliaria y la alícuota capturada.
 * **Endpoints FastAPI:**
-  * `POST /api/consultas`, `GET /api/consultas`, `GET /api/consultas/{id}`: Creación y consulta de Cartas Consulta. *[Header: Idempotency-Key]*
-  * `POST /api/consultas/{id}/votar`: Registra voto único por unidad ponderado por su alícuota (exclusivo `PROPIETARIO` o apoderado autorizado). *[Header: Idempotency-Key]*
-  * `POST /api/consultas/{id}/cerrar`: Cierra el escrutinio y genera automáticamente el acta en `BitacoraActa`. *[Header: Idempotency-Key]*
+  * `POST /api/consultas`, `GET /api/consultas`, `GET /api/consultas/{id}`: Creación y consulta de Cartas Consulta y Asambleas. *[Header: Idempotency-Key]*
+  * `POST /api/consultas/{id}/votar`: Registra voto único por unidad ponderado por su alícuota (exclusivo `PROPIETARIO` o representante con `puede_votar_asamblea = true`). *[Header: Idempotency-Key]*
+  * `POST /api/consultas/{id}/cerrar`: Cierra el escrutinio y genera automáticamente el acuerdo inmutable en `BitacoraActa`. *[Header: Idempotency-Key]*
 
 ---
 

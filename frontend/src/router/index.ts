@@ -19,6 +19,8 @@ import PaymentWizardView from '../views/finance/PaymentWizardView.vue';
 import SolvencyCertificateView from '../views/finance/SolvencyCertificateView.vue';
 import TreasuryClosingView from '../views/finance/TreasuryClosingView.vue';
 import TreasuryPaymentsView from '../views/finance/TreasuryPaymentsView.vue';
+import ConsultationDetailView from '../views/governance/ConsultationDetailView.vue';
+import ConsultationsListView from '../views/governance/ConsultationsListView.vue';
 import IncidentsFeedView from '../views/operations/IncidentsFeedView.vue';
 import OperationsTasksView from '../views/operations/OperationsTasksView.vue';
 import SecretaryLogbookView from '../views/operations/SecretaryLogbookView.vue';
@@ -110,6 +112,18 @@ export const routes: RouteRecordRaw[] = [
     path: '/secretaria/bitacora',
     name: 'secretaria-bitacora',
     component: SecretaryLogbookView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/consultas',
+    name: 'consultas-list',
+    component: ConsultationsListView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/consultas/:id',
+    name: 'consulta-detail',
+    component: ConsultationDetailView,
     meta: { requiresActive: true },
   },
   {

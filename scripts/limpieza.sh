@@ -29,7 +29,8 @@ rm -rf .schemathesis backend/.schemathesis
 rm -rf .uv/ backend/.uv/
 rm -rf dist backend/dist frontend/dist
 rm -rf htmlcov/ backend/htmlcov/
-rm -rf backend/tests/__pycache__ backend/src/*/__pycache__ backend/scripts/*/__pycache__
+rm -rf backend/tests/__pycache__ backend/src/__pycache__ backend/src/*/__pycache__ backend/scripts/*/__pycache__ backend/alembic/__pycache__ backend/alembic/versions/__pycache__
+rm -f *.db *.sqlite3 backend/*.db backend/*.sqlite3
 rm -rf target/ backend/target/ backend/test/target/ frontend/target/ frontend/test/target/
 rm -f zap-report.html backend/zap-report.html
 rm -f chaos-report.html backend/chaos-report.html

@@ -1,7 +1,7 @@
 # 🗳️ Especificación 08: Dominio de Gobernanza Digital, Cartas Consulta (Art. 23 LPH) y Asambleas
 
-**Estado:** `[ESPECIFICADO — FASE 4 / HITO 11]`  
-**Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/routers/consultas.py`, `backend/alembic/versions/0004_hito11_cartas_consulta.py`  
+**Estado:** `[IMPLEMENTADO Y CERTIFICADO — FASE 4 / HITO 11]`  
+**Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/finanzas.py`, `backend/src/routers/consultas.py`, `backend/alembic/versions/0004_hito11_cartas_consulta.py`  
 **Módulos Frontend Objetivo:** `frontend/src/stores/governanceStore.ts`, `frontend/src/views/governance/ConsultationsListView.vue`, `frontend/src/views/governance/ConsultationDetailView.vue`, `frontend/src/components/governance/VoteReceiptModal.vue`
 
 ---

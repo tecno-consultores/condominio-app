@@ -14,12 +14,12 @@
 | **Lint, Tipado & SAST (Backend)** | `make -C backend qa-lint` (`ruff`, `mypy --strict`, `bandit`) | 0 errores / 0 advertencias | ✅ **100% Limpio** |
 | **Complejidad Ciclomática & MI** | `make -C backend qa-complexity` (`radon_gates.py`) | CC $\le$ Grado B, MI $\ge$ Grado B | ✅ **Grado A en todos los módulos** |
 | **Auditoría de Dependencias** | `make -C backend qa-deps` (`uv audit`) | 0 CVEs conocidos | ✅ **0 vulnerabilidades** |
-| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.82% cobertura (182/182 pass)** |
-| **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (20 tablas)** |
+| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.85% cobertura (190/190 pass)** |
+| **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (23 tablas)** |
 | **Lint, Tipado & SonarJS (Frontend)** | `make -C frontend qa-lint` (`vue-tsc`, `prettier`, `eslint`) | 0 errores / CC $\le 15$ | ✅ **100% Limpio** |
-| **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **30/30 componentes cubiertos** |
-| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.84% líneas / 98.26% funciones / 95.37% ramas (75/75 pass)** |
-| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **1.613 nodos, 3.669 relaciones, 102 comunidades, 0 violaciones** |
+| **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **33/33 componentes cubiertos** |
+| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.31% líneas / 99.06% sentencias / 97.67% funciones / 95.85% ramas (83/83 pass)** |
+| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **1.745 nodos, 4.105 relaciones, 109 comunidades, 0 violaciones** |
 | **Contratos OpenAPI & Fuzzing** | `make -C backend qa-contracts` (`schemathesis`) | 0 fallos 5xx / contrato | ✅ **626/626 casos aprobados** |
 | **Seguridad Dinámica (DAST)** | `make -C backend qa-dast` (`zaproxy/zap-stable`) | `FAIL-NEW: 0` | ✅ **0 fallos (66 reglas PASS)** |
 | **Ingeniería del Caos & Carga** | `make -C backend qa-chaos` (`Pumba` + `Locust` + `Prometheus`) | 0 errores bajo `netem 500ms` | ✅ **2.786 peticiones, 0 fallos** |
@@ -40,6 +40,7 @@
 - `tests/test_schemas.unit.py` y `tests/test_models.unit.py`: Validaciones estrictas Pydantic v2 y modelos SQLAlchemy 2.0 (`Usuario`, `Estructura`, `Unidad`, `ContratoOcupacion`).
 - `tests/test_auth.unit.py` y `tests/test_dependencies.unit.py`: Registro idempotente de Usuarios Fantasma, login con cookies `HttpOnly`, validación de JWT y `/api/auth/me`.
 - `tests/test_finanzas_core.unit.py`, `tests/test_pagos.unit.py`, `tests/test_finanzas_router.unit.py` y `tests/test_hito10_alicuotas_solvencia.unit.py`: Matemática financiera `Decimal` (`ROUND_HALF_UP`), prorrateo por alícuotas mediante el **Método del Resto Mayor (Hamilton)**, facturación trimodal (`ALICUOTA`, `CUOTA_FIJA` con conciliación de superávit/déficit hacia `FondoCondominio`, y `PARTES_IGUALES`), aplicación automática de `credito_disponible_usd`, bloqueo `409 Conflict` ante referencias bancarias duplicadas, firma/verificación `HMAC-SHA256` de certificados de solvencia y **Candado Contable** (`POST /api/finanzas/cierre-mensual`).
+- `tests/test_hito11_consultas_asambleas.unit.py`: Firma y verificación criptográfica `HMAC-SHA256` de votos (`generar_firma_voto_consulta`, `verificar_firma_voto_consulta`), escrutinio ponderado LPH (`DOS_TERCIOS` $66.6700\%$, `MAYORIA_SIMPLE` $50.0100\%$ y `UNANIMIDAD` $100.0000\%$), creación/listado/detalle de Cartas Consulta y Asambleas (`/api/consultas`), voto único por unidad con validación de `puede_votar_asamblea` (`403 Forbidden` para inquilinos sin poder y `409 Conflict` para voto duplicado) y cierre con asiento automático en `BitacoraActa`.
 
 ---
 
@@ -58,6 +59,8 @@
 11. **Seguridad de URLs de Evidencia (`UrlEvidenciaSegura`):** Verifica bloqueo `422` de esquemas `javascript:` y `data:`.
 12. **Facturación Trimodal LPH (`CUOTA_FIJA`), Fondos Patrimoniales y Desglose de Recibo (Hito 10):** Verifica alta de `FondoCondominio`, actualización de alícuota/cuota fija, emisión idempotente `POST /api/finanzas/facturar-periodo` con conciliación de superávit y consulta de `GET /api/finanzas/recibos/{id}/desglose`.
 13. **Anti-Fraude de Referencia Bancaria (`409`), Acreditación de Sobrepago y Certificado Digital de Solvencia `HMAC-SHA256` (Hito 10):** Verifica bloqueo `409` al reutilizar `(metodo, numero_referencia)`, acreditación de excedente en `credito_disponible_usd`, emisión de `POST /api/finanzas/solvencia/{unidad_id}` y verificación pública `GET /api/finanzas/solvencia/verificar/{folio}`.
+14. **Protección 401 de Cartas Consulta y Asambleas (Hito 11):** Verifica que `GET /api/consultas` y `GET /api/consultas/1` sin sesión devuelven `401 Unauthorized`.
+15. **Contención RBAC de Usuario Fantasma en Cartas Consulta LPH (Hito 11):** Verifica que un Usuario Fantasma autenticado recibe `403 Forbidden` al intentar listar, crear, votar o cerrar consultas en `/api/consultas`.
 
 ---
 

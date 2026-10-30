@@ -56,6 +56,7 @@ class ContratoOcupacion(Base):
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"))
     tipo_ocupante: Mapped[str] = mapped_column(String)
     es_activo: Mapped[bool] = mapped_column(Boolean, default=False)
+    puede_votar_asamblea: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     fecha_inicio: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
     fecha_fin: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -276,3 +277,49 @@ class CertificadoSolvencia(Base):
     fecha_vencimiento: Mapped[date_type] = mapped_column(Date, nullable=False)
     deuda_verificada_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     firma_hmac: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ConsultaComunitaria(Base):
+    """Carta Consulta escrita (Art. 23 LPH) o Asamblea de Copropietarios (Art. 24 LPH) — Hito 11."""
+
+    __tablename__ = "consultas_comunitarias"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    titulo: Mapped[str] = mapped_column(String(160), nullable=False)
+    descripcion_legal: Mapped[str] = mapped_column(String, nullable=False)
+    tipo_consulta: Mapped[str] = mapped_column(String(30), default="CARTA_CONSULTA_1RA")
+    regla_quorum: Mapped[str] = mapped_column(String(30), default="DOS_TERCIOS")
+    quorum_minimo_alicuota: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("66.6700"))
+    fecha_apertura: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    fecha_cierre: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    estado: Mapped[str] = mapped_column(String(30), default="ABIERTA", index=True)
+    creada_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    acta_bitacora_id: Mapped[int | None] = mapped_column(ForeignKey("bitacora_actas.id"), nullable=True, default=None)
+
+
+class OpcionConsulta(Base):
+    """Opción seleccionable dentro de una Carta Consulta o Asamblea — Hito 11."""
+
+    __tablename__ = "opciones_consulta"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    consulta_id: Mapped[int] = mapped_column(
+        ForeignKey("consultas_comunitarias.id", ondelete="CASCADE"), index=True
+    )
+    etiqueta: Mapped[str] = mapped_column(String(120), nullable=False)
+    es_opcion_aprobatoria: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class VotoConsulta(Base):
+    """Voto inmutable de una unidad inmobiliaria ponderado por su alícuota y firmado con HMAC-SHA256 — Hito 11."""
+
+    __tablename__ = "votos_consulta"
+    __table_args__ = (UniqueConstraint("consulta_id", "unidad_id", name="uq_voto_consulta_unidad"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    consulta_id: Mapped[int] = mapped_column(ForeignKey("consultas_comunitarias.id"), index=True)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    opcion_id: Mapped[int] = mapped_column(ForeignKey("opciones_consulta.id"), index=True)
+    alicuota_capturada: Mapped[Decimal] = mapped_column(Numeric(7, 4), nullable=False)
+    fecha_voto: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ip_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    firma_hmac: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)

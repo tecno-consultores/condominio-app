@@ -64,13 +64,16 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
   - `src/security.py` y `src/redis_client.py`: validación binaria de Magic Bytes (`validate_file_magic_bytes` para PDF, PNG, JPEG, WEBP y AVIF devolviendo `415`) y revocación instantánea de sesiones en KeyDB (`revoke_user_session`, `is_user_session_revoked`, `clear_user_session_revocation`) verificada en `get_current_user` y `GET /api/auth/me`.
   - `src/routers/pagos.py`: bloqueo `HTTP 409 Conflict` ante reutilización de `(metodo, numero_referencia)` en pagos bancarios no rechazados y acreditación automática de sobrepagos en `Unidad.credito_disponible_usd`.
   - `src/routers/administracion.py` y `src/routers/finanzas.py`: actualización idempotente de alícuota y cuota fija (`PUT /api/estructura/unidades/{id}/alicuota`), fondos patrimoniales (`POST/GET /api/finanzas/fondos`), facturación mensual trimodal (`POST /api/finanzas/facturar-periodo` en modalidades `ALICUOTA`, `CUOTA_FIJA` con conciliación a fondo y `PARTES_IGUALES`), desglose de recibo (`GET /api/finanzas/recibos/{id}/desglose`) y emisión/verificación criptográfica `HMAC-SHA256` de certificados de solvencia (`POST /api/finanzas/solvencia/{unidad_id}`, `GET /api/finanzas/solvencia/verificar/{folio}`).
+- `tests/test_hito11_consultas_asambleas.unit.py`:
+  - `src/finanzas.py`: firma y verificación `HMAC-SHA256` de votos (`generar_firma_voto_consulta`, `verificar_firma_voto_consulta`), anonimización de IP (`calcular_ip_hash_voto`), umbrales de quórum (`umbral_quorum_por_regla`: `DOS_TERCIOS` $66.6700\%$, `MAYORIA_SIMPLE` $50.0100\%$, `UNANIMIDAD` $100.0000\%$) y motor de escrutinio ponderado por `alicuota_capturada` (`evaluar_escrutinio_consulta` para `APROBADA`, `RECHAZADA` y `SIN_QUORUM`).
+  - `src/routers/consultas.py`: contención de Usuario Fantasma (`403 Forbidden`), creación idempotente de Cartas Consulta (`POST /api/consultas` validando al menos una opción aprobatoria y rechazando duplicados con `409 Conflict`), listado y detalle con recibo de voto propio (`GET /api/consultas`, `GET /api/consultas/{id}`), emisión de voto ponderado (`POST /api/consultas/{id}/votar` bloqueando inquilinos sin poder `puede_votar_asamblea=False` con `403`, fechas de cierre vencidas con `409` y doble voto por unidad con `409`) y cierre con generación atómica de acuerdo en `BitacoraActa` (`POST /api/consultas/{id}/cerrar`).
 
 ---
 
 ## 2. Pruebas BDD, Paridad PostgreSQL 17, Caos y Resiliencia
 
-- `test/api_test.feature`: 13 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
-- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 20 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
+- `test/api_test.feature`: 15 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
+- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 23 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
 - `tests/locustfile.py`: Perfil de carga concurrente y saturación para inyección de caos y estrés con Pumba + Locust + Prometheus.
 
 ---
