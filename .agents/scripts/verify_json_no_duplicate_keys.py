@@ -49,7 +49,16 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent.parent
     json_files = list(repo_root.glob("**/*.json"))
 
-    ignored_patterns = ["node_modules", ".stryker-tmp", "coverage", ".venv", "dist", "build", "htmlcov"]
+    ignored_patterns = [
+        "node_modules",
+        ".stryker-tmp",
+        "coverage",
+        ".venv",
+        "dist",
+        "build",
+        "htmlcov",
+        "graphify-out/cache",
+    ]
     filtered_files = [
         f for f in json_files
         if not any(pattern in str(f) for pattern in ignored_patterns)

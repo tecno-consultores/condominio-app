@@ -3,3 +3,17 @@ packages:
 allowBuilds:
   esbuild: true
   vue-demi: true
+overrides:
+  "@babel/core": ">=7.29.6"
+  "@puppeteer/browsers": ">=3.2.6"
+  "@vitest/mocker": "^4.1.12"
+  "ajv@>=7.0.0-alpha.0 <8.18.0": ">=8.18.0"
+  basic-ftp: ">=6.2.1"
+  cookie: ">=0.7.0"
+  esbuild: "^0.25.0"
+  tinypool: ">=2.1.2"
+  tmp: ">=0.2.6"
+  uuid: ">=11.1.1"
+  vite: "^6.4.5"
+  vitest: "^4.1.12"
+  zod: ">=4.6.6"
