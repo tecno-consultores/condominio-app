@@ -125,3 +125,11 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Given path '/api/usuarios/pendientes'
     When method get
     Then status 403
+
+    Given path '/api/finanzas/resumen'
+    When method get
+    Then status 403
+
+    Given path '/api/pagos/revision'
+    When method get
+    Then status 403

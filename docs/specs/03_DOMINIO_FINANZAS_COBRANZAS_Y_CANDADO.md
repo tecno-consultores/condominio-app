@@ -1,6 +1,6 @@
 # 💰 Especificación 03: Dominio de Finanzas, Cobranzas y Candado Contable
 
-**Estado:** Backend Completado (Hito 3 ✅ con 99.66% cobertura) / GUI en Hito 6
+**Estado:** Completado y Certificado en Backend (Hito 3 ✅) y GUI (Hito 6 ✅)
 
 ---
 
@@ -55,6 +55,10 @@ sequenceDiagram
    - Cuando se ejecuta `POST /api/finanzas/cierre-mensual` para un `periodo` (`YYYY-MM`), todos los `Recibo` y `Egreso` de ese periodo pasan a `bloqueado = True`, y `ReporteMensual` pasa a `estado = "CERRADO"` con timestamp `cerrado_en`.
    - Si se intenta volver a cerrar un periodo ya cerrado, devuelve `HTTP 409 Conflict` (`"El mes ya fue cerrado (acción inmutable)"`).
    - Si se intenta reportar, aprobar o rechazar un pago asociado a un recibo con `bloqueado == True`, devuelve `HTTP 409 Conflict` (`"El periodo está cerrado (Candado Contable)"`).
-2. **Comportamiento en la GUI (Hito 6):**
-   - Del día 1 al 10 de cada mes, el Dashboard (`/dashboard`) muestra un Banner destacado si existe un cierre disponible.
-   - En las vistas de Tesorería, cualquier recibo o egreso con `bloqueado == True` deshabilita visualmente los botones de mutación y muestra el sello `"🔒 Mes Cerrado"`.
+2. **Control de Acceso (RBAC) y Validación de Comprobantes (`UrlEvidenciaSegura`):**
+   - `GET /api/finanzas/tasa`, `GET /api/finanzas/resumen` y `POST /api/pagos/reportar` exigen usuario activo (`verificar_usuario_activo`, bloqueando con `HTTP 403` a Usuarios Fantasma).
+   - `POST /api/finanzas/tasa`, `POST /api/finanzas/egresos`, `POST /api/finanzas/cierre-mensual`, `GET /api/pagos/revision`, `PUT /api/pagos/{id}/aprobar` y `PUT /api/pagos/{id}/rechazar` exigen rol `TESORERO` o `PRESIDENTE` (`verificar_roles`).
+   - Las URLs de comprobantes (`url_comprobante`) y facturas (`url_factura`) se validan con `UrlEvidenciaSegura` bloqueando esquemas `javascript:`, `data:`, `vbscript:` y `file:`.
+3. **Comportamiento en la GUI (Hito 6):**
+   - Del día 1 al 10 de cada mes, el Dashboard (`/dashboard`) muestra un Banner destacado si existe un cierre disponible (`ClosingBanner.vue`).
+   - En las vistas de Tesorería (`TreasuryPaymentsView.vue`, `TreasuryClosingView.vue`), cualquier recibo o egreso con `bloqueado == True` deshabilita visualmente los botones de mutación y muestra el sello `"🔒 Mes Cerrado"`.

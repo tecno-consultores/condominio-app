@@ -22,6 +22,7 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
   - Bloqueo de Mass Assignment (`ConfigDict(extra="forbid")`), extracción dual `Cookie`/`Bearer` y sanitización de errores `422` en modo `production`.
 - `tests/test_schemas.unit.py`:
   - Validación de esquemas Pydantic `UsuarioCreate` (datos válidos, rechazo de correo malformado con validador de correo, campos requeridos, bloqueo de campos extra).
+  - Validación de `UrlEvidenciaSegura` (bloqueo de esquemas peligrosos `javascript:`, `data:`, `vbscript:` y `file:`, y aceptación de `https://`, `http://`, `s3://` y rutas relativas `/`).
   - Validación de serialización de respuesta en `UsuarioResponse` (`from_attributes`).
 - `tests/test_models.unit.py`:
   - Modelado SQLAlchemy de `Usuario` (campos, defaults, flag fantasma `es_activo = False`).

@@ -1,6 +1,6 @@
 # 🛠️ Especificación 04: Dominio de Operaciones, Incidencias y Tareas Asíncronas (Hito 4 y Hito 7)
 
-**Estado:** Hito 4 Completado en Backend (`administracion.py`, `incidencias.py`, `operaciones.py`, `worker.py`) / GUI en Hito 7
+**Estado:** Completado y Certificado en Backend (Hito 4 ✅) y GUI (Hito 7 ✅)
 
 ---
 

@@ -85,11 +85,12 @@ make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-c
 ## 📚 Documentación y Especificaciones (`docs/specs/`)
 
 1. **[`docs/specs/README.md`](./docs/specs/README.md)** — Índice maestro de especificaciones técnicas y trazabilidad.
-2. **[`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md)** — Arquitectura de contenedores, KeyDB Multi-Hilo y las 13 defensas de seguridad híbrida SPA + API.
+2. **[`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md)** — Arquitectura de contenedores, KeyDB Multi-Hilo y las 14 defensas de seguridad híbrida SPA + API.
 3. **[`docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md`](./docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md)** — Ciclo de vida de Usuarios Fantasma, Estructura, Unidades, Contratos y matriz RBAC.
 4. **[`docs/specs/03_DOMINIO_FINANZAS_COBRANZAS_Y_CANDADO.md`](./docs/specs/03_DOMINIO_FINANZAS_COBRANZAS_Y_CANDADO.md)** — Core matemático multimoneda, pagos parciales/totales, auditoría de rechazos y Candado Contable.
 5. **[`docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md`](./docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md)** — Embudo de incidencias ("¡Me sumo!"), cuota de 30 fotos/mes, conserjería y worker AVIF.
 6. **[`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md)** — Especificación completa de la GUI Vue 3 Mobile-First, ergonomía Anti-JSDOM, stores Pinia no destructivos y paridad 1:1 API ↔ GUI.
+7. **[`docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md`](./docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md)** — Investigación del estado del arte PropTech LATAM y Ley de Propiedad Horizontal (Alícuotas, Carta Consulta Art. 23, Accesos QR, Reservas y Solvencia Digital).
 
 ---
 

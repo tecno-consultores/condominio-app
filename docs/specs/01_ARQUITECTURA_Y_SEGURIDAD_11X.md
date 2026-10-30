@@ -1,6 +1,6 @@
 # 🔐 Especificación 01: Arquitectura de Sistema y Seguridad Nivel 11X
 
-**Estado:** Activo (Implementado en Backend / Obligatorio para Frontend)  
+**Estado:** Activo y Certificado en Backend y Frontend (Hitos 1 al 7 Completados)  
 **Estándar:** QA Testing Blueprints Nivel 11X
 
 ---
@@ -35,7 +35,7 @@ flowchart LR
 
 ---
 
-## 3. Contratos de Seguridad por Diseño (13 Vectores Mitigados)
+## 3. Contratos de Seguridad por Diseño (14 Vectores Mitigados)
 
 | # | Vector de Ataque | Mitigación Técnica en Condominio App | Ubicación en Código |
 | :--- | :--- | :--- | :--- |
@@ -44,11 +44,12 @@ flowchart LR
 | 3 | **Fuga de Esquemas en Errores 422** | Respuesta opaca genérica cuando `APP_ENV=production` y registro interno en logs. | `backend/src/main.py` (`validation_exception_handler`) |
 | 4 | **Server-Side Request Forgery (SSRF)** | Resolución DNS previa y bloqueo de hosts internos y rangos RFC 1918 / loopback / link-local. | `backend/src/security.py` (`validate_safe_outgoing_url`) |
 | 5 | **Inyección SQL** | Consultas parametrizadas tipadas con SQLAlchemy 2.0 (`select`, `where`). | `backend/src/routers/*.py` |
-| 6 | **Denegación de Servicio por Subida (OOM)** | Lectura por chunks de 64 KB con corte en 2 MB (`HTTP 413`). | `backend/src/security.py` (`read_uploaded_file_safely`) |
+| 6 | **Denegación de Servicio por Subida (OOM)** | Lectura por chunks de 64 KB con corte en 2 MB (`HTTP 413`) + validación cliente (`validateProofFileUpload`). | `backend/src/security.py`, `frontend/src/utils/security.ts` |
 | 7 | **Cabeceras HTTP Inseguras** | Middleware inyectando `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`. | `backend/src/main.py` (`security_headers_middleware`) |
 | 8 | **CSRF y Autenticación Híbrida** | Tokens `HMAC-SHA256` (`generate_csrf_token`, `validate_csrf_token`) y soporte dual Cookie `HttpOnly` + `Authorization: Bearer`. | `backend/src/security.py`, `backend/src/dependencies.py` |
-| 9 | **XSS y Prototype Pollution en SPA** | `escapeHtml()` y `sanitizeObject()` con `Object.create(null)` filtrando `__proto__`, `constructor`, `prototype`. | `frontend/src/utils/security.ts` |
-| 10 | **Race Condition en Refresh Multi-Pestaña** | Ventana de cortesía (*grace period*) de 5s en KeyDB al rotar tokens. | `backend/src/redis_client.py` (`rotate_refresh_token_with_grace_period`) |
-| 11 | **Colisión de Claves de Idempotencia** | Aislamiento por ámbito/usuario: `idemp:{scope}:{key}`. | `backend/src/redis_client.py` (`build_idempotency_key`) |
-| 12 | **Exposición de OpenAPI en Producción** | `docs_url=None`, `redoc_url=None`, `openapi_url=None` si `APP_ENV=production`. | `backend/src/main.py` |
-| 13 | **CVEs en Cadena de Suministro** | `uv.lock`, `pnpm-lock.yaml`, `.npmrc` (`ignore-scripts=true`), `uv audit` y Trivy (`auditar-infra.sh`). | `backend/Makefile`, `auditar-infra.sh` |
+| 9 | **XSS, Open Redirect y Prototype Pollution en SPA** | `escapeHtml()`, `sanitizeUntrustedText()`, `isSafeRedirectUrl()` y `sanitizeObject()` con `Object.create(null)`. | `frontend/src/utils/security.ts` |
+| 10 | **Esquemas Maliciosos en URLs de Adjuntos (XSS/LFI)** | Tipo Pydantic `UrlEvidenciaSegura` (`_validar_url_evidencia_segura`) que bloquea `javascript:`, `data:`, `vbscript:` y `file:` en comprobantes, facturas, fotos y evidencias. | `backend/src/schemas.py` |
+| 11 | **Race Condition en Refresh Multi-Pestaña** | Ventana de cortesía (*grace period*) de 5s en KeyDB al rotar tokens. | `backend/src/redis_client.py` (`rotate_refresh_token_with_grace_period`) |
+| 12 | **Colisión de Claves de Idempotencia** | Aislamiento por ámbito/usuario: `idemp:{scope}:{key}` + composable cliente `useIdempotency`. | `backend/src/redis_client.py`, `frontend/src/composables/useIdempotency.ts` |
+| 13 | **Exposición de OpenAPI en Producción** | `docs_url=None`, `redoc_url=None`, `openapi_url=None` si `APP_ENV=production`. | `backend/src/main.py` |
+| 14 | **CVEs en Cadena de Suministro** | `uv.lock`, `pnpm-lock.yaml`, `.npmrc` (`ignore-scripts=true`), `pnpm-workspace.yaml` (`allowBuilds`), `uv audit` y Trivy (`auditar-infra.sh`). | `backend/Makefile`, `frontend/pnpm-workspace.yaml`, `auditar-infra.sh` |

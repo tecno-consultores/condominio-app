@@ -144,10 +144,10 @@
     "semantic_hash": "754326b285465a3e2ab4ab5ec83f6d86"
   },
   "backend/src/routers/finanzas.py": {
-    "mtime": 1792200804.710316,
-    "seen": 1793323282.4148958,
-    "ast_hash": "e07d2dcc1ede9507032c4c1d6983add0",
-    "semantic_hash": "e07d2dcc1ede9507032c4c1d6983add0"
+    "mtime": 1793324820.0042672,
+    "seen": 1793325200.193149,
+    "ast_hash": "055158bed1a51bac90df702f272bb792",
+    "semantic_hash": "055158bed1a51bac90df702f272bb792"
   },
   "backend/src/routers/incidencias.py": {
     "mtime": 1793297760.911294,
@@ -162,16 +162,16 @@
     "semantic_hash": "efd7a78ccb32f772a81654e44515e99c"
   },
   "backend/src/routers/pagos.py": {
-    "mtime": 1793296095.0918434,
-    "seen": 1793323282.4148993,
-    "ast_hash": "c118a92d1eb8a501e85da8a54b42e615",
-    "semantic_hash": "c118a92d1eb8a501e85da8a54b42e615"
+    "mtime": 1793324826.4057496,
+    "seen": 1793325200.1932142,
+    "ast_hash": "c3ab50709642164c287302e8ecdf4510",
+    "semantic_hash": "c3ab50709642164c287302e8ecdf4510"
   },
   "backend/src/schemas.py": {
-    "mtime": 1793297663.1981864,
-    "seen": 1793323282.4149005,
-    "ast_hash": "2f53344a9e2c9ba7dc3a0948038fe8a9",
-    "semantic_hash": "2f53344a9e2c9ba7dc3a0948038fe8a9"
+    "mtime": 1793324975.220717,
+    "seen": 1793325200.1932158,
+    "ast_hash": "67d17462755413ad9ffb23c4d0a5e76d",
+    "semantic_hash": "67d17462755413ad9ffb23c4d0a5e76d"
   },
   "backend/src/security.py": {
     "mtime": 1793296095.0908434,
@@ -222,10 +222,10 @@
     "semantic_hash": "b2578845ff68a013de427d859254676b"
   },
   "backend/tests/test_finanzas_router.unit.py": {
-    "mtime": 1793296095.0918434,
-    "seen": 1793323282.4149108,
-    "ast_hash": "69841104608178c3328dff7f03f2559f",
-    "semantic_hash": "69841104608178c3328dff7f03f2559f"
+    "mtime": 1793324852.942604,
+    "seen": 1793325200.1934364,
+    "ast_hash": "f0ce5c6034c7f8b8062dd9bb40d51a99",
+    "semantic_hash": "f0ce5c6034c7f8b8062dd9bb40d51a99"
   },
   "backend/tests/test_hito4_operaciones.unit.py": {
     "mtime": 1793297889.6728938,
@@ -246,16 +246,16 @@
     "semantic_hash": "2c81e0b5403833fbc6a95f68ba11e1db"
   },
   "backend/tests/test_pagos.unit.py": {
-    "mtime": 1792200804.7109182,
-    "seen": 1793323282.4149148,
-    "ast_hash": "0389ae46820e29c3f4b096d8b1242024",
-    "semantic_hash": "0389ae46820e29c3f4b096d8b1242024"
+    "mtime": 1793324854.3004942,
+    "seen": 1793325200.193544,
+    "ast_hash": "cf9af5b7b61cc25cbe60db5e38be6ca7",
+    "semantic_hash": "cf9af5b7b61cc25cbe60db5e38be6ca7"
   },
   "backend/tests/test_schemas.unit.py": {
-    "mtime": 1793296095.0918434,
-    "seen": 1793323282.4149158,
-    "ast_hash": "ac0d2a609ecec54c026d0d5751b79cab",
-    "semantic_hash": "ac0d2a609ecec54c026d0d5751b79cab"
+    "mtime": 1793324851.3367338,
+    "seen": 1793325200.1935456,
+    "ast_hash": "47f33d9a3ad4ad8d49e56c6243ff4e50",
+    "semantic_hash": "47f33d9a3ad4ad8d49e56c6243ff4e50"
   },
   "backend/tests/test_security_11x.unit.py": {
     "mtime": 1793296117.1230638,

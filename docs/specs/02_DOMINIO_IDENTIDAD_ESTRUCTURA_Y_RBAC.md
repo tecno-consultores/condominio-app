@@ -1,6 +1,6 @@
 # 👥 Especificación 02: Dominio de Identidad, Estructura Polimórfica y RBAC
 
-**Estado:** Hitos 1, 2 y 4 Completados en Backend (`auth.py`, `administracion.py`) / GUI en Hitos 5 y 7
+**Estado:** Hitos 1, 2, 4, 5 y 7 Completados y Certificados en Backend (`auth.py`, `administracion.py`) y GUI (`frontend/src/views/auth/`, `frontend/src/views/admin/`)
 
 ---
 
@@ -17,8 +17,8 @@
 - `rol`: `String` (`FANTASMA` por defecto; valores válidos: `FANTASMA`, `PROPIETARIO`, `INQUILINO`, `PRESIDENTE`, `VICEPRESIDENTE`, `TESORERO`, `SECRETARIO`, `VOCERO`, `CONSERJE`)
 
 ### 1.2. `Estructura` (`estructuras`) y `Unidad` (`unidades`)
-- Soporta condominios verticales (`tipo = "EDIFICIO"`, ej. Torre A -> Apartamento `A-42` + Puesto de Estacionamiento opcional) y horizontales (`tipo = "CALLE"`, ej. Calle Los Pinos -> Casa `42`), o conjuntos mixtos.
-- `Unidad.identificador`: `String` único (ej. `A-101`, `C1-12`).
+- Soporta agrupaciones polimórficas verticales y horizontales (`TipoEstructura = Literal["EDIFICIO", "TORRE", "BLOQUE", "MANZANA", "CALLE"]`).
+- `Unidad.identificador`: `String` único (ej. `Apto 1-A`, `C1-12`).
 
 ### 1.3. `ContratoOcupacion` (`contratos_ocupacion`)
 - Mantiene el historial inmutable de quién habita o posee cada unidad a lo largo del tiempo:
@@ -40,9 +40,10 @@ stateDiagram-v2
 ### Reglas de Negocio Estrictas
 1. **Bloqueo Total del Usuario Fantasma:** Mientras `es_activo == False` o `rol == "FANTASMA"`, el usuario autenticado **solo** puede consultar `GET /api/auth/me` y cerrar sesión. En el Frontend Vue 3, el Navigation Guard global redirige forzosamente cualquier ruta hacia `/espera-aprobacion`.
 2. **Condición de Junta de Condominio:** Únicamente usuarios con contrato activo donde `tipo_ocupante == "PROPIETARIO"` pueden ser designados como `PRESIDENTE`, `VICEPRESIDENTE`, `TESORERO`, `SECRETARIO` o `VOCERO`. Los inquilinos no pueden integrar la Junta.
-3. **Segregación de Funciones (SoD):**
-   - **Presidente / Vicepresidente:** Aprueban usuarios, gestionan estructura, asignan tareas al conserje y atienden incidencias. **No pueden** aprobar/rechazar pagos ni ejecutar el cierre contable.
-   - **Tesorero:** Único rol autorizado para registrar tasas/egresos, aprobar/rechazar pagos y ejecutar el cierre mensual (`POST /api/finanzas/cierre-mensual`).
+3. **Matriz de Control de Acceso Basado en Roles (RBAC):**
+   - **Presidente / Vicepresidente:** Generan estructuras/unidades (`POST /api/estructura/generar`), aprueban Usuarios Fantasma (`GET /api/usuarios/pendientes`, `PUT /api/usuarios/{id}/asignar`), crean plantillas y asignan tareas al conserje (`POST /api/tareas/plantillas`, `POST /api/tareas/diarias`).
+   - **Presidente (Exclusivo):** Asigna cargos de Junta de Condominio (`PUT /api/junta/cargos`).
+   - **Tesorero y Presidente:** Autorizados para registrar tasas BCV (`POST /api/finanzas/tasa`), registrar egresos (`POST /api/finanzas/egresos`), revisar/aprobar/rechazar pagos (`GET /api/pagos/revision`, `PUT /api/pagos/{id}/aprobar`, `PUT /api/pagos/{id}/rechazar`) y ejecutar el cierre mensual (`POST /api/finanzas/cierre-mensual`).
 
 ---
 
@@ -54,7 +55,7 @@ stateDiagram-v2
 | `POST /api/auth/login` | Público | — | Verifica `PBKDF2-HMAC-SHA256` y emite JWT en cookie `HttpOnly; Secure; SameSite=Lax`. |
 | `GET /api/auth/me` | Autenticado | Cookie / Bearer | Devuelve `{id, correo, nombre, rol, es_activo}`. |
 | `GET /api/estructura/unidades` | Público / Auth | — | Lista unidades disponibles para el selector de registro y panel de estructura. |
-| `POST /api/estructura/generar` | `PRESIDENTE` | `Idempotency-Key` | Crea sector (`EDIFICIO`/`CALLE`) y autogenera sus unidades. |
+| `POST /api/estructura/generar` | `PRESIDENTE`, `VICEPRESIDENTE` | `Idempotency-Key` | Crea sector (`EDIFICIO`, `TORRE`, `BLOQUE`, `MANZANA`, `CALLE`) y autogenera sus unidades. |
 | `GET /api/usuarios/pendientes` | `PRESIDENTE`, `VICEPRESIDENTE` | Cookie / Bearer | Lista usuarios con `es_activo == False`. |
-| `PUT /api/usuarios/{id}/asignar` | `PRESIDENTE`, `VICEPRESIDENTE` | Cookie / Bearer | Activa usuario (`es_activo=True`), asigna rol (`PROPIETARIO`/`INQUILINO`) y activa `ContratoOcupacion`. |
+| `PUT /api/usuarios/{id}/asignar` | `PRESIDENTE`, `VICEPRESIDENTE` | Cookie / Bearer | Activa usuario (`es_activo=True`), asigna rol RBAC y activa `ContratoOcupacion`. |
 | `PUT /api/junta/cargos` | `PRESIDENTE` | Cookie / Bearer | Asigna cargos de Junta validando que el usuario sea `PROPIETARIO` con unidad activa. |

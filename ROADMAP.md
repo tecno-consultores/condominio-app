@@ -113,3 +113,13 @@
   - [x] `make qa-chaos` (Pumba + Locust + Prometheus): **2.786 peticiones** contra la API bajo inyección de latencia `netem` ($500\text{ ms} \pm 50\text{ ms}$), **0 fallos**, sin bloqueos ni degradación acumulada ($p99 \approx 1.4\text{ s}$).
   - [x] `make qa-contracts` (Schemathesis): **626/626 casos** OpenAPI aprobados con 0 fallos.
   - [x] `make qa-dast` (OWASP ZAP): **FAIL-NEW: 0** (66 reglas aprobadas).
+
+---
+
+## 🏛️ FASE 4: Evolución Funcional PropTech & Ley de Propiedad Horizontal (Backlog Estratégico)
+
+- **Especificación Maestra:** [`docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md`](./docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md)
+- **Hito 10: Motor de Alícuotas, Facturación Mensual (Recibo LPH) y Fondo de Reserva `[ESPECIFICADO]`**
+- **Hito 11: Gobernanza Digital, Asambleas y Carta Consulta (Art. 23 LPH) con Firma HMAC-SHA256 `[ESPECIFICADO]`**
+- **Hito 12: Control de Acceso Peatonal/Vehicular (Pases QR Firmados) y Paquetería en Garita `[ESPECIFICADO]`**
+- **Hito 13: Reserva de Áreas Sociales Vinculada a Solvencia y Certificado Digital de Solvencia `[ESPECIFICADO]`**

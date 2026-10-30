@@ -129,3 +129,40 @@ def test_cierre_mensual_request_valido() -> None:
 def test_cierre_mensual_request_periodo_invalido() -> None:
     with pytest.raises(ValidationError):
         CierreMensualRequest(periodo="octubre")
+
+
+def test_url_evidencia_segura_bloquea_esquemas_peligrosos() -> None:
+    """Valida que UrlEvidenciaSegura bloquea javascript:, data:, file: y URLs sin esquema válido."""
+    for url_maliciosa in [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:///etc/passwd",
+        "   ",
+        "ftp://servidor.interno/archivo.png",
+    ]:
+        with pytest.raises(ValidationError):
+            PagoReportar(
+                recibo_id=1,
+                monto=Decimal("50.00"),
+                moneda="USD",
+                metodo_pago="EFECTIVO",
+                url_comprobante=url_maliciosa,
+            )
+
+    pago_https = PagoReportar(
+        recibo_id=1,
+        monto=Decimal("50.00"),
+        moneda="USD",
+        metodo_pago="EFECTIVO",
+        url_comprobante="https://cdn.condominio.local/recibos/1.avif",
+    )
+    assert pago_https.url_comprobante == "https://cdn.condominio.local/recibos/1.avif"
+
+    pago_relativo = PagoReportar(
+        recibo_id=1,
+        monto=Decimal("50.00"),
+        moneda="USD",
+        metodo_pago="EFECTIVO",
+        url_comprobante="/media/recibos/1.avif",
+    )
+    assert pago_relativo.url_comprobante == "/media/recibos/1.avif"

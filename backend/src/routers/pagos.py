@@ -9,13 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import get_db
-from src.dependencies import get_current_user
+from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
 from src.finanzas import ErrorFinanciero, aplicar_pago, convertir_a_usd, validar_referencia
 from src.models import AuditoriaRecibo, PagoReportado, Recibo, TasaCambio, Usuario
 from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import PagoRechazo, PagoReportar, PagoResponse
 
 router = APIRouter(prefix="/api/pagos", tags=["Pagos"])
+
+_ROLES_TESORERIA = ("TESORERO", "PRESIDENTE")
 
 
 async def obtener_tasa_del_dia(db: AsyncSession, fecha: date | None = None) -> TasaCambio:
@@ -54,6 +56,7 @@ async def _obtener_recibo(db: AsyncSession, recibo_id: int) -> Recibo:
     responses={
         400: {"description": "Tasa del día no registrada o referencia inválida"},
         401: {"description": "No autenticado"},
+        403: {"description": "Usuario fantasma sin activar"},
         404: {"description": "Recibo no encontrado"},
         409: {"description": "Petición duplicada o periodo cerrado (Candado Contable)"},
     },
@@ -65,6 +68,7 @@ async def reportar_pago(
     redis_conn: aioredis.Redis = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
+    verificar_usuario_activo(usuario)
     try:
         is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"user:{usuario.id}")
         if not is_unique:
@@ -111,11 +115,19 @@ async def reportar_pago(
         )
 
 
-@router.get("/revision", response_model=list[PagoResponse], responses={401: {"description": "No autenticado"}})
+@router.get(
+    "/revision",
+    response_model=list[PagoResponse],
+    responses={
+        401: {"description": "No autenticado"},
+        403: {"description": "Permisos insuficientes o usuario fantasma"},
+    },
+)
 async def listar_pagos_en_revision(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
+    verificar_roles(usuario, _ROLES_TESORERIA)
     result = await db.execute(select(PagoReportado).where(PagoReportado.estado == "EN_REVISION"))
     return list(result.scalars().all())
 
@@ -125,6 +137,7 @@ async def listar_pagos_en_revision(
     response_model=PagoResponse,
     responses={
         401: {"description": "No autenticado"},
+        403: {"description": "Permisos insuficientes o usuario fantasma"},
         404: {"description": "Pago o recibo no encontrado"},
         409: {"description": "El pago no está en revisión o periodo cerrado"},
     },
@@ -134,6 +147,7 @@ async def aprobar_pago(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
+    verificar_roles(usuario, _ROLES_TESORERIA)
     pago = await _obtener_pago(db, pago_id)
     if pago.estado != "EN_REVISION":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El pago no está en revisión")
@@ -170,6 +184,7 @@ async def aprobar_pago(
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
+        403: {"description": "Permisos insuficientes o usuario fantasma"},
         404: {"description": "Pago o recibo no encontrado"},
         409: {"description": "El pago no está en revisión o periodo cerrado"},
     },
@@ -180,6 +195,7 @@ async def rechazar_pago(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
+    verificar_roles(usuario, _ROLES_TESORERIA)
     pago = await _obtener_pago(db, pago_id)
     if pago.estado != "EN_REVISION":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El pago no está en revisión")

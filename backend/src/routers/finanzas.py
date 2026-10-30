@@ -9,12 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import get_db
-from src.dependencies import get_current_user
+from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
 from src.finanzas import ErrorFinanciero, calcular_deuda_total, calcular_saldo_pendiente, convertir_a_usd, cuantizar
 from src.models import Egreso, Recibo, ReporteMensual, TasaCambio, Usuario
 from src.schemas import CierreMensualRequest, EgresoCreate, TasaCambioCreate, TasaCambioResponse
 
 router = APIRouter(prefix="/api/finanzas", tags=["Finanzas"])
+
+_ROLES_TESORERIA = ("TESORERO", "PRESIDENTE")
 
 
 @router.post(
@@ -24,6 +26,7 @@ router = APIRouter(prefix="/api/finanzas", tags=["Finanzas"])
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
+        403: {"description": "Permisos insuficientes o usuario fantasma"},
     },
 )
 async def registrar_tasa(
@@ -31,6 +34,7 @@ async def registrar_tasa(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
+    verificar_roles(usuario, _ROLES_TESORERIA)
     fecha_objetivo = datos.fecha or date.today()
     result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == fecha_objetivo))
     tasa = result.scalars().first()
@@ -49,6 +53,7 @@ async def registrar_tasa(
     response_model=TasaCambioResponse,
     responses={
         401: {"description": "No autenticado"},
+        403: {"description": "Usuario fantasma sin activar"},
         404: {"description": "Tasa del día no registrada"},
     },
 )
@@ -56,6 +61,7 @@ async def obtener_tasa(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
+    verificar_usuario_activo(usuario)
     result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == date.today()))
     tasa = result.scalars().first()
     if not tasa:
@@ -72,6 +78,7 @@ async def obtener_tasa(
     responses={
         400: {"description": "Tasa del día no registrada o monto inválido"},
         401: {"description": "No autenticado"},
+        403: {"description": "Permisos insuficientes o usuario fantasma"},
     },
 )
 async def registrar_egreso(
@@ -79,6 +86,7 @@ async def registrar_egreso(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
+    verificar_roles(usuario, _ROLES_TESORERIA)
     try:
         tasa_result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == date.today()))
         tasa = tasa_result.scalars().first()
@@ -114,11 +122,18 @@ async def registrar_egreso(
         )
 
 
-@router.get("/resumen", responses={401: {"description": "No autenticado"}})
+@router.get(
+    "/resumen",
+    responses={
+        401: {"description": "No autenticado"},
+        403: {"description": "Usuario fantasma sin activar"},
+    },
+)
 async def resumen_financiero(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
+    verificar_usuario_activo(usuario)
     recibos_result = await db.execute(select(Recibo))
     recibos = list(recibos_result.scalars().all())
     deuda_total = calcular_deuda_total([(r.monto_usd, r.monto_pagado_usd) for r in recibos])
@@ -154,6 +169,7 @@ async def resumen_financiero(
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
+        403: {"description": "Permisos insuficientes o usuario fantasma"},
         409: {"description": "El mes ya fue cerrado (acción inmutable)"},
     },
 )
@@ -162,6 +178,7 @@ async def cierre_mensual(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
+    verificar_roles(usuario, _ROLES_TESORERIA)
     result = await db.execute(select(ReporteMensual).where(ReporteMensual.periodo == datos.periodo))
     reporte = result.scalars().first()
     if reporte and reporte.estado == "CERRADO":

@@ -16,7 +16,21 @@ def _validar_correo(valor: str) -> str:
     return valor
 
 
+def _validar_url_evidencia_segura(valor: str) -> str:
+    """Bloquea esquemas peligrosos (XSS / LFI: javascript:, data:, vbscript:, file:) en URLs de adjuntos."""
+    limpio = valor.strip()
+    if not limpio:
+        raise ValueError("La URL de evidencia no puede estar vacía.")
+    minus = limpio.lower()
+    if minus.startswith(("javascript:", "data:", "vbscript:", "file:")):
+        raise ValueError("Esquema de URL no permitido por seguridad (Anti-XSS/LFI).")
+    if not (minus.startswith(("https://", "http://", "s3://", "/"))):
+        raise ValueError("La URL de evidencia debe iniciar con https://, http://, s3:// o ruta relativa '/'.")
+    return limpio
+
+
 CorreoValido = Annotated[str, Field(json_schema_extra={"format": "email"}), AfterValidator(_validar_correo)]
+UrlEvidenciaSegura = Annotated[str, Field(min_length=1), AfterValidator(_validar_url_evidencia_segura)]
 
 
 class UsuarioBase(BaseModel):
@@ -87,7 +101,7 @@ class PagoReportar(BaseModel):
     moneda: Moneda
     metodo_pago: str
     numero_referencia: str | None = None
-    url_comprobante: str | None = None
+    url_comprobante: UrlEvidenciaSegura | None = None
 
 
 class PagoResponse(BaseModel):
@@ -119,7 +133,7 @@ class EgresoCreate(BaseModel):
     descripcion: str = Field(min_length=1)
     monto: Decimal = Field(gt=0)
     moneda: Moneda
-    url_factura: str | None = None
+    url_factura: UrlEvidenciaSegura | None = None
 
 
 class CierreMensualRequest(BaseModel):
@@ -128,9 +142,18 @@ class CierreMensualRequest(BaseModel):
     periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
 
 
-TipoEstructura = Literal["EDIFICIO", "CALLE"]
+TipoEstructura = Literal["EDIFICIO", "TORRE", "BLOQUE", "MANZANA", "CALLE"]
 TipoOcupante = Literal["PROPIETARIO", "INQUILINO"]
-RolResidente = Literal["PROPIETARIO", "INQUILINO", "CONSERJE"]
+RolResidente = Literal[
+    "PROPIETARIO",
+    "INQUILINO",
+    "CONSERJE",
+    "VOCERO",
+    "TESORERO",
+    "SECRETARIO",
+    "VICEPRESIDENTE",
+    "PRESIDENTE",
+]
 CargoJunta = Literal["PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "VOCERO"]
 FrecuenciaTarea = Literal["UNICA", "DIARIA", "SEMANAL", "MENSUAL"]
 
@@ -179,7 +202,7 @@ class IncidenciaCreate(BaseModel):
 
     area: str = Field(min_length=1)
     descripcion: str = Field(min_length=1)
-    url_foto: str | None = None
+    url_foto: UrlEvidenciaSegura | None = None
 
 
 class IncidenciaResponse(BaseModel):
@@ -224,7 +247,7 @@ class TareaDiariaCreate(BaseModel):
 class TareaCompletarRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    url_evidencia: str | None = None
+    url_evidencia: UrlEvidenciaSegura | None = None
 
 
 class TareaDiariaResponse(BaseModel):
@@ -246,7 +269,7 @@ class FotoVoceroCreate(BaseModel):
     periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
     area: str = Field(min_length=1)
     comentario: str = Field(min_length=1)
-    url_foto: str = Field(min_length=1)
+    url_foto: UrlEvidenciaSegura
 
 
 class FotoVoceroResponse(BaseModel):

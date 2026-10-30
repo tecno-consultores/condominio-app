@@ -371,3 +371,26 @@ def test_rechazar_mes_bloqueado(client: TestClient) -> None:
     assert "Candado Contable" in response.json()["detail"]
 
     app.dependency_overrides = {}
+
+
+def test_pagos_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
+    class GhostUser:
+        id: int = 99
+        correo: str = "fantasma@test.com"
+        rol: str = "FANTASMA"
+        es_activo: bool = False
+
+    class PropietarioUser:
+        id: int = 88
+        correo: str = "vecino@test.com"
+        rol: str = "PROPIETARIO"
+        es_activo: bool = True
+
+    _setup(_mock_session(), user=GhostUser())
+    assert client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS).status_code == 403
+
+    _setup(_mock_session(), user=PropietarioUser())
+    assert client.get("/api/pagos/revision").status_code == 403
+    assert client.put("/api/pagos/5/aprobar").status_code == 403
+    assert client.put("/api/pagos/5/rechazar", json={"motivo": "Motivo válido"}).status_code == 403
+    app.dependency_overrides = {}

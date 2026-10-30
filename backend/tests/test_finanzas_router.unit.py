@@ -310,3 +310,26 @@ def test_cierre_mensual_periodo_invalido_es_422(client: TestClient) -> None:
     response = client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-1"})
     assert response.status_code == 422
     app.dependency_overrides = {}
+
+
+def test_finanzas_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
+    class GhostUser:
+        id: int = 99
+        correo: str = "fantasma@test.com"
+        rol: str = "FANTASMA"
+        es_activo: bool = False
+
+    class PropietarioUser:
+        id: int = 88
+        correo: str = "vecino@test.com"
+        rol: str = "PROPIETARIO"
+        es_activo: bool = True
+
+    _setup(_mock_session(), user=GhostUser())
+    assert client.get("/api/finanzas/resumen").status_code == 403
+    assert client.get("/api/finanzas/tasa").status_code == 403
+
+    _setup(_mock_session(), user=PropietarioUser())
+    assert client.post("/api/finanzas/tasa", json={"tasa_usd_ves": "36.5000"}).status_code == 403
+    assert client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-10"}).status_code == 403
+    app.dependency_overrides = {}

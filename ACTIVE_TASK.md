@@ -5,7 +5,7 @@
 ---
 
 ## 🎯 Tarea Actual en Ejecución
-- **Hito:** **Hito 7 — Vistas Administrativas, Embudo de Incidencias, Conserjería, Grafo AST y Gobernanza**
+- **Hito:** **Auditoría de Consistencia Código ↔ Specs, Endurecimiento RBAC en Finanzas/Pagos e Informe de Evolución PropTech**
 - **Rama Git:** `main`
 - **Estado Global:** `COMPLETADO`
 - **Siguiente Hito en Cola:** **Hito 8 — Certificación E2E Playwright, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI**
@@ -17,7 +17,8 @@
 - [x] **Hito 4:** Backend Operativo (Estructura, Usuarios Fantasma, Junta, Incidencias "Me Sumo", Conserjería, Galería de Voceros 30 fotos/mes, Bitácora, Comunicados Anti-SSRF y Worker AVIF) (`4a0286e`).
 - [x] **Hito 5:** Arquitectura Base Frontend Vue 3 Mobile-First, Seguridad Cliente, Layout Anti-JSDOM y Vistas de Identidad (`3183de2`).
 - [x] **Hito 6:** Vistas Financieras, Wizard de Pagos Idempotente en 3 Pasos, Mesa de Tesorería y Candado Contable (`114a49b`).
-- [x] **Hito 7:** Vistas Administrativas, Embudo de Incidencias, Conserjería, Grafo AST (`1.075 nodos, 2.464 relaciones, 59 comunidades`) y Gobernanza 11X.
+- [x] **Hito 7:** Vistas Administrativas, Embudo de Incidencias, Conserjería, Grafo AST (`1.075 nodos, 2.464 relaciones, 59 comunidades`) y Gobernanza 11X (`c1e14fc`).
+- [x] **Auditoría Código ↔ Specs e Investigación PropTech:** Endurecimiento RBAC en `finanzas.py` y `pagos.py`, validador `UrlEvidenciaSegura` en `schemas.py`, paridad `TipoEstructura`, 162 tests backend (`99.84%`) y especificación `docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md`.
 
 ---
 
