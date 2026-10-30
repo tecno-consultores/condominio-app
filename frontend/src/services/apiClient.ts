@@ -89,3 +89,23 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   return parsed as T;
 }
+
+export const apiClient = {
+  get<T>(path: string, options: Omit<RequestOptions, 'method' | 'body'> = {}): Promise<T> {
+    return apiRequest<T>(path, { ...options, method: 'GET' });
+  },
+  post<T>(
+    path: string,
+    body?: unknown,
+    options: Omit<RequestOptions, 'method' | 'body'> = {},
+  ): Promise<T> {
+    return apiRequest<T>(path, { ...options, method: 'POST', body });
+  },
+  put<T>(
+    path: string,
+    body?: unknown,
+    options: Omit<RequestOptions, 'method' | 'body'> = {},
+  ): Promise<T> {
+    return apiRequest<T>(path, { ...options, method: 'PUT', body });
+  },
+};

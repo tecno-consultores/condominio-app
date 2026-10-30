@@ -25,8 +25,11 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
   - Guardias de navegación para rutas públicas (`/login`, `/register`), ruta de contención fantasma (`/espera-aprobacion`) y rutas protegidas por rol (`meta.roles`).
 - `src/components/layout/*.unit.ts`:
   - `AppShellLayout.unit.ts`, `BottomNavBar.unit.ts`, `SidebarNav.unit.ts`, `AppFooter.unit.ts` y `StaleDataBanner.unit.ts`.
-- `src/views/auth/*.unit.ts` y `src/views/finance/DashboardView.unit.ts`:
-  - `LoginView.unit.ts`, `RegisterView.unit.ts`, `PendingApprovalView.unit.ts` y `DashboardView.unit.ts`.
+- `src/stores/financeStore.unit.ts` y `src/components/finance/*.unit.ts` (Hito 6):
+  - `financeStore.unit.ts` (conversión USD/VES, cobertura de abono parcial vs pago total, catch no destructivo en resumen y pagos en revisión, y Candado Contable).
+  - `ClosingBanner.unit.ts`, `AnnouncementsCarousel.unit.ts`, `CollectionTrafficLight.unit.ts`, `ExpensesDonutChart.unit.ts` y `RejectPaymentModal.unit.ts`.
+- `src/views/auth/*.unit.ts` y `src/views/finance/*.unit.ts` (Hitos 5 y 6):
+  - `LoginView.unit.ts`, `RegisterView.unit.ts`, `PendingApprovalView.unit.ts`, `DashboardView.unit.ts`, `PaymentWizardView.unit.ts`, `TreasuryPaymentsView.unit.ts` y `TreasuryClosingView.unit.ts`.
 - `src/App.unit.ts`: Montaje del contenedor raíz.
 
 ---

@@ -9,7 +9,6 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
   });
 
   it('evalúa rutas públicas, de contención fantasma (/espera-aprobacion) y protegidas por RBAC', () => {
-    // 1. No autenticado
     const unauth = {
       isAuthenticated: false,
       isGhostUser: false,
@@ -20,7 +19,6 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     expect(evaluateNavigationGuard({ meta: { ghostOnly: true } }, unauth)).toBe('/login');
     expect(evaluateNavigationGuard({ meta: { requiresActive: true } }, unauth)).toBe('/login');
 
-    // 2. Usuario Fantasma autenticado -> confinado a /espera-aprobacion
     const ghost = {
       isAuthenticated: true,
       isGhostUser: true,
@@ -33,7 +31,6 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
       '/espera-aprobacion',
     );
 
-    // 3. Usuario Activo PROPIETARIO -> entra a /dashboard pero no a /admin/usuarios
     const activeProp = {
       isAuthenticated: true,
       isGhostUser: false,
@@ -45,27 +42,26 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     expect(evaluateNavigationGuard({ meta: { requiresActive: true } }, activeProp)).toBe(true);
     expect(
       evaluateNavigationGuard(
-        { meta: { requiresActive: true, roles: ['PRESIDENTE'] } },
+        { meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] } },
         activeProp,
       ),
     ).toBe('/dashboard');
 
-    // 4. Usuario Activo PRESIDENTE -> entra a ruta restringida
-    const activePres = {
+    const activeTes = {
       isAuthenticated: true,
       isGhostUser: false,
       isActiveUser: true,
-      userRole: 'PRESIDENTE' as const,
+      userRole: 'TESORERO' as const,
     };
     expect(
       evaluateNavigationGuard(
-        { meta: { requiresActive: true, roles: ['PRESIDENTE'] } },
-        activePres,
+        { meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] } },
+        activeTes,
       ),
     ).toBe(true);
   });
 
-  it('integra el guardia en una instancia real de Vue Router con Pinia', async () => {
+  it('integra el guardia en una instancia real de Vue Router con Pinia y rutas de Hito 6', async () => {
     const authStore = useAuthStore();
     const router = buildAppRouter(true);
 
@@ -81,7 +77,21 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
       es_activo: false,
       rol: 'FANTASMA',
     });
-    await router.push('/dashboard');
+    await router.push('/finanzas/reportar-pago');
     expect(router.currentRoute.value.path).toBe('/espera-aprobacion');
+
+    authStore.setProfileForTesting({
+      id: 10,
+      nombre: 'Tesorero',
+      cedula: 'V-10',
+      correo: 'tesorero@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'TESORERO',
+    });
+    await router.push('/tesoreria/pagos');
+    expect(router.currentRoute.value.path).toBe('/tesoreria/pagos');
+    await router.push('/tesoreria/cierre');
+    expect(router.currentRoute.value.path).toBe('/tesoreria/cierre');
   });
 });

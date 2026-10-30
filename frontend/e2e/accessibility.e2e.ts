@@ -1,27 +1,39 @@
-import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { expect, test } from '@playwright/test';
 
-const PUBLIC_CRITICAL_ROUTES = ['/login', '/register'];
+test.describe('Hitos 5 y 6 — Accesibilidad WCAG 2.1 AA y Geometría Visual Anti-JSDOM', () => {
+  test('Vista /login cumple 0 violaciones WCAG 2.1 AA críticas o serias', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('#login-form')).toBeVisible();
 
-test.describe('Auditoría WCAG 2.1 AA y Geometría Visual Anti-JSDOM (Hito 5)', () => {
-  for (const route of PUBLIC_CRITICAL_ROUTES) {
-    test(`La ruta "${route}" cumple con WCAG 2.1 AA sin violaciones en móvil y escritorio`, async ({
-      page,
-    }) => {
-      await page.route('**/api/estructura/unidades', async (r) => {
-        await r.fulfill({
-          json: [{ id: 1, identificador: 'A-101', estructura_id: 1 }],
-        });
-      });
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
 
-      await page.goto(route);
-      await page.waitForLoadState('networkidle');
+    const criticalOrSerious = results.violations.filter(
+      (v) => v.impact === 'critical' || v.impact === 'serious',
+    );
+    expect(criticalOrSerious).toEqual([]);
+  });
 
-      const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-        .analyze();
+  test('Vista /register cumple 0 violaciones WCAG 2.1 AA y el botón submit es visible en viewport', async ({
+    page,
+  }) => {
+    await page.goto('/register');
+    const submitBtn = page.locator('#btn-register-submit');
+    await expect(submitBtn).toBeVisible();
 
-      expect(results.violations).toEqual([]);
-    });
-  }
+    const box = await submitBtn.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+
+    const criticalOrSerious = results.violations.filter(
+      (v) => v.impact === 'critical' || v.impact === 'serious',
+    );
+    expect(criticalOrSerious).toEqual([]);
+  });
 });

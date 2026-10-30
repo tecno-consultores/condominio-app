@@ -11,6 +11,9 @@ import LoginView from '../views/auth/LoginView.vue';
 import PendingApprovalView from '../views/auth/PendingApprovalView.vue';
 import RegisterView from '../views/auth/RegisterView.vue';
 import DashboardView from '../views/finance/DashboardView.vue';
+import PaymentWizardView from '../views/finance/PaymentWizardView.vue';
+import TreasuryClosingView from '../views/finance/TreasuryClosingView.vue';
+import TreasuryPaymentsView from '../views/finance/TreasuryPaymentsView.vue';
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -37,9 +40,31 @@ export const routes: RouteRecordRaw[] = [
   },
   {
     path: '/dashboard',
+    alias: ['/inicio'],
     name: 'dashboard',
     component: DashboardView,
     meta: { requiresActive: true },
+  },
+  {
+    path: '/finanzas/reportar-pago',
+    alias: ['/pagar'],
+    name: 'reportar-pago',
+    component: PaymentWizardView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/tesoreria/pagos',
+    alias: ['/admin/pagos-revision'],
+    name: 'tesoreria-pagos',
+    component: TreasuryPaymentsView,
+    meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
+  },
+  {
+    path: '/tesoreria/cierre',
+    alias: ['/admin/finanzas'],
+    name: 'tesoreria-cierre',
+    component: TreasuryClosingView,
+    meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
   },
   {
     path: '/admin/usuarios',

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
 
-Feature: Cobertura Funcional y Flujos BDD de Identidad, Contención Fantasma y Layout Mobile-First (Hito 5)
+Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Wizard de Pago y Tesorería (Hitos 5 y 6)
 
   Background:
     * configure driver = { type: 'chrome', headless: true, addOptions: ['--no-sandbox', '--disable-dev-shm-usage'] }
@@ -31,6 +31,12 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Contención Fantasma y L
     When click('#btn-register-submit')
     Then waitFor('.banner--error')
 
-  Scenario: 3. Redirección automática de rutas protegidas hacia /login cuando no existe sesión activa
+  Scenario: 3. Redirección automática de rutas protegidas financieras (/dashboard, /finanzas/reportar-pago, /tesoreria/pagos, /tesoreria/cierre) hacia /login sin sesión
     Given driver baseUrl + '/dashboard'
+    Then waitFor('#login-form')
+    Given driver baseUrl + '/finanzas/reportar-pago'
+    Then waitFor('#login-form')
+    Given driver baseUrl + '/tesoreria/pagos'
+    Then waitFor('#login-form')
+    Given driver baseUrl + '/tesoreria/cierre'
     Then waitFor('#login-form')

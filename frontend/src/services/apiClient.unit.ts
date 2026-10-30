@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiRequest, getCsrfToken, setCsrfToken } from './apiClient';
+import { apiClient, ApiError, apiRequest, getCsrfToken, setCsrfToken } from './apiClient';
 
 describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
   afterEach(() => {
@@ -84,5 +84,25 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     await expect(apiRequest('/api/auth/me')).rejects.toEqual(
       new ApiError(0, 'Sin conexión con el servidor. Verifique su red.'),
     );
+
+    // Caso 5: Atajos apiClient.get / post / put
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      }),
+    );
+    await expect(apiClient.get<{ ok: boolean }>('/api/health')).resolves.toEqual({ ok: true });
+    await expect(
+      apiClient.post<{ ok: boolean }>('/api/finanzas/tasa', { tasa_usd_ves: '36.50' }),
+    ).resolves.toEqual({
+      ok: true,
+    });
+    await expect(apiClient.put<{ ok: boolean }>('/api/pagos/1/aprobar', {})).resolves.toEqual({
+      ok: true,
+    });
   });
 });
