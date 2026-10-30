@@ -104,7 +104,8 @@ def main() -> int:
         print("\n💡 Solución: Genera la migración en backend/alembic/versions/ (ej. alembic revision -m 'add_<tabla>')")
         return 1
 
-    print(f"✅ ÉXITO: Las {len(orm_tables)} tablas ORM ({', '.join(sorted(orm_tables))}) cuentan con su migración Alembic.")
+    tables_str = ", ".join(sorted(orm_tables))
+    print(f"✅ ÉXITO: Las {len(orm_tables)} tablas ORM ({tables_str}) cuentan con su migración Alembic.")
     return 0
 
 

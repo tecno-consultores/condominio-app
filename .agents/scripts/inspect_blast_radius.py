@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -36,7 +36,7 @@ def find_graph_files() -> list[Path]:
 
 def load_graph(path: Path) -> dict[str, Any]:
     with open(path, encoding="utf-8") as file:
-        return json.load(file)
+        return cast(dict[str, Any], json.load(file))
 
 
 def find_matching_nodes(graph: dict[str, Any], query: str) -> list[dict[str, Any]]:
@@ -46,7 +46,7 @@ def find_matching_nodes(graph: dict[str, Any], query: str) -> list[dict[str, Any
         label = node.get("label", "").lower()
         node_id = node.get("id", "").lower()
         source_file = node.get("source_file", "").lower()
-        if query_lower == label or query_lower == node_id or query_lower in source_file or query_lower in label:
+        if query_lower in (label, node_id) or query_lower in source_file or query_lower in label:
             matches.append(node)
     return matches
 
@@ -103,7 +103,10 @@ def inspect_symbol(query: str) -> None:
     graph_files = find_graph_files()
     if not graph_files:
         print("ℹ️ No se encontraron grafos Graphify (graph.json). Para generarlos:")
-        print("   docker compose -f backend/docker-compose.qa.yml --profile graphify run --rm graphify bash -c 'graphify extract --code-only'")
+        print(
+            "   docker compose -f backend/docker-compose.qa.yml "
+            "--profile graphify run --rm graphify bash -c 'graphify extract --code-only'"
+        )
         return
 
     total_callers = 0
@@ -136,7 +139,7 @@ def inspect_symbol(query: str) -> None:
                         print(f"        -> {caller['file']}: {caller['label']} ({caller['relation']})")
                     if callers_count > 5:
                         print(f"        ... y {callers_count - 5} más.")
-        except Exception as exc:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             print(f"⚠️ Error procesando grafo {g_path}: {exc}")
 
     final_risk = assess_risk_level(query, total_callers, len(total_files))

@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+
 from src.database import get_db
 from src.dependencies import get_current_user
 from src.main import app
@@ -210,7 +211,7 @@ def test_registrar_egreso_periodo_invalido_es_422(client: TestClient) -> None:
 
 
 def test_registrar_egreso_tasa_cero_falla(client: TestClient) -> None:
-    tasa_cero = TasaCambio(id=1, fecha=date.today(), tasa_usd_ves=Decimal("0"))
+    tasa_cero = TasaCambio(id=1, fecha=date.today(), tasa_usd_ves=Decimal(0))
     session = _mock_session(_result(tasa_cero))
     _setup(session)
     payload = {

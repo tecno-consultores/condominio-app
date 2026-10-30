@@ -1,7 +1,7 @@
 """Cliente asíncrono KeyDB/Redis: idempotencia aislada por ámbito y grace period de tokens."""
 
+import contextlib
 import os
-from typing import Optional
 
 import redis.asyncio as redis
 
@@ -9,7 +9,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 GRACE_PERIOD_SECONDS = 5
 REVOKED_USER_TTL_SECONDS = 86_400
 
-_redis_client: Optional[redis.Redis] = None
+_redis_client: redis.Redis | None = None
 _local_revoked_users: set[int] = set()
 
 
@@ -59,41 +59,37 @@ async def rotate_refresh_token_with_grace_period(
 async def get_refresh_token_from_grace_period(
     client: redis.Redis,
     old_token_family_id: str,
-) -> Optional[str]:
+) -> str | None:
     """Recupera el nuevo token si la rotación ocurrió dentro del grace period de 5s."""
     val = await client.get(f"grace_period:{old_token_family_id}")
     return str(val) if val is not None else None
 
 
 async def revoke_user_session(
-    client: Optional[redis.Redis],
+    client: redis.Redis | None,
     user_id: int,
     ttl_seconds: int = REVOKED_USER_TTL_SECONDS,
 ) -> None:
     """Registra la revocación instantánea de sesión de un usuario en KeyDB Multi-Hilo (Patrón 16)."""
     _local_revoked_users.add(int(user_id))
     if client is not None:
-        try:
+        with contextlib.suppress(Exception):
             await client.set(f"revoked_user:{int(user_id)}", "1", ex=ttl_seconds)
-        except Exception:  # nosec B110
-            pass
 
 
 async def clear_user_session_revocation(
-    client: Optional[redis.Redis],
+    client: redis.Redis | None,
     user_id: int,
 ) -> None:
     """Limpia la marca de revocación de sesión cuando el usuario es reactivado."""
     _local_revoked_users.discard(int(user_id))
     if client is not None:
-        try:
+        with contextlib.suppress(Exception):
             await client.delete(f"revoked_user:{int(user_id)}")
-        except Exception:  # nosec B110
-            pass
 
 
 async def is_user_session_revoked(
-    client: Optional[redis.Redis],
+    client: redis.Redis | None,
     user_id: int,
 ) -> bool:
     """Verifica si la sesión de un usuario fue revocada en tiempo real en KeyDB."""

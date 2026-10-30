@@ -2,7 +2,7 @@
 
 import calendar
 import secrets
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -159,13 +159,13 @@ async def registrar_egreso(
     except HTTPException:
         raise
     except ErrorFinanciero as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error en base de datos al registrar egreso",
-        )
+        ) from exc
 
 
 @router.get(
@@ -247,7 +247,7 @@ async def cierre_mensual(
         egreso.bloqueado = True
 
     reporte.estado = "CERRADO"
-    reporte.cerrado_en = datetime.now(timezone.utc)
+    reporte.cerrado_en = datetime.now(UTC)
     await db.commit()
     return {"periodo": datos.periodo, "estado": "CERRADO"}
 
@@ -556,7 +556,7 @@ async def facturar_periodo(
             datos, unidades, total_egresos, recargo_reserva
         )
     except ErrorFinanciero as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     total_bruto, total_credito, total_neto = await _persistir_lote_facturacion(
         db,
@@ -708,7 +708,7 @@ async def emitir_certificado_solvencia(
     sufijo = secrets.token_hex(2).upper()
     folio = f"SOLV-{hoy.strftime('%Y%m')}-{unidad.id:04d}-{sufijo}"
     firma = generar_firma_solvencia(folio, unidad.identificador, vencimiento.isoformat(), SECRET_KEY)
-    ahora = datetime.now(timezone.utc)
+    ahora = datetime.now(UTC)
 
     cert = CertificadoSolvencia(
         folio=folio,

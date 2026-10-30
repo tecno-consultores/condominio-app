@@ -132,13 +132,13 @@ def _validar_entradas_prorrateo(
         raise ErrorFinanciero("Se requiere al menos una unidad para prorratear")
 
     ordenadas = sorted(unidades_alicuotas, key=lambda item: item[0])
-    suma_pesos = Decimal("0")
+    suma_pesos = Decimal(0)
     for _, peso in ordenadas:
-        if peso < Decimal("0"):
+        if peso < Decimal(0):
             raise ErrorFinanciero("Las alícuotas no pueden ser negativas")
         suma_pesos += peso
 
-    if suma_pesos <= Decimal("0"):
+    if suma_pesos <= Decimal(0):
         raise ErrorFinanciero("La suma de alícuotas debe ser mayor que cero")
     return monto_total, ordenadas, suma_pesos
 

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
+
 from src.database import get_db
 from src.main import app
 from src.redis_client import get_redis_client

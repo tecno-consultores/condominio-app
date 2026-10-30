@@ -1,0 +1,17 @@
+line-length = 120
+target-version = "py313"
+src = ["backend", "backend/src", ".agents/scripts"]
+
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = []
+
+[lint.isort]
+known-first-party = ["src"]
+known-third-party = ["alembic"]
+
+[lint.per-file-ignores]
+"backend/alembic/*" = ["F401", "I001"]
+"backend/tests/*" = ["F401", "I001"]
+"alembic/*" = ["F401", "I001"]
+"tests/*" = ["F401", "I001"]

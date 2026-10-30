@@ -1,6 +1,6 @@
 """Rutas operativas: conserjería, galería de voceros (máx. 30 fotos/mes), bitácora y comunicados (Hito 4)."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +8,15 @@ from sqlalchemy.future import select
 
 from src.database import get_db
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
-from src.models import BitacoraActa, Comunicado, FotoVocero, Incidencia, PlantillaTarea, TareaDiaria, Usuario
+from src.models import (
+    BitacoraActa,
+    Comunicado,
+    FotoVocero,
+    Incidencia,
+    PlantillaTarea,
+    TareaDiaria,
+    Usuario,
+)
 from src.schemas import (
     BitacoraActaCreate,
     BitacoraActaResponse,
@@ -156,7 +164,7 @@ async def completar_tarea_diaria(
 
     tarea.completada = True
     tarea.url_evidencia = datos.url_evidencia
-    tarea.completada_en = datetime.now(timezone.utc)
+    tarea.completada_en = datetime.now(UTC)
 
     if tarea.incidencia_id is not None:
         res_inc = await db.execute(select(Incidencia).where(Incidencia.id == tarea.incidencia_id))

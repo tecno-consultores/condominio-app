@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+
 from src.database import get_db
 from src.main import app
 from src.security import create_access_token

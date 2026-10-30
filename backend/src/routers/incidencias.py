@@ -86,12 +86,12 @@ async def crear_incidencia(
         )
         await db.commit()
         await db.refresh(incidencia)
-    except Exception:
+    except Exception as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al registrar la incidencia.",
-        )
+        ) from exc
 
     await encolar_notificacion_correo(
         destinatarios=["junta@condominio.local"],
@@ -147,10 +147,10 @@ async def adherir_a_incidencia(
     try:
         await db.commit()
         await db.refresh(incidencia)
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ya te sumaste a esta incidencia.",
-        )
+        ) from exc
     return incidencia

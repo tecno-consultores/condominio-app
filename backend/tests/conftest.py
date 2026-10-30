@@ -3,6 +3,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+
 from src.main import app
 
 # Configuramos la variable de entorno para obligar a FastAPI a usar la base de datos en memoria (SQLite)
@@ -11,7 +12,7 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest.fixture(scope="module")
-def client() -> Generator[TestClient, None, None]:
+def client() -> Generator[TestClient]:
     """Fixture que levanta el TestClient de FastAPI para simular llamadas HTTP aisladas"""
     with TestClient(app) as test_client:
         yield test_client

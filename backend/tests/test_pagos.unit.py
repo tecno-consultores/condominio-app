@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+
 from src.database import get_db
 from src.dependencies import get_current_user
 from src.main import app

@@ -178,7 +178,7 @@ tbody th {
   font-size: 0.8rem;
 }
 
-@container (width < 600px) {
+@container (max-width: 599px) {
   .collection-table,
   thead,
   tbody,

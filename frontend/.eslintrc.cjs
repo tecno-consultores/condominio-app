@@ -1,5 +1,6 @@
 module.exports = {
   root: true,
+  ignorePatterns: ['dist/**', 'coverage/**', 'node_modules/**', '*.json', 'lighthouserc.js'],
   env: {
     browser: true,
     es2022: true,

@@ -11,6 +11,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+
 from src.database import get_db
 from src.main import _es_produccion, app
 from src.redis_client import (

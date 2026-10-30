@@ -38,10 +38,10 @@ def audit_json_file(file_path: Path) -> list[str]:
     try:
         content = file_path.read_text(encoding="utf-8")
         json.loads(content, object_pairs_hook=detect_duplicate_keys)
-    except ValueError as exc:
-        errors.append(f"{file_path}: {exc}")
-    except Exception as exc:
+    except json.JSONDecodeError as exc:
         errors.append(f"{file_path}: Error de parseo JSON ({exc})")
+    except (ValueError, OSError) as exc:
+        errors.append(f"{file_path}: {exc}")
     return errors
 
 

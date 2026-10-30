@@ -11,7 +11,11 @@ from sqlalchemy.future import select
 from src.database import get_db
 from src.dependencies import get_current_user, verificar_roles
 from src.models import ContratoOcupacion, Estructura, Unidad, Usuario
-from src.redis_client import check_and_set_idempotency_key, clear_user_session_revocation, get_redis_client
+from src.redis_client import (
+    check_and_set_idempotency_key,
+    clear_user_session_revocation,
+    get_redis_client,
+)
 from src.schemas import (
     AlicuotaUpdateRequest,
     EstructuraGenerarRequest,
@@ -85,18 +89,18 @@ async def generar_estructura(
         await db.refresh(estructura)
         for u in unidades_creadas:
             await db.refresh(u)
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Uno o más identificadores de unidad ya existen en el condominio.",
-        )
-    except Exception:
+        ) from exc
+    except Exception as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al generar la estructura.",
-        )
+        ) from exc
 
     return EstructuraGenerarResponse(
         estructura_id=estructura.id,

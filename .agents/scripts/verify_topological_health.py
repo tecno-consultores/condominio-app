@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -36,7 +36,7 @@ def find_graph_files() -> list[Path]:
 
 def load_graph(path: Path) -> dict[str, Any]:
     with open(path, encoding="utf-8") as file:
-        return json.load(file)
+        return cast(dict[str, Any], json.load(file))
 
 
 def audit_layers(graph: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
@@ -109,7 +109,7 @@ def main() -> int:
             )
             if violations:
                 all_violations.extend([f"[{g_path.name}] {v}" for v in violations])
-        except Exception as exc:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             print(f"⚠️ Error procesando grafo {g_path}: {exc}")
 
     if all_violations:

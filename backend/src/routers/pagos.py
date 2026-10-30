@@ -19,7 +19,14 @@ from src.finanzas import (
     cuantizar,
     validar_referencia,
 )
-from src.models import AuditoriaRecibo, PagoReportado, Recibo, TasaCambio, Unidad, Usuario
+from src.models import (
+    AuditoriaRecibo,
+    PagoReportado,
+    Recibo,
+    TasaCambio,
+    Unidad,
+    Usuario,
+)
 from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import PagoRechazo, PagoReportar, PagoResponse
 
@@ -130,13 +137,13 @@ async def reportar_pago(
     except HTTPException:
         raise
     except ErrorFinanciero as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error en base de datos al reportar pago",
-        )
+        ) from exc
 
 
 @router.get(

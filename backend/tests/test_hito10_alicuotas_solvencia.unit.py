@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+
 from src.database import get_db
 from src.dependencies import get_current_user
 from src.finanzas import generar_firma_solvencia
@@ -106,6 +107,7 @@ def test_reportar_pago_referencia_bancaria_duplicada_devuelve_409(client: TestCl
     )
     assert res.status_code == 409
     assert "referencia bancaria ya fue registrado" in res.json()["detail"]
+    # pyrefly: ignore[implicit-any-empty-container]
     app.dependency_overrides = {}
 
 
@@ -605,7 +607,7 @@ def test_emitir_y_verificar_certificado_solvencia(client: TestClient) -> None:
         folio=cert_data["folio"],
         unidad_id=4,
         emitido_por_id=44,
-        fecha_emision=datetime.now(timezone.utc),
+        fecha_emision=datetime.now(UTC),
         fecha_vencimiento=venc,
         deuda_verificada_usd=Decimal("0.00"),
         firma_hmac=firma,

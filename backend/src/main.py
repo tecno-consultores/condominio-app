@@ -80,11 +80,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     if _es_produccion():
         logger.warning("Fallo de validación 422 en %s %s: %s", request.method, request.url.path, exc.errors())
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"detail": "Los datos proporcionados no cumplen con los requisitos de validación."},
         )
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": jsonable_encoder(exc.errors())},
     )
 

@@ -1,0 +1,21 @@
+{
+  "include": ["backend", ".agents/scripts"],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.venv",
+    "**/.mypy_cache",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "frontend",
+    "graphify-out"
+  ],
+  "extraPaths": [
+    "backend",
+    "backend/.venv/lib/python3.13/site-packages"
+  ],
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none"
+}

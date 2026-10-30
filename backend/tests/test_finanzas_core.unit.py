@@ -7,6 +7,7 @@ tasa del día y el redondeo, de modo que cualquier mutante lógico sea detectado
 from decimal import Decimal
 
 import pytest
+
 from src.finanzas import (
     CERO,
     ESTADO_PAGADO,
@@ -59,7 +60,7 @@ def test_convertir_usd_minusculas() -> None:
 
 
 def test_convertir_usd_no_exige_tasa_positiva() -> None:
-    assert convertir_a_usd(Decimal("10.00"), "USD", Decimal("0")) == Decimal("10.00")
+    assert convertir_a_usd(Decimal("10.00"), "USD", Decimal(0)) == Decimal("10.00")
 
 
 def test_convertir_ves_a_usd() -> None:
@@ -77,12 +78,12 @@ def test_convertir_moneda_no_soportada_falla() -> None:
 
 def test_convertir_ves_con_tasa_cero_falla() -> None:
     with pytest.raises(ErrorFinanciero, match="mayor que cero"):
-        convertir_a_usd(Decimal("10.00"), "VES", Decimal("0"))
+        convertir_a_usd(Decimal("10.00"), "VES", Decimal(0))
 
 
 def test_convertir_ves_con_tasa_negativa_falla() -> None:
     with pytest.raises(ErrorFinanciero, match="mayor que cero"):
-        convertir_a_usd(Decimal("10.00"), "VES", Decimal("-5"))
+        convertir_a_usd(Decimal("10.00"), "VES", Decimal(-5))
 
 
 @pytest.mark.parametrize("metodo", ["ZELLE", "PAGO_MOVIL", "TRANSFERENCIA"])

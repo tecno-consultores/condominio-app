@@ -11,9 +11,18 @@ from sqlalchemy.future import select
 from src.database import get_db
 from src.dependencies import extract_bearer_or_cookie_token
 from src.models import ContratoOcupacion, Usuario
-from src.redis_client import check_and_set_idempotency_key, get_redis_client, is_user_session_revoked
+from src.redis_client import (
+    check_and_set_idempotency_key,
+    get_redis_client,
+    is_user_session_revoked,
+)
 from src.schemas import UsuarioCreate, UsuarioResponse
-from src.security import create_access_token, decode_access_token, get_password_hash, verify_password
+from src.security import (
+    create_access_token,
+    decode_access_token,
+    get_password_hash,
+    verify_password,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
@@ -80,18 +89,18 @@ async def register_user(
         return new_user
     except HTTPException:
         raise
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Datos inválidos o duplicados en el registro",
-        )
-    except Exception:
+        ) from exc
+    except Exception as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error en base de datos al registrar",
-        )
+        ) from exc
 
 
 @router.post(
@@ -133,10 +142,10 @@ async def get_me(request: Request, db: AsyncSession = Depends(get_db)) -> dict[s
 
     try:
         payload = decode_access_token(token)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expirado")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expirado") from exc
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido") from exc
 
     user_email = payload.get("sub")
     if not user_email:

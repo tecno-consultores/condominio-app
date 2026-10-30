@@ -27,10 +27,18 @@ module.exports = {
       'always',
       [
         'backend',  // Cambios en backend/ (FastAPI, QA, Docker)
+        'frontend', // Cambios en frontend/ (Vue 3, Pinia, Vitest)
+        'qa',       // Certificación y suites de aseguramiento 11X
         'docs',     // Cambios en docs/ o archivos .md globales
         'infra',    // Hooks, scripts, auditorías de infraestructura
         'ci',       // Cambios en configuración de integración continua
-        'global'    // Cambios que afectan a todo el repositorio
+        'global',   // Cambios que afectan a todo el repositorio
+        'hito8',
+        'hito10',
+        'hito11',
+        'hito12',
+        'hito13',
+        'hito14'
       ]
     ],
 
@@ -41,6 +49,6 @@ module.exports = {
 
     // 4. Reglas estructurales
     'type-empty': [2, 'never'],
-    'header-max-length': [2, 'always', 72]
+    'header-max-length': [2, 'always', 100]
   }
 };

@@ -1,6 +1,8 @@
-import pytest
 from decimal import Decimal
+
+import pytest
 from pydantic import ValidationError
+
 from src.schemas import (
     CierreMensualRequest,
     EgresoCreate,
@@ -79,7 +81,7 @@ def test_pago_reportar_moneda_invalida() -> None:
 
 def test_pago_reportar_monto_no_positivo() -> None:
     with pytest.raises(ValidationError):
-        PagoReportar(recibo_id=1, monto=Decimal("0"), moneda="USD", metodo_pago="EFECTIVO")
+        PagoReportar(recibo_id=1, monto=Decimal(0), moneda="USD", metodo_pago="EFECTIVO")
 
 
 def test_pago_rechazo_motivo_vacio_invalido() -> None:
@@ -93,7 +95,7 @@ def test_pago_rechazo_motivo_valido() -> None:
 
 def test_tasa_cambio_schema_tasa_no_positiva() -> None:
     with pytest.raises(ValidationError):
-        TasaCambioCreate(tasa_usd_ves=Decimal("0"))
+        TasaCambioCreate(tasa_usd_ves=Decimal(0))
 
 
 def test_tasa_cambio_schema_fecha_opcional() -> None:

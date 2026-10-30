@@ -6,8 +6,8 @@ import ipaddress
 import os
 import secrets
 import socket
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Protocol
+from datetime import UTC, datetime, timedelta
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import jwt
@@ -69,10 +69,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return hmac.compare_digest(legacy_digest, hashed_password)
 
 
-def create_access_token(data: dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     delta = expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now(timezone.utc) + delta
+    expire = datetime.now(UTC) + delta
     to_encode.update({"exp": int(expire.timestamp())})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return str(encoded_jwt)
@@ -142,7 +142,7 @@ def validate_file_magic_bytes(header: bytes) -> str:
     sample = header[:16]
     if sample.startswith(b"%PDF-"):
         return "application/pdf"
-    if sample.startswith(b"\x89PNG\r\n\x1a\n") or sample.startswith(b"\x89PNG"):
+    if sample.startswith((b"\x89PNG\r\n\x1a\n", b"\x89PNG")):
         return "image/png"
     if sample.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
@@ -169,7 +169,7 @@ async def read_uploaded_file_safely(
         total_bytes += len(chunk)
         if total_bytes > max_bytes:
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail="El archivo excede el tamaño máximo permitido de 2 MB.",
             )
         buffer.extend(chunk)
