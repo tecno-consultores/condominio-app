@@ -30,7 +30,11 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
   - `ClosingBanner.unit.ts`, `AnnouncementsCarousel.unit.ts`, `CollectionTrafficLight.unit.ts`, `ExpensesDonutChart.unit.ts` y `RejectPaymentModal.unit.ts`.
 - `src/views/auth/*.unit.ts` y `src/views/finance/*.unit.ts` (Hitos 5 y 6):
   - `LoginView.unit.ts`, `RegisterView.unit.ts`, `PendingApprovalView.unit.ts`, `DashboardView.unit.ts`, `PaymentWizardView.unit.ts`, `TreasuryPaymentsView.unit.ts` y `TreasuryClosingView.unit.ts`.
+- `src/stores/operationsStore.unit.ts`, `src/components/operations/*.unit.ts`, `src/views/operations/*.unit.ts` y `src/views/admin/*.unit.ts` (Hito 7):
+  - `operationsStore.unit.ts` (estructura, activación de usuarios fantasma, cargos de junta, embudo de incidencias, checklist diario de conserjería, galería de voceros con límite de 30 fotos/mes, bitácora de secretaría y catch no destructivo).
+  - `IncidentCard.unit.ts`, `TaskChecklistItem.unit.ts`, `IncidentsFeedView.unit.ts`, `OperationsTasksView.unit.ts`, `SpokespersonGalleryView.unit.ts`, `SecretaryLogbookView.unit.ts`, `AdminStructureView.unit.ts`, `AdminGhostUsersView.unit.ts` y `AdminBoardRolesView.unit.ts`.
 - `src/App.unit.ts`: Montaje del contenedor raíz.
+- **Total Certificado (Hitos 5, 6 y 7):** **27 componentes `.vue` auditados (0 huérfanos)**, **34 suites `.unit.ts` (70/70 tests aprobados)** con **99.80% líneas/sentencias, 97.88% funciones y 95.73% ramas**.
 
 ---
 

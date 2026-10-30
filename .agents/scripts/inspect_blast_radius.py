@@ -20,9 +20,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def find_graph_files() -> list[Path]:
     graphs: list[Path] = []
+    seen: set[Path] = set()
     for pattern in ["**/graphify-out/graph.json", "**/graph.json"]:
         for path in REPO_ROOT.glob(pattern):
-            if "node_modules" not in str(path) and ".venv" not in str(path):
+            resolved = path.resolve()
+            if (
+                "node_modules" not in str(path)
+                and ".venv" not in str(path)
+                and resolved not in seen
+            ):
+                seen.add(resolved)
                 graphs.append(path)
     return graphs
 

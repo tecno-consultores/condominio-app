@@ -19,6 +19,9 @@ const links = [
   { id: 'side-tareas', label: 'Tareas de Conserjería', to: '/operaciones/tareas' },
   { id: 'side-voceros', label: 'Galería de Voceros', to: '/voceros/galeria' },
   { id: 'side-bitacora', label: 'Bitácora de Actas', to: '/secretaria/bitacora' },
+  { id: 'side-estructura', label: 'Estructura Física', to: '/admin/estructura' },
+  { id: 'side-usuarios', label: 'Usuarios Fantasma', to: '/admin/usuarios' },
+  { id: 'side-junta', label: 'Junta de Condominio', to: '/admin/junta' },
 ];
 </script>
 

@@ -47,9 +47,11 @@ Following any code modification, the AI agent **MUST autonomously and continuous
    - Record additions, modifications, and fixes under `## [Unreleased]`.
 3. **Milestone Progress in `ROADMAP.md`:**
    - Update milestone and sub-task status in `ROADMAP.md`.
-4. **Assurance Metrics in `TESTING.md` & `backend/TESTING.md`:**
+4. **Assurance Metrics in `TESTING.md`, `backend/TESTING.md` & `frontend/TESTING.md`:**
    - Record updated test counts, pass rates, and coverage percentages.
-5. **Project Root (`README.md`, `SECURITY.md`):**
+5. **Deterministic Checkpoint Log in `ACTIVE_TASK.md`:**
+   - Update `ACTIVE_TASK.md` at the start, after each sub-task (`CP-X.Y`), and upon completion of every milestone.
+6. **Project Root (`README.md`, `SECURITY.md`, `limpieza.sh`):**
    - Update whenever architectural blueprints, tools, or dependencies evolve.
 
 ---

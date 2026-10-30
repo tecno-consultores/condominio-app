@@ -27,12 +27,15 @@ mutants/
 .mutmut-cache/
 profile.svg
 
-# Reportes de auditoría (DAST / Caos / Observabilidad)
+# Reportes de auditoría (DAST / Caos / Observabilidad / Graphify HTML)
 zap-report.html
 chaos-report.html
 chaos-report.json
 profile.speedscope.json
-graphify-out/
+graphify-out/*.html
+graphify-out/cache/
+backend/graphify-out/
+frontend/graphify-out/
 prometheus_data/
 
 # BDD / Karate
@@ -42,15 +45,19 @@ test/target/
 # Logs
 *.log
 
-# Node / Frontend (hooks / commitlint / Vite / Vitest / Playwright / Stryker)
+# Node / Frontend (hooks / commitlint / Vite / Vitest / Playwright / Stryker / Lighthouse)
 node_modules/
 package-lock.json
 coverage/
 .pnpm-store/
 playwright-report/
+blob-report/
 test-results/
 .lighthouseci/
+lhci-reports/
+.lhcache/
 .stryker-tmp/
+.nuxt/
 
 # Editores
 .vscode/

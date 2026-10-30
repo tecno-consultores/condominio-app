@@ -7,6 +7,9 @@ import {
   type RouteRecordRaw,
 } from 'vue-router';
 import { useAuthStore, type RolUsuario } from '../stores/authStore';
+import AdminBoardRolesView from '../views/admin/AdminBoardRolesView.vue';
+import AdminGhostUsersView from '../views/admin/AdminGhostUsersView.vue';
+import AdminStructureView from '../views/admin/AdminStructureView.vue';
 import LoginView from '../views/auth/LoginView.vue';
 import PendingApprovalView from '../views/auth/PendingApprovalView.vue';
 import RegisterView from '../views/auth/RegisterView.vue';
@@ -14,6 +17,10 @@ import DashboardView from '../views/finance/DashboardView.vue';
 import PaymentWizardView from '../views/finance/PaymentWizardView.vue';
 import TreasuryClosingView from '../views/finance/TreasuryClosingView.vue';
 import TreasuryPaymentsView from '../views/finance/TreasuryPaymentsView.vue';
+import IncidentsFeedView from '../views/operations/IncidentsFeedView.vue';
+import OperationsTasksView from '../views/operations/OperationsTasksView.vue';
+import SecretaryLogbookView from '../views/operations/SecretaryLogbookView.vue';
+import SpokespersonGalleryView from '../views/operations/SpokespersonGalleryView.vue';
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -67,10 +74,48 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
   },
   {
-    path: '/admin/usuarios',
-    name: 'admin-usuarios',
-    component: DashboardView,
+    path: '/incidencias',
+    name: 'incidencias',
+    component: IncidentsFeedView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/operaciones/tareas',
+    alias: ['/conserje/tareas'],
+    name: 'operaciones-tareas',
+    component: OperationsTasksView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/voceros/galeria',
+    name: 'voceros-galeria',
+    component: SpokespersonGalleryView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/secretaria/bitacora',
+    name: 'secretaria-bitacora',
+    component: SecretaryLogbookView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/admin/estructura',
+    name: 'admin-estructura',
+    component: AdminStructureView,
     meta: { requiresActive: true, roles: ['PRESIDENTE', 'VICEPRESIDENTE'] as RolUsuario[] },
+  },
+  {
+    path: '/admin/usuarios',
+    alias: ['/admin/usuarios-pendientes'],
+    name: 'admin-usuarios',
+    component: AdminGhostUsersView,
+    meta: { requiresActive: true, roles: ['PRESIDENTE', 'VICEPRESIDENTE'] as RolUsuario[] },
+  },
+  {
+    path: '/admin/junta',
+    name: 'admin-junta',
+    component: AdminBoardRolesView,
+    meta: { requiresActive: true, roles: ['PRESIDENTE'] as RolUsuario[] },
   },
 ];
 

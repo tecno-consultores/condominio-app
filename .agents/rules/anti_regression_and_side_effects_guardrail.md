@@ -15,13 +15,17 @@ Before altering any shared code, service definition, or configuration:
 1. **Shared Configuration & Port Invariants (`docker-compose*.yml`):**
    - **Never delete or overwrite canonical protocol ports** when adding or exposing alternative ports.
    - Verify that base HTTP and database/cache bindings remain reachable.
-2. **Graphify AST Blast-Radius Pre-Audit (CLI-First Invariant):**
-   - Prior to modifying or refactoring any shared function, model, utility, or state store, run the canonical blast radius inspector directly via CLI:
+2. **Graphify AST Blast-Radius Pre-Audit & Post-Update (CLI-First Invariant):**
+   - Prior to modifying or refactoring any shared function, model, utility, or state store, and immediately after completing architectural changes, extract/update the AST graph in ephemeral Docker and run the canonical blast radius and topological inspectors via CLI:
      ```bash
+     docker run --rm -v "${PWD}:/app" -w /app sinfallas/remote-graphify:latest sh -c "graphify extract . --code-only --force && chown -R $(id -u):$(id -g) /app/graphify-out"
+     python3 .agents/scripts/verify_topological_health.py
      python3 .agents/scripts/inspect_blast_radius.py "<symbol_name>"
      ```
    - **CLI-First Execution Rule:** Shell-capable agents (Google Antigravity, local terminal agents) MUST execute the inspector and query tools directly via CLI. They MUST NOT spawn background Docker MCP containers or occupy port 8080, which are reserved exclusively for external non-shell clients (Claude Desktop, Hermes Agent).
    - For any symbol assessed as `MODERATE` or `HIGH/CRITICAL` risk, the agent's implementation plan must explicitly list all affected caller files and guarantee that their contracts and parameters remain intact.
+3. **Deterministic Session Continuity (`ACTIVE_TASK.md`):**
+   - Maintain `ACTIVE_TASK.md` in the repository root with granular `CP-X.Y` checkpoints during multi-step tasks so that any interrupted session can resume deterministically from the exact checkpoint.
 
 ---
 

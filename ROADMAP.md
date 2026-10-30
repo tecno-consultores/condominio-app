@@ -8,7 +8,7 @@
 ## 📊 Estado General del Proyecto
 
 - **Fase 1 (Backend FastAPI & Seguridad 11X):** **`[100% COMPLETADA]`** — Hitos 1, 2, 3, 3.5 y 4 completados y certificados.
-- **Fase 2 (Frontend Vue 3 Mobile-First):** En curso — **Hitos 5 y 6 `[COMPLETADOS]`**; Hito 7 pendiente.
+- **Fase 2 (Frontend Vue 3 Mobile-First):** **`[100% COMPLETADA]`** — **Hitos 5, 6 y 7 `[COMPLETADOS]`** y certificados.
 - **Fase 3 (Integración E2E, Accesibilidad y Caos Nivel 11X):** Parcial — Hito 9 **`[COMPLETADO]`**; Hito 8 pendiente tras Fase 2.
 - **Leyenda:**
   - `[COMPLETADO]` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
@@ -88,13 +88,13 @@
   - [x] **Sub-tarea 6.4 (Mesa de Revisión de Pagos y Candado Contable):** Implementados `TreasuryPaymentsView.vue` (`/tesoreria/pagos`, alias `/admin/pagos-revision`) con aprobación en un toque y `RejectPaymentModal.vue` (`<dialog>` nativo con motivo obligatorio $\ge 5$ caracteres), más `TreasuryClosingView.vue` (`/tesoreria/cierre`, alias `/admin/finanzas`) con alta de tasa BCV, registro de egresos y modal `<dialog>` de confirmación reforzada para el **Candado Contable** (`POST /api/finanzas/cierre-mensual`).
   - [x] **Sub-tarea 6.5 (Certificación QA 11X del Hito 6):** 24 suites unitarias en Vitest (`50/50 tests`, **99.74% líneas/sentencias, 95.62% ramas, 96.96% funciones**), **0 componentes huérfanos** (`make qa-orphans`: 18/18 componentes `.vue`) y escenarios BDD en `frontend/test/ui_business_flow.feature`.
 
-### Hito 7: Vistas Administrativas, Embudo de Incidencias y Conserjería `[PENDIENTE]`
+### Hito 7: Vistas Administrativas, Embudo de Incidencias y Conserjería `[COMPLETADO]`
 - **Especificaciones:** [`docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md`](./docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md), [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Sección 4)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 7.1 (Constructor de Estructura y Aprobación de Usuarios):** Implementar `EstructuraAdminView.vue` (`/admin/estructura`) y `UsuariosPendientesView.vue` (`/admin/usuarios-pendientes`) permitiendo al Presidente activar Usuarios Fantasma asignándoles Unidad y Rol.
-  - [ ] **Sub-tarea 7.2 (Embudo de Incidencias Vecinales):** Implementar `IncidenciasFeedView.vue` (`/incidencias`) con `IncidenciaFeedCard.vue`, botón reactivo idempotente `MeSumoButton.vue` ("¡Me sumo!"), indicador de cuota `PhotoQuotaBadge.vue` (`fotos_usadas_mes / 30` para Voceros) y badge de estado de optimización AVIF.
-  - [ ] **Sub-tarea 7.3 (Checklist Operativo del Conserje):** Implementar `ConserjeTareasView.vue` (`/conserje/tareas`) y `TareaChecklistItem.vue` con casillas táctiles de alto contraste y carga de evidencia.
-  - [ ] **Sub-tarea 7.4 (Certificación QA 11X del Hito 7):** Pruebas unitarias en Vitest (`>= 95%`), paridad 100% API ↔ GUI y cero componentes huérfanos (`make qa-orphans`).
+  - [x] **Sub-tarea 7.1 (Constructor de Estructura, Activación de Usuarios Fantasma y Junta):** Implementadas `AdminStructureView.vue` (`/admin/estructura`), `AdminGhostUsersView.vue` (`/admin/usuarios`, alias `/admin/usuarios-pendientes`) y `AdminBoardRolesView.vue` (`/admin/junta`) junto con `useOperationsStore` (`frontend/src/stores/operationsStore.ts`) aplicando **Catch No Destructivo** (`isStale = true`).
+  - [x] **Sub-tarea 7.2 (Embudo de Incidencias Vecinales y Galería de Voceros):** Implementadas `IncidentsFeedView.vue` (`/incidencias`) con `IncidentCard.vue` y botón reactivo "¡Me sumo!", `SpokespersonGalleryView.vue` (`/voceros/galeria`) con barra de cuota mensual `fotos_usadas_mes / 30` (`#photo-quota-badge`) y distintivo AVIF, y `SecretaryLogbookView.vue` (`/secretaria/bitacora`).
+  - [x] **Sub-tarea 7.3 (Checklist Operativo del Conserje):** Implementadas `OperationsTasksView.vue` (`/operaciones/tareas`, alias `/conserje/tareas`) y `TaskChecklistItem.vue` con casillas táctiles de alto contraste (`accent-color` + `color-scheme: light dark` y fallback `@supports not (accent-color: ...)`), cierre automático de incidencia vinculada y barra de progreso diario.
+  - [x] **Sub-tarea 7.4 (Grafo AST, Gobernanza y Certificación QA 11X del Hito 7):** Generado Grafo de Conocimiento AST en `graphify-out/graph.json` y `graphify-out/GRAPH_REPORT.md` (**1.075 nodos, 2.464 relaciones, 59 comunidades, 0 violaciones topológicas**), creado diario determinista `ACTIVE_TASK.md`, scripts `limpieza.sh` y `frontend/limpieza.sh`, y certificadas **34 suites unitarias en Vitest (`70/70 tests`, 99.80% líneas/sentencias, 97.88% funciones, 95.73% ramas)** con **0 componentes huérfanos** (`27/27` componentes `.vue`).
 
 ---
 

@@ -1,6 +1,6 @@
 # 🎨 Especificación 05: Arquitectura GUI Vue 3 Mobile-First y Ergonomía Nivel 11X
 
-**Estado:** Hitos 5 y 6 Completados en `frontend/` (Layout Anti-JSDOM, Seguridad Cliente, `useAuthStore`, `useFinanceStore`, Vistas Auth y Vistas Financieras/Tesorería) / Hitos 7 y 8 en curso  
+**Estado:** Hitos 5, 6 y 7 Completados en `frontend/` (100% Vistas Auth, Finanzas/Tesorería, Operaciones/Incidencias/Conserjería y Administración implementadas con 0 componentes huérfanos) / Hito 8 (Certificación E2E/Lighthouse) pendiente  
 **Ecosistema:** Vue 3 (Composition API `<script setup lang="ts">`) + Vite + Pinia + Vue Router + TypeScript Strict
 
 ---
@@ -159,3 +159,9 @@ frontend/
 | `/finanzas/reportar-pago` | Pasos 1, 2, 3 y envío | `#step-1-monto`, `#select-moneda`, `#step-2-metodo`, `#input-referencia`, `#step-3-comprobante`, `#btn-submit-pago` |
 | `/tesoreria/pagos` | Aprobar / Rechazar / Modal motivo | `.payment-card`, `.btn-approve-payment`, `.btn-reject-payment`, `#modal-reject-reason`, `#input-reject-motivo`, `#btn-confirm-reject` |
 | `/incidencias` | Tarjeta, botón Me Sumo y Crear | `.incident-card`, `.btn-me-sumo`, `#btn-open-new-incident` |
+| `/operaciones/tareas` | Progreso diario y casillas de conserjería | `#daily-tasks-progress`, `#task-check-{id}`, `#btn-complete-task-{id}` |
+| `/voceros/galeria` | Indicador de cuota 30 fotos/mes y formulario | `#photo-quota-badge`, `#photo-quota-progress`, `#btn-submit-vocero-foto` |
+| `/secretaria/bitacora` | Formulario y tarjetas de actas | `#input-acta-contenido`, `#btn-submit-acta`, `.acta-card` |
+| `/admin/estructura` | Generador idempotente de torres/unidades | `#form-generar-estructura`, `#input-est-nombre`, `#input-est-identificadores`, `#btn-submit-estructura` |
+| `/admin/usuarios` | Bandeja de activación de Usuarios Fantasma | `[data-testid="ghost-user-card-{id}"]`, `#select-unit-{id}`, `#select-rol-{id}`, `#btn-activate-user-{id}` |
+| `/admin/junta` | Asignación de cargos directivos | `#form-asignar-junta`, `#input-junta-usuario-id`, `#select-junta-cargo`, `#btn-submit-junta` |

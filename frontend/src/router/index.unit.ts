@@ -61,7 +61,7 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     ).toBe(true);
   });
 
-  it('integra el guardia en una instancia real de Vue Router con Pinia y rutas de Hito 6', async () => {
+  it('integra el guardia en una instancia real de Vue Router con Pinia y rutas de Hito 6 y Hito 7', async () => {
     const authStore = useAuthStore();
     const router = buildAppRouter(true);
 
@@ -93,5 +93,33 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     expect(router.currentRoute.value.path).toBe('/tesoreria/pagos');
     await router.push('/tesoreria/cierre');
     expect(router.currentRoute.value.path).toBe('/tesoreria/cierre');
+    await router.push('/incidencias');
+    expect(router.currentRoute.value.path).toBe('/incidencias');
+    await router.push('/operaciones/tareas');
+    expect(router.currentRoute.value.path).toBe('/operaciones/tareas');
+    await router.push('/voceros/galeria');
+    expect(router.currentRoute.value.path).toBe('/voceros/galeria');
+    await router.push('/secretaria/bitacora');
+    expect(router.currentRoute.value.path).toBe('/secretaria/bitacora');
+
+    // Tesorero intentando entrar a ruta exclusiva de Presidencia redirige a /dashboard
+    await router.push('/admin/junta');
+    expect(router.currentRoute.value.path).toBe('/dashboard');
+
+    authStore.setProfileForTesting({
+      id: 1,
+      nombre: 'Presidente',
+      cedula: 'V-1',
+      correo: 'presidente@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PRESIDENTE',
+    });
+    await router.push('/admin/estructura');
+    expect(router.currentRoute.value.path).toBe('/admin/estructura');
+    await router.push('/admin/usuarios');
+    expect(router.currentRoute.value.path).toBe('/admin/usuarios');
+    await router.push('/admin/junta');
+    expect(router.currentRoute.value.path).toBe('/admin/junta');
   });
 });
