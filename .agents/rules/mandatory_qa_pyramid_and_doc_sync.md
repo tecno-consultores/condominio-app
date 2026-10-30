@@ -51,7 +51,7 @@ Following any code modification, the AI agent **MUST autonomously and continuous
    - Record updated test counts, pass rates, and coverage percentages.
 5. **Deterministic Checkpoint Log in `ACTIVE_TASK.md`:**
    - Update `ACTIVE_TASK.md` at the start, after each sub-task (`CP-X.Y`), and upon completion of every milestone.
-6. **Project Root (`README.md`, `SECURITY.md`, `limpieza.sh`):**
+6. **Project Root & Scripts (`README.md`, `SECURITY.md`, `scripts/limpieza.sh`):**
    - Update whenever architectural blueprints, tools, or dependencies evolve.
 
 ---

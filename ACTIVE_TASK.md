@@ -28,5 +28,5 @@
 - [x] **CP-7.3:** Implementación de componentes operativos (`IncidentCard.vue` y `TaskChecklistItem.vue` + `.unit.ts`).
 - [x] **CP-7.4:** Implementación de vistas operativas (`IncidentsFeedView.vue`, `OperationsTasksView.vue`, `SpokespersonGalleryView.vue`, `SecretaryLogbookView.vue` + `.unit.ts`).
 - [x] **CP-7.5:** Implementación de vistas administrativas (`AdminStructureView.vue`, `AdminGhostUsersView.vue`, `AdminBoardRolesView.vue` + `.unit.ts`) y registro en `frontend/src/router/index.ts`.
-- [x] **CP-7.6:** Actualización de scripts de limpieza (`limpieza.sh`), `.gitignore`, `AGENTS.md` y `.agents/rules/`.
+- [x] **CP-7.6:** Actualización de scripts de limpieza (`scripts/limpieza.sh`), `.gitignore`, `AGENTS.md` y `.agents/rules/`.
 - [x] **CP-7.7:** Ejecución de pruebas 11X en Docker efímero (`34 suites, 70 tests, 99.80% líneas`), actualización final del Grafo AST (`1.075 nodos, 2.464 aristas`), sincronización de `ROADMAP.md` / `CHANGELOG.md` / `TESTING.md` / `docs/specs/` y `git push origin main`.

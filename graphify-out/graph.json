@@ -11077,33 +11077,33 @@
       "source_location": "L1"
     },
     {
-      "id": "limpieza",
-      "label": "limpieza.sh",
+      "id": "scripts_limpieza",
+      "label": "scripts/limpieza.sh",
       "_origin": "ast",
       "community": 51,
-      "community_name": "limpieza.sh",
+      "community_name": "scripts/limpieza.sh",
       "file_type": "code",
       "metadata": {
         "language": "bash",
         "kind": "file"
       },
-      "norm_label": "limpieza.sh",
-      "source_file": "limpieza.sh",
+      "norm_label": "scripts/limpieza.sh",
+      "source_file": "scripts/limpieza.sh",
       "source_location": "L1"
     },
     {
-      "id": "limpieza_sh__entry",
+      "id": "scripts_limpieza_sh__entry",
       "label": "limpieza.sh script",
       "_origin": "ast",
       "community": 51,
-      "community_name": "limpieza.sh",
+      "community_name": "scripts/limpieza.sh",
       "file_type": "code",
       "metadata": {
         "language": "bash",
         "kind": "bash_entrypoint"
       },
       "norm_label": "limpieza.sh script",
-      "source_file": "limpieza.sh",
+      "source_file": "scripts/limpieza.sh",
       "source_location": "L1"
     },
     {
@@ -37420,17 +37420,6 @@
       "weight": 1.0
     },
     {
-      "source": "limpieza",
-      "target": "limpieza_sh__entry",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "limpieza.sh",
-      "source_location": "L1",
-      "weight": 1.0
-    },
-    {
       "source": "package",
       "target": "package_name",
       "relation": "contains",
@@ -37538,6 +37527,17 @@
       "confidence_score": 1.0,
       "source_file": "package.json",
       "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "scripts_limpieza",
+      "target": "scripts_limpieza_sh__entry",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/limpieza.sh",
+      "source_location": "L1",
       "weight": 1.0
     },
     {

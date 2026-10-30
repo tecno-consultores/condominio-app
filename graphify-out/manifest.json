@@ -767,10 +767,10 @@
     "ast_hash": "1d66dac98a094b7cb6da7a7c367fa3e4",
     "semantic_hash": "1d66dac98a094b7cb6da7a7c367fa3e4"
   },
-  "limpieza.sh": {
-    "mtime": 1793323840.4514716,
-    "seen": 1793324134.0540254,
-    "ast_hash": "445bd57fe210c5b04e5f534395ad81f5",
-    "semantic_hash": "445bd57fe210c5b04e5f534395ad81f5"
+  "scripts/limpieza.sh": {
+    "mtime": 1793324299.0093937,
+    "seen": 1793324341.2453737,
+    "ast_hash": "5dca92ab7e17294057f7e63f46b5008d",
+    "semantic_hash": "5dca92ab7e17294057f7e63f46b5008d"
   }
 }

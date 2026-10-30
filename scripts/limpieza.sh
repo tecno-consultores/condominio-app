@@ -2,16 +2,22 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
 # Propósito: Purga profunda integral del monorepo Condominio App (Backend FastAPI + Frontend Vue 3, Nivel 11X).
+# Puede ejecutarse directamente desde ./scripts/ (sudo ./limpieza.sh) o desde la raíz (sudo ./scripts/limpieza.sh).
 
 LC_ALL=C
 
 if [[ "$EUID" != "0" ]]; then
-        echo "ERROR: debe ser root. Ejecuta con sudo ./limpieza.sh"
+        echo "ERROR: debe ser root. Ejecuta con sudo ./limpieza.sh (o sudo ./scripts/limpieza.sh)"
         exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+cd "${REPO_ROOT}" || exit 1
+
 clear
-echo "Iniciando purga profunda integral de Condominio App (Backend + Frontend, Nivel 11X)..."
+echo "Iniciando purga profunda integral de Condominio App desde ${REPO_ROOT} (Nivel 11X)..."
 
 # Artefactos globales y de backend
 rm -f .coverage backend/.coverage
@@ -43,16 +49,16 @@ rm -rf .stryker-tmp/ frontend/.stryker-tmp/
 rm -rf lhci-reports/ frontend/lhci-reports/
 rm -rf .lighthouseci/ frontend/.lighthouseci/
 rm -rf .lhcache/ frontend/.lhcache/
-rm -f *.log backend/*.log frontend/*.log
+rm -f *.log backend/*.log frontend/*.log scripts/*.log
 
-chown -R "${SUDO_USER:-$USER}:${SUDO_USER:-$USER}" . 2>/dev/null || true
+chown -R "${SUDO_USER:-$USER}:${SUDO_USER:-$USER}" "${REPO_ROOT}" 2>/dev/null || true
 
-docker compose -f backend/docker-compose.qa.yml down -v 2>/dev/null || true
-docker compose -f backend/docker-compose.qa.yml --profile chaos down -v 2>/dev/null || true
-docker compose -f backend/docker-compose.qa.yml --profile graphify down -v 2>/dev/null || true
-docker compose -f frontend/docker-compose.qa.yml down -v 2>/dev/null || true
-docker compose -f frontend/docker-compose.qa.yml --profile observability down -v 2>/dev/null || true
-docker compose -f frontend/docker-compose.qa.yml --profile graphify down -v 2>/dev/null || true
+docker compose -f "${REPO_ROOT}/backend/docker-compose.qa.yml" down -v 2>/dev/null || true
+docker compose -f "${REPO_ROOT}/backend/docker-compose.qa.yml" --profile chaos down -v 2>/dev/null || true
+docker compose -f "${REPO_ROOT}/backend/docker-compose.qa.yml" --profile graphify down -v 2>/dev/null || true
+docker compose -f "${REPO_ROOT}/frontend/docker-compose.qa.yml" down -v 2>/dev/null || true
+docker compose -f "${REPO_ROOT}/frontend/docker-compose.qa.yml" --profile observability down -v 2>/dev/null || true
+docker compose -f "${REPO_ROOT}/frontend/docker-compose.qa.yml" --profile graphify down -v 2>/dev/null || true
 
 docker system prune -af --volumes
 

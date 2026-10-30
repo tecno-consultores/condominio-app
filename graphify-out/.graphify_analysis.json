@@ -1168,8 +1168,8 @@
       "instalar_hooks_sh__entry"
     ],
     "51": [
-      "limpieza",
-      "limpieza_sh__entry"
+      "scripts_limpieza",
+      "scripts_limpieza_sh__entry"
     ],
     "52": [
       "scripts_verificar_secretos",

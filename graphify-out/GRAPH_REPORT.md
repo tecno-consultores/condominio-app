@@ -60,7 +60,7 @@
 - backend/limpieza.sh
 - frontend/limpieza.sh
 - instalar-hooks.sh
-- limpieza.sh
+- scripts/limpieza.sh
 - verificar-secretos.sh
 - condominio-app-backend
 
