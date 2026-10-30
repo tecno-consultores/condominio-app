@@ -670,3 +670,63 @@ class PaqueteResponse(BaseModel):
     fecha_recepcion: datetime
     fecha_entrega: datetime | None = None
     retirado_por_id: int | None = None
+
+
+# ==============================================================================
+# ESQUEMAS DE RESERVA DE ÁREAS SOCIALES E INSPECCIÓN POST-EVENTO (Hito 13)
+# ==============================================================================
+
+ResultadoInspeccionReserva = Literal["FINALIZADA_SIN_DANOS", "FINALIZADA_CON_DANOS"]
+
+
+class AreaSocialCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: str = Field(..., min_length=3, max_length=100)
+    aforo_maximo: int = Field(..., strict=True, ge=1, le=500)
+    costo_uso_usd: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
+    deposito_garantia_usd: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
+    requiere_solvencia_estricta: bool = Field(default=True, strict=True)
+
+
+class AreaSocialResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    aforo_maximo: int
+    costo_uso_usd: Decimal
+    deposito_garantia_usd: Decimal
+    requiere_solvencia_estricta: bool
+    es_activa: bool
+
+
+class ReservaAreaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    area_id: int = Field(..., strict=True, gt=0)
+    unidad_id: int = Field(..., strict=True, gt=0)
+    fecha_evento: date_type
+    motivo_evento: str = Field(..., min_length=5, max_length=160)
+
+
+class ReservaInspeccionarRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    estado: ResultadoInspeccionReserva
+    observaciones_inspeccion: str = Field(..., min_length=3, max_length=500)
+
+
+class ReservaAreaResponse(BaseModel):
+    id: int
+    area_id: int
+    nombre_area: str
+    unidad_id: int
+    identificador_unidad: str
+    solicitante_id: int
+    fecha_evento: date_type
+    motivo_evento: str
+    estado: str
+    tarea_inspeccion_id: int | None = None
+    observaciones_inspeccion: str | None = None
+    creado_en: datetime

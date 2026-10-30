@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
 
-Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH, Gobernanza Digital y Accesos QR / Paquetería (Hitos 5, 6, 7, 10, 11 y 12)
+Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH, Gobernanza Digital, Accesos QR / Paquetería y Reservas de Áreas Sociales (Hitos 5, 6, 7, 10, 11, 12 y 13)
 
   Background:
     * configure driver = { type: 'chrome', headless: true, addOptions: ['--no-sandbox', '--disable-dev-shm-usage'] }
@@ -76,3 +76,8 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     Then waitFor('#login-form')
     Given driver baseUrl + '/operaciones/paqueteria'
     Then waitFor('#login-form')
+
+  Scenario: 8. Redirección automática de la vista de Reserva de Áreas Sociales de Hito 13 (/reservas/areas) hacia /login sin sesión autenticada
+    Given driver baseUrl + '/reservas/areas'
+    Then waitFor('#login-form')
+

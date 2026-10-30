@@ -230,4 +230,149 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter�
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-ent-paq');
     await expect(store.confirmarEntregaPaquete(12)).rejects.toBe('raw-ent-paq');
   });
+
+  it('gestiona áreas sociales, reservas con solvencia e inspección post-evento (Hito 13)', async () => {
+    const store = useAccessAmenitiesStore();
+    const areaMock = {
+      id: 1,
+      nombre: 'Salón de <b>Fiestas</b>',
+      aforo_maximo: 80,
+      costo_uso_usd: '35.00',
+      deposito_garantia_usd: '100.00',
+      requiere_solvencia_estricta: true,
+      es_activa: true,
+    };
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce([areaMock]);
+    const areas = await store.fetchAreasSociales();
+    expect(areas).toHaveLength(1);
+    expect(store.areasSociales[0].nombre).toContain('&lt;b&gt;Fiestas&lt;/b&gt;');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('Err areas'));
+    const areasFallback = await store.fetchAreasSociales();
+    expect(areasFallback).toHaveLength(1);
+    expect(store.isStale).toBe(true);
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-areas');
+    await store.fetchAreasSociales();
+    expect(store.error).toBe('Error al cargar las áreas sociales');
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce(areaMock);
+    const creada = await store.crearAreaSocial({
+      nombre: 'Salón de Fiestas',
+      aforo_maximo: 80,
+      costo_uso_usd: '35.00',
+      deposito_garantia_usd: '100.00',
+      requiere_solvencia_estricta: true,
+    });
+    expect(creada.id).toBe(1);
+
+    const reservaMock = {
+      id: 10,
+      area_id: 1,
+      nombre_area: 'Salón de Fiestas',
+      unidad_id: 2,
+      identificador_unidad: 'PB-02',
+      solicitante_id: 4,
+      fecha_evento: '2026-12-20',
+      motivo_evento: 'Cumpleaños <i>infantil</i>',
+      estado: 'CONFIRMADA' as const,
+      tarea_inspeccion_id: 99,
+      observaciones_inspeccion: null,
+      creado_en: '2026-10-30T10:00:00Z',
+    };
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce([reservaMock]);
+    const reservas = await store.fetchReservas();
+    expect(reservas).toHaveLength(1);
+    expect(store.reservas[0].motivo_evento).toContain('&lt;i&gt;infantil&lt;/i&gt;');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('Err reservas'));
+    await store.fetchReservas();
+    expect(store.isStale).toBe(true);
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-reservas');
+    await store.fetchReservas();
+    expect(store.error).toBe('Error al cargar el calendario de reservas');
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce(reservaMock);
+    const solicitada = await store.solicitarReservaArea({
+      area_id: 1,
+      unidad_id: 2,
+      fecha_evento: '2026-12-20',
+      motivo_evento: 'Cumpleaños infantil',
+    });
+    expect(solicitada.id).toBe(10);
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+      ...reservaMock,
+      estado: 'FINALIZADA_SIN_DANOS',
+      observaciones_inspeccion: 'Entrega limpia y sin daños',
+    });
+    const inspeccionada = await store.inspeccionarReserva(10, {
+      estado: 'FINALIZADA_SIN_DANOS',
+      observaciones_inspeccion: 'Entrega limpia y sin daños',
+    });
+    expect(inspeccionada.estado).toBe('FINALIZADA_SIN_DANOS');
+    expect(store.reservas[0].observaciones_inspeccion).toBe('Entrega limpia y sin daños');
+
+    // Errores en mutaciones Hito 13
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('err-crear-area'));
+    await expect(
+      store.crearAreaSocial({
+        nombre: 'X',
+        aforo_maximo: 10,
+        costo_uso_usd: '0.00',
+        deposito_garantia_usd: '0.00',
+        requiere_solvencia_estricta: true,
+      }),
+    ).rejects.toThrow('err-crear-area');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-crear-area');
+    await expect(
+      store.crearAreaSocial({
+        nombre: 'X',
+        aforo_maximo: 10,
+        costo_uso_usd: '0.00',
+        deposito_garantia_usd: '0.00',
+        requiere_solvencia_estricta: true,
+      }),
+    ).rejects.toBe('raw-crear-area');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('err-solicitar-reserva'));
+    await expect(
+      store.solicitarReservaArea({
+        area_id: 1,
+        unidad_id: 2,
+        fecha_evento: '2026-12-20',
+        motivo_evento: 'Evento',
+      }),
+    ).rejects.toThrow('err-solicitar-reserva');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-solicitar-reserva');
+    await expect(
+      store.solicitarReservaArea({
+        area_id: 1,
+        unidad_id: 2,
+        fecha_evento: '2026-12-20',
+        motivo_evento: 'Evento',
+      }),
+    ).rejects.toBe('raw-solicitar-reserva');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('err-inspeccion'));
+    await expect(
+      store.inspeccionarReserva(10, {
+        estado: 'FINALIZADA_CON_DANOS',
+        observaciones_inspeccion: 'Daño',
+      }),
+    ).rejects.toThrow('err-inspeccion');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-inspeccion');
+    await expect(
+      store.inspeccionarReserva(10, {
+        estado: 'FINALIZADA_CON_DANOS',
+        observaciones_inspeccion: 'Daño',
+      }),
+    ).rejects.toBe('raw-inspeccion');
+  });
 });

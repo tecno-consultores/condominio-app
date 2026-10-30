@@ -22,6 +22,7 @@ import TreasuryPaymentsView from '../views/finance/TreasuryPaymentsView.vue';
 import ConsultationDetailView from '../views/governance/ConsultationDetailView.vue';
 import ConsultationsListView from '../views/governance/ConsultationsListView.vue';
 import GatehouseScannerView from '../views/operations/GatehouseScannerView.vue';
+import AmenitiesReservationView from '../views/operations/AmenitiesReservationView.vue';
 import IncidentsFeedView from '../views/operations/IncidentsFeedView.vue';
 import OperationsTasksView from '../views/operations/OperationsTasksView.vue';
 import ParcelsTrackerView from '../views/operations/ParcelsTrackerView.vue';
@@ -148,6 +149,12 @@ export const routes: RouteRecordRaw[] = [
     path: '/operaciones/paqueteria',
     name: 'operaciones-paqueteria',
     component: ParcelsTrackerView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/reservas/areas',
+    name: 'reservas-areas',
+    component: AmenitiesReservationView,
     meta: { requiresActive: true },
   },
   {

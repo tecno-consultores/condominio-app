@@ -1,7 +1,7 @@
 # 🛂 Especificación 09: Dominio de Control de Acceso QR, Paquetería en Garita y Reserva de Áreas Sociales
 
-**Estado:** `[HITO 12 IMPLEMENTADO Y CERTIFICADO (ACCESOS QR + PAQUETERÍA) / HITO 13 ESPECIFICADO (RESERVA DE ÁREAS SOCIALES)]`  
-**Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/routers/accesos.py`, `backend/src/routers/reservas.py`, `backend/alembic/versions/0005_hito12_accesos_paqueteria.py`  
+**Estado:** `[HITOS 12 Y 13 IMPLEMENTADOS Y CERTIFICADOS (ACCESOS QR + PAQUETERÍA + RESERVA DE ÁREAS SOCIALES E INSPECCIÓN POST-EVENTO)]`  
+**Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/routers/accesos.py`, `backend/src/routers/reservas.py`, `backend/alembic/versions/0005_hito12_accesos_paqueteria.py`, `backend/alembic/versions/0006_hito13_reservas_areas.py`  
 **Módulos Frontend Objetivo:** `frontend/src/stores/accessAmenitiesStore.ts`, `frontend/src/views/operations/VisitorPassesView.vue`, `frontend/src/views/operations/GatehouseScannerView.vue`, `frontend/src/views/operations/ParcelsTrackerView.vue`, `frontend/src/views/operations/AmenitiesReservationView.vue`
 
 ---
@@ -122,5 +122,6 @@ flowchart TD
 | `PUT` | `/api/paqueteria/{paquete_id}/entregar` | `CONSERJE` o Residente destinatario | N/A (`PUT` idempotente) | Marca el paquete como `"ENTREGADO"` con timestamp y usuario receptor (`200 OK`, `409 Conflict` si ya fue entregado). |
 | `POST` | `/api/reservas/areas` | `PRESIDENTE`, `TESORERO` | `idemp:crear_area:{user_id}:{key}` | Da de alta un `AreaSocial` reservable (`201 Created`, `409 Conflict`). |
 | `GET` | `/api/reservas/areas` | Usuario Activo | N/A (`GET`) | Lista las áreas sociales y su calendario de disponibilidad (`200 OK`). |
+| `GET` | `/api/reservas` | Usuario Activo | N/A (`GET`) | Lista reservas confirmadas e inspeccionadas (todas para Junta/Conserje; propias para residentes) (`200 OK`). |
 | `POST` | `/api/reservas/solicitar` | Usuario Activo (**Unidad Solvente**) | `idemp:reservar:{unidad_id}:{key}` | Valida solvencia estricta ($0.00\text{ USD}$ deuda), bloquea la fecha del área social y crea la tarea de inspección del conserje (`201 Created`, `403 Forbidden` si insolvente, `409 Conflict` si fecha ocupada). |
 | `PUT` | `/api/reservas/{reserva_id}/inspeccionar` | `CONSERJE`, `PRESIDENTE`, `TESORERO` | N/A (`PUT` idempotente) | Registra el resultado de la inspección post-evento (`"FINALIZADA_SIN_DANOS"` o `"FINALIZADA_CON_DANOS"`) y completa la `TareaDiaria` asociada (`200 OK`). |

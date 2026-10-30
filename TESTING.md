@@ -14,12 +14,12 @@
 | **Lint, Tipado & SAST (Backend)** | `make -C backend qa-lint` (`ruff`, `mypy --strict`, `bandit`) | 0 errores / 0 advertencias | ✅ **100% Limpio** |
 | **Complejidad Ciclomática & MI** | `make -C backend qa-complexity` (`radon_gates.py`) | CC $\le$ Grado B, MI $\ge$ Grado B | ✅ **Grado A en todos los módulos** |
 | **Auditoría de Dependencias** | `make -C backend qa-deps` (`uv audit`) | 0 CVEs conocidos | ✅ **0 vulnerabilidades** |
-| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.83% cobertura (208/208 pass)** |
-| **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (25 tablas)** |
+| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.85% cobertura (215/215 pass)** |
+| **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (27 tablas)** |
 | **Lint, Tipado & SonarJS (Frontend)** | `make -C frontend qa-lint` (`vue-tsc`, `prettier`, `eslint`) | 0 errores / CC $\le 15$ | ✅ **100% Limpio** |
-| **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **36/36 componentes cubiertos** |
-| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.39% líneas / 99.11% sentencias / 97.64% funciones / 95.44% ramas (91/91 pass)** |
-| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **1.902 nodos, 4.185 relaciones, 125 comunidades, 0 violaciones** |
+| **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **37/37 componentes cubiertos** |
+| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.38% líneas / 99.12% sentencias / 97.54% funciones / 95.52% ramas (94/94 pass)** |
+| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **1.983 nodos, 4.469 relaciones, 114 comunidades, 0 violaciones** |
 | **Contratos OpenAPI & Fuzzing** | `make -C backend qa-contracts` (`schemathesis`) | 0 fallos 5xx / contrato | ✅ **626/626 casos aprobados** |
 | **Seguridad Dinámica (DAST)** | `make -C backend qa-dast` (`zaproxy/zap-stable`) | `FAIL-NEW: 0` | ✅ **0 fallos (66 reglas PASS)** |
 | **Ingeniería del Caos & Carga** | `make -C backend qa-chaos` (`Pumba` + `Locust` + `Prometheus`) | 0 errores bajo `netem 500ms` | ✅ **2.786 peticiones, 0 fallos** |
@@ -42,6 +42,7 @@
 - `tests/test_finanzas_core.unit.py`, `tests/test_pagos.unit.py`, `tests/test_finanzas_router.unit.py` y `tests/test_hito10_alicuotas_solvencia.unit.py`: Matemática financiera `Decimal` (`ROUND_HALF_UP`), prorrateo por alícuotas mediante el **Método del Resto Mayor (Hamilton)**, facturación trimodal (`ALICUOTA`, `CUOTA_FIJA` con conciliación de superávit/déficit hacia `FondoCondominio`, y `PARTES_IGUALES`), aplicación automática de `credito_disponible_usd`, bloqueo `409 Conflict` ante referencias bancarias duplicadas, firma/verificación `HMAC-SHA256` de certificados de solvencia y **Candado Contable** (`POST /api/finanzas/cierre-mensual`).
 - `tests/test_hito11_consultas_asambleas.unit.py`: Firma y verificación criptográfica `HMAC-SHA256` de votos (`generar_firma_voto_consulta`, `verificar_firma_voto_consulta`), escrutinio ponderado LPH (`DOS_TERCIOS` $66.6700\%$, `MAYORIA_SIMPLE` $50.0100\%$ y `UNANIMIDAD` $100.0000\%$), creación/listado/detalle de Cartas Consulta y Asambleas (`/api/consultas`), voto único por unidad con validación de `puede_votar_asamblea` (`403 Forbidden` para inquilinos sin poder y `409 Conflict` para voto duplicado) y cierre con asiento automático en `BitacoraActa`.
 - `tests/test_hito12_accesos_paqueteria.unit.py`: Firma y verificación en tiempo constante `HMAC-SHA256` de Pases de Visita QR (`construir_claims_pase_qr`, `generar_firma_pase_qr`, `construir_token_pase_qr`, `decodificar_y_verificar_token_pase_qr`), quema atómica Anti-Replay en KeyDB (`burn_qr_nonce`, `is_qr_nonce_burned`), emisión/listado/revocación de pases (`/api/accesos/pases`), verificación en garita (`POST /api/accesos/verificar-qr`) y cadena de custodia de paquetería (`/api/paqueteria`).
+- `tests/test_hito13_reservas_areas.unit.py`: Configuración y listado de áreas sociales (`/api/reservas/areas`), solicitud de reserva con **Candado de Solvencia Estricta** (`$0.00 USD` deuda en `Recibo` devolviendo `403 Forbidden` a unidades morosas), exclusividad de fecha por área (`409 Conflict`), generación automática de `TareaDiaria` de inspección post-evento y cierre de inspección (`PUT /api/reservas/{id}/inspeccionar`) completando la tarea del conserje.
 
 ---
 
@@ -64,6 +65,8 @@
 15. **Contención RBAC de Usuario Fantasma en Cartas Consulta LPH (Hito 11):** Verifica que un Usuario Fantasma autenticado recibe `403 Forbidden` al intentar listar, crear, votar o cerrar consultas en `/api/consultas`.
 16. **Protección 401 de Accesos QR y Paquetería en Garita (Hito 12):** Verifica que `GET /api/accesos/pases/mios` y `GET /api/paqueteria` sin sesión devuelven `401 Unauthorized`.
 17. **Contención RBAC de Usuario Fantasma en Accesos QR y Paquetería (Hito 12):** Verifica que un Usuario Fantasma autenticado recibe `403 Forbidden` al intentar emitir/listar pases QR, verificar en garita o gestionar paquetería.
+18. **Protección 401 de Reserva de Áreas Sociales (Hito 13):** Verifica que `GET /api/reservas/areas` y `GET /api/reservas` sin sesión devuelven `401 Unauthorized`.
+19. **Contención RBAC de Usuario Fantasma en Reserva de Áreas Sociales e Inspección Post-Evento (Hito 13):** Verifica que un Usuario Fantasma autenticado recibe `403 Forbidden` al consultar/crear áreas sociales, solicitar reservas o registrar inspecciones.
 
 ---
 

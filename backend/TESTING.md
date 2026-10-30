@@ -70,13 +70,15 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
 - `tests/test_hito12_accesos_paqueteria.unit.py`:
   - `src/finanzas.py` y `src/redis_client.py`: construcción, firma y verificación en tiempo constante `HMAC-SHA256` de pases QR (`construir_claims_pase_qr`, `generar_firma_pase_qr`, `construir_token_pase_qr`, `decodificar_y_verificar_token_pase_qr`) y quema atómica de nonce Anti-Replay en KeyDB (`build_qr_nonce_key`, `burn_qr_nonce`, `is_qr_nonce_burned`).
   - `src/routers/accesos.py`: emisión idempotente de pases de visita QR (`POST /api/accesos/pases`), listado (`GET /api/accesos/pases/mios`), revocación inmediata (`DELETE /api/accesos/pases/{id}`), verificación en garita (`POST /api/accesos/verificar-qr` bloqueando firmas adulteradas con `400`, pases vencidos/revocados con `409` y ataques de repetición con `409`) y cadena de custodia de paquetería (`POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{id}/entregar`).
+- `tests/test_hito13_reservas_areas.unit.py`:
+  - `src/routers/reservas.py`: configuración idempotente y listado de áreas sociales (`POST/GET /api/reservas/areas`), solicitud de reserva con Candado de Solvencia Estricta (`POST /api/reservas/solicitar` rechazando unidades con deuda en `Recibo` con `403 Forbidden`, bloqueando fechas ocupadas con `409 Conflict` y creando `TareaDiaria` de inspección post-evento), listado (`GET /api/reservas`) e inspección post-evento (`PUT /api/reservas/{id}/inspeccionar` completando la `TareaDiaria` del conserje).
 
 ---
 
 ## 2. Pruebas BDD, Paridad PostgreSQL 17, Caos y Resiliencia
 
-- `test/api_test.feature`: 17 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
-- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 25 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
+- `test/api_test.feature`: 19 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
+- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 27 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
 - `tests/locustfile.py`: Perfil de carga concurrente y saturación para inyección de caos y estrés con Pumba + Locust + Prometheus.
 
 ---

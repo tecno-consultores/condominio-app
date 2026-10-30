@@ -25,6 +25,7 @@ const links = [
   { id: 'side-pases-qr', label: 'Pases de Visita QR', to: '/accesos/pases' },
   { id: 'side-garita-qr', label: 'Escáner Garita QR', to: '/operaciones/garita-qr' },
   { id: 'side-paqueteria', label: 'Paquetería en Garita', to: '/operaciones/paqueteria' },
+  { id: 'side-reservas', label: 'Reserva de Áreas Sociales', to: '/reservas/areas' },
   { id: 'side-estructura', label: 'Estructura Física', to: '/admin/estructura' },
   { id: 'side-usuarios', label: 'Usuarios Fantasma', to: '/admin/usuarios' },
   { id: 'side-junta', label: 'Junta de Condominio', to: '/admin/junta' },

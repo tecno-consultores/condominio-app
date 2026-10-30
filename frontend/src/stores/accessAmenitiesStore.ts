@@ -6,6 +6,9 @@ import { generateIdempotencyKey, sanitizeUntrustedText } from '../utils/security
 export type ModalidadPaseQR = 'UNICO_USO' | 'VENTANA_TEMPORAL';
 export type EstadoPaseQR = 'ACTIVO' | 'USADO' | 'REVOCADO' | 'EXPIRADO';
 export type EstadoPaquete = 'EN_GARITA' | 'ENTREGADO';
+export type ResultadoInspeccionReserva = 'FINALIZADA_SIN_DANOS' | 'FINALIZADA_CON_DANOS';
+export type EstadoReservaArea =
+  'CONFIRMADA' | 'FINALIZADA_SIN_DANOS' | 'FINALIZADA_CON_DANOS' | 'CANCELADA';
 
 export interface PaseVisitaCreateDTO {
   unidad_id: number;
@@ -72,6 +75,51 @@ export interface PaqueteDTO {
   retirado_por_id: number | null;
 }
 
+export interface AreaSocialCreateDTO {
+  nombre: string;
+  aforo_maximo: number;
+  costo_uso_usd: string;
+  deposito_garantia_usd: string;
+  requiere_solvencia_estricta: boolean;
+}
+
+export interface AreaSocialDTO {
+  id: number;
+  nombre: string;
+  aforo_maximo: number;
+  costo_uso_usd: string;
+  deposito_garantia_usd: string;
+  requiere_solvencia_estricta: boolean;
+  es_activa: boolean;
+}
+
+export interface ReservaAreaCreateDTO {
+  area_id: number;
+  unidad_id: number;
+  fecha_evento: string;
+  motivo_evento: string;
+}
+
+export interface ReservaInspeccionarDTO {
+  estado: ResultadoInspeccionReserva;
+  observaciones_inspeccion: string;
+}
+
+export interface ReservaAreaDTO {
+  id: number;
+  area_id: number;
+  nombre_area: string;
+  unidad_id: number;
+  identificador_unidad: string;
+  solicitante_id: number;
+  fecha_evento: string;
+  motivo_evento: string;
+  estado: EstadoReservaArea;
+  tarea_inspeccion_id: number | null;
+  observaciones_inspeccion: string | null;
+  creado_en: string;
+}
+
 function sanitizePase(item: PaseVisitaDTO): PaseVisitaDTO {
   return {
     ...item,
@@ -91,11 +139,32 @@ function sanitizePaquete(item: PaqueteDTO): PaqueteDTO {
   };
 }
 
+function sanitizeAreaSocial(item: AreaSocialDTO): AreaSocialDTO {
+  return {
+    ...item,
+    nombre: sanitizeUntrustedText(item.nombre),
+  };
+}
+
+function sanitizeReserva(item: ReservaAreaDTO): ReservaAreaDTO {
+  return {
+    ...item,
+    nombre_area: sanitizeUntrustedText(item.nombre_area),
+    identificador_unidad: sanitizeUntrustedText(item.identificador_unidad),
+    motivo_evento: sanitizeUntrustedText(item.motivo_evento),
+    observaciones_inspeccion: item.observaciones_inspeccion
+      ? sanitizeUntrustedText(item.observaciones_inspeccion)
+      : null,
+  };
+}
+
 export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
   const pases = ref<PaseVisitaDTO[]>([]);
   const ultimoPaseCreado = ref<PaseVisitaDTO | null>(null);
   const ultimoEscaneo = ref<VerificarPaseQRResponseDTO | null>(null);
   const paquetes = ref<PaqueteDTO[]>([]);
+  const areasSociales = ref<AreaSocialDTO[]>([]);
+  const reservas = ref<ReservaAreaDTO[]>([]);
   const isLoading = ref(false);
   const isStale = ref(false);
   const error = ref<string | null>(null);
@@ -255,11 +324,122 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     }
   }
 
+  async function fetchAreasSociales(): Promise<AreaSocialDTO[]> {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const data = await apiRequest<AreaSocialDTO[]>('/api/reservas/areas');
+      const limpias = data.map(sanitizeAreaSocial);
+      areasSociales.value = limpias;
+      isStale.value = false;
+      return limpias;
+    } catch (err) {
+      isStale.value = true;
+      error.value = err instanceof Error ? err.message : 'Error al cargar las áreas sociales';
+      return areasSociales.value;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function crearAreaSocial(payload: AreaSocialCreateDTO): Promise<AreaSocialDTO> {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const data = await apiRequest<AreaSocialDTO>('/api/reservas/areas', {
+        method: 'POST',
+        body: payload,
+        idempotencyKey: generateIdempotencyKey(),
+      });
+      const limpia = sanitizeAreaSocial(data);
+      areasSociales.value = [...areasSociales.value.filter((a) => a.id !== limpia.id), limpia];
+      isStale.value = false;
+      return limpia;
+    } catch (err) {
+      isStale.value = true;
+      error.value = err instanceof Error ? err.message : 'Error al crear el área social';
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function fetchReservas(): Promise<ReservaAreaDTO[]> {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const data = await apiRequest<ReservaAreaDTO[]>('/api/reservas');
+      const limpias = data.map(sanitizeReserva);
+      reservas.value = limpias;
+      isStale.value = false;
+      return limpias;
+    } catch (err) {
+      isStale.value = true;
+      error.value =
+        err instanceof Error ? err.message : 'Error al cargar el calendario de reservas';
+      return reservas.value;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function solicitarReservaArea(payload: ReservaAreaCreateDTO): Promise<ReservaAreaDTO> {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const data = await apiRequest<ReservaAreaDTO>('/api/reservas/solicitar', {
+        method: 'POST',
+        body: payload,
+        idempotencyKey: generateIdempotencyKey(),
+      });
+      const limpia = sanitizeReserva(data);
+      reservas.value = [limpia, ...reservas.value.filter((r) => r.id !== limpia.id)];
+      isStale.value = false;
+      return limpia;
+    } catch (err) {
+      isStale.value = true;
+      error.value =
+        err instanceof Error ? err.message : 'Error al solicitar la reserva del área social';
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function inspeccionarReserva(
+    reservaId: number,
+    payload: ReservaInspeccionarDTO,
+  ): Promise<ReservaAreaDTO> {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const data = await apiRequest<ReservaAreaDTO>(`/api/reservas/${reservaId}/inspeccionar`, {
+        method: 'PUT',
+        body: payload,
+      });
+      const limpia = sanitizeReserva(data);
+      reservas.value = reservas.value.map((r) => (r.id === reservaId ? limpia : r));
+      isStale.value = false;
+      return limpia;
+    } catch (err) {
+      isStale.value = true;
+      error.value =
+        err instanceof Error
+          ? err.message
+          : 'Error al registrar la inspección post-evento del área social';
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   return {
     pases,
     ultimoPaseCreado,
     ultimoEscaneo,
     paquetes,
+    areasSociales,
+    reservas,
     isLoading,
     isStale,
     error,
@@ -270,5 +450,10 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     fetchPaqueteria,
     registrarPaquete,
     confirmarEntregaPaquete,
+    fetchAreasSociales,
+    crearAreaSocial,
+    fetchReservas,
+    solicitarReservaArea,
+    inspeccionarReserva,
   };
 });

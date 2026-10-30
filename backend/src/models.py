@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -360,3 +361,34 @@ class PaqueteRecibido(Base):
     )
     fecha_entrega: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retirado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+
+
+class AreaSocial(Base):
+    """Área común recreativa reservable (Salón de Fiestas, Parrillera, Caney, Cancha) — Hito 13."""
+
+    __tablename__ = "areas_sociales"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    nombre: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    aforo_maximo: Mapped[int] = mapped_column(Integer, nullable=False)
+    costo_uso_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
+    deposito_garantia_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
+    requiere_solvencia_estricta: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    es_activa: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class ReservaAreaSocial(Base):
+    """Reserva exclusiva por fecha de un área social con vínculo a inspección post-evento — Hito 13."""
+
+    __tablename__ = "reservas_areas_sociales"
+    __table_args__ = (UniqueConstraint("area_id", "fecha_evento", name="uq_reserva_area_fecha"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    area_id: Mapped[int] = mapped_column(ForeignKey("areas_sociales.id"), index=True, nullable=False)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True, nullable=False)
+    solicitante_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    fecha_evento: Mapped[date_type] = mapped_column(Date, index=True, nullable=False)
+    motivo_evento: Mapped[str] = mapped_column(String(160), nullable=False)
+    estado: Mapped[str] = mapped_column(String(30), default="CONFIRMADA", index=True, nullable=False)
+    tarea_inspeccion_id: Mapped[int | None] = mapped_column(ForeignKey("tareas_diarias.id"), nullable=True)
+    observaciones_inspeccion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -15,7 +15,7 @@ Unit test isolation using mocks measures quick code execution paths, but introdu
 
 1. **ORM vs Database Schema Invariant:**
    - **Zero Schema Drift:** Modifying ORM models never alters the database automatically.
-   - **Mandatory Migrations:** Any new model, table, constraint, or column type change requires an immediate versioned Alembic migration script in `backend/alembic/versions/`.
+   - **Mandatory Migrations:** Any new model, table, constraint, or column type change requires an immediate versioned Alembic migration script in `backend/alembic/versions/` with a `revision` identifier strictly `<= 32` characters (`alembic_version.version_num VARCHAR(32)` in PostgreSQL 17, enforced by `.agents/scripts/verify_alembic_orm_parity.py`).
    - **Real Database Engine Verification:** Always verify tables, column types, and indices in a real PostgreSQL container (`make -C backend qa-parity`). Never assume passing mocks guarantee SQL syntax execution.
 2. **Visual Geometry & Anti-JSDOM Testing:**
    - JSDOM does NOT calculate CSS Flexbox/Grid layouts, element coordinates, or viewport bounding boxes (always returns `0x0`).

@@ -1,6 +1,6 @@
 # 🎨 Especificación 05: Arquitectura GUI Vue 3 Mobile-First y Ergonomía Nivel 11X
 
-**Estado:** Hitos 5, 6, 7, 10 y 11 Completados en `frontend/` (`33/33` componentes `.vue` cubiertos con 0 huérfanos) / Hitos 12–15 y Hito 8 (Certificación E2E/Lighthouse) especificados  
+**Estado:** Hitos 5, 6, 7, 10, 11, 12 y 13 Completados en `frontend/` (`37/37` componentes `.vue` cubiertos con 0 huérfanos) / Hitos 14–15 y Hito 8 (Certificación E2E/Lighthouse) especificados  
 **Ecosistema:** Vue 3 (Composition API `<script setup lang="ts">`) + Vite + Pinia + Vue Router + TypeScript Strict + Tokens `OKLCH` / `light-dark()` + `View Transitions API` + `@starting-style`
 
 ---

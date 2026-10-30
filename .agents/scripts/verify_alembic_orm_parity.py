@@ -81,8 +81,30 @@ def get_migrated_tables() -> set[str]:
     return migrated
 
 
+def validate_revision_id_lengths() -> list[tuple[str, str]]:
+    """Verifica que ningún revision ID de Alembic supere los 32 caracteres (límite VARCHAR(32) en PostgreSQL)."""
+    invalid: list[tuple[str, str]] = []
+    migrations_dir = _resolve_migrations_dir()
+    if not migrations_dir:
+        return invalid
+    rev_pattern = re.compile(r'^\s*revision(?:\s*:\s*[^=]+)?\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
+    for mig_file in sorted(migrations_dir.glob("*.py")):
+        content = mig_file.read_text(encoding="utf-8")
+        match = rev_pattern.search(content)
+        if match and len(match.group(1)) > 32:
+            invalid.append((mig_file.name, match.group(1)))
+    return invalid
+
+
 def main() -> int:
     print("🔍 [QA 11X] Verificando paridad entre modelos SQLAlchemy ORM y migraciones Alembic...")
+
+    invalid_revs = validate_revision_id_lengths()
+    if invalid_revs:
+        print("\n❌ ERROR: Revision IDs de Alembic superan el límite de 32 caracteres de PostgreSQL:")
+        for fname, rev in invalid_revs:
+            print(f"   - {fname}: '{rev}' ({len(rev)} chars > 32)")
+        return 1
 
     model_files = _resolve_model_files()
     if not model_files:

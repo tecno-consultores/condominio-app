@@ -326,3 +326,67 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And request { unidad_id: 1, empresa_envio: "ZOOM", descripcion: "Caja BDD" }
     When method post
     Then status 403
+
+  # ==============================================================================
+  # Grupo 7: Reserva de Áreas Sociales Vinculada a Solvencia e Inspección Post-Evento (Hito 13)
+  # ==============================================================================
+
+  Scenario: 18. Endpoints de Reserva de Áreas Sociales e Inspección Post-Evento sin sesión devuelven 401 Unauthorized
+    Given path '/api/reservas/areas'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+    Given path '/api/reservas'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+  Scenario: 19. Usuario Fantasma recibe 403 Forbidden al consultar o reservar áreas sociales e inspeccionar post-evento
+    Given path '/api/auth/register'
+    And header Idempotency-Key = '018f4a13-9999-7000-8000-000000001300'
+    And request
+      """
+      {
+        "nombre": "Fantasma Hito 13 BDD",
+        "cedula": "V-40404013",
+        "correo": "fantasma.hito13@test.com",
+        "telefono": "+584144040413",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "fantasma.hito13@test.com", password: "Password123!" }
+    When method post
+    Then status 200
+
+    Given path '/api/reservas/areas'
+    When method get
+    Then status 403
+
+    Given path '/api/reservas/areas'
+    And header Idempotency-Key = '018f4a13-9999-7000-8000-000000001301'
+    And request { nombre: "Salón BDD", aforo_maximo: 60, costo_uso_usd: "25.00", deposito_garantia_usd: "80.00", requiere_solvencia_estricta: true }
+    When method post
+    Then status 403
+
+    Given path '/api/reservas'
+    When method get
+    Then status 403
+
+    Given path '/api/reservas/solicitar'
+    And header Idempotency-Key = '018f4a13-9999-7000-8000-000000001302'
+    And request { area_id: 1, unidad_id: 1, fecha_evento: "2026-12-25", motivo_evento: "Reserva BDD Hito 13" }
+    When method post
+    Then status 403
+
+    Given path '/api/reservas/1/inspeccionar'
+    And request { estado: "FINALIZADA_SIN_DANOS", observaciones_inspeccion: "Inspección BDD" }
+    When method put
+    Then status 403
+

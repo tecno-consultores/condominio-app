@@ -164,7 +164,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 
 ---
 
-## 11. Control de Acceso QR, Paquetería en Garita y Reserva de Áreas Sociales (Fase 4 — Spec 09 — Hito 12 Implementado / Hito 13 Especificado)
+## 11. Control de Acceso QR, Paquetería en Garita y Reserva de Áreas Sociales (Fase 4 — Spec 09 — Hitos 12 y 13 Implementados)
 
 ### 🖥️ Vistas: Pases de Visita QR, Escáner de Garita, Paquetería y Reservas
 * **Rutas Vue:** `/accesos/pases` (`VisitorPassesView.vue`), `/operaciones/garita-qr` (`GatehouseScannerView.vue`), `/operaciones/paqueteria` (`ParcelsTrackerView.vue`), `/reservas/areas` (`AmenitiesReservationView.vue`)
@@ -172,4 +172,4 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * `POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{pase_id}`: Emisión y revocación de pases QR firmados con `HMAC-SHA256`. *[Header: Idempotency-Key]*
   * `POST /api/accesos/verificar-qr`: Verifica firma, vigencia y unicidad (`jti` anti-replay en KeyDB Multi-Hilo). *[Header: Idempotency-Key]*
   * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{paquete_id}/entregar`: Cadena de custodia de encomiendas en conserjería. *[Header: Idempotency-Key]*
-  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con bloqueo automático a unidades insolventes y creación automática de `TareaDiaria` de inspección post-evento. *[Header: Idempotency-Key]*
+  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con bloqueo automático a unidades insolventes y creación automática de `TareaDiaria` de inspección post-evento. *[Header: Idempotency-Key]*
