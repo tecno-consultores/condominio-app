@@ -6,12 +6,21 @@
 
 ---
 
-## 1. Propósito y Fundamento Legal (Art. 7, 11 y 14 LPH)
+## 1. Propósito, Modalidades de Cobro y Fundamento Legal (Art. 7, 11 y 14 LPH)
 
-En un régimen de Propiedad Horizontal (como la *Ley de Propiedad Horizontal* de Venezuela y legislaciones homólogas en Latinoamérica), los recibos de condominio **no** son montos arbitrarios ni se dividen en partes iguales cuando existen apartamentos o casas de distinto metraje. Todo el ciclo contable nace de tres pilares legales:
-1. **Alícuota de Copropiedad (Art. 7 LPH):** Porcentaje de participación ($\text{NUMERIC}(7, 4)$, p. ej. $1.2500\%$) asignado a cada `Unidad` en el Documento de Condominio, cuya suma total en el inmueble debe ser exactamente $100.0000\%$.
-2. **Gastos Comunes y Fondo de Reserva (Art. 11 LPH):** Los gastos comunes del periodo (`egresos`) más el recargo porcentual destinado al **Fondo de Reserva** (típicamente $10.00\%$) y fondos especiales se prorratean entre todas las unidades en proporción exacta a su alícuota.
-3. **Certificado de Solvencia de Condominio (Art. 14 LPH):** Documento probatorio exigido en notarías, registros subalternos y administraciones para autorizar compraventas, mudanzas o alquileres, certificando que la unidad tiene deuda cero ($0.00\text{ USD}$).
+En Venezuela y Latinoamérica coexisten en la práctica **tres esquemas de facturación mensual** según el Documento de Condominio o los acuerdos de la Asamblea de Propietarios:
+
+1. **Modalidad A — Prorrateo Variable por Alícuota (`modalidad = "ALICUOTA"`, Art. 7 y 11 LPH):**
+   - Los gastos comunes reales ejecutados en el mes (`egresos`) más el recargo del **Fondo de Reserva** (típicamente $10.00\%$) se prorratean entre las unidades en proporción exacta a su porcentaje de participación (`Unidad.alicuota`, cuya suma es $100.0000\%$).
+2. **Modalidad B — Cuota Fija Mensual (`modalidad = "CUOTA_FIJA"`):**
+   - Muy utilizada en urbanizaciones cerradas, conjuntos de viviendas unifamiliares, edificios con apartamentos idénticos o Juntas de Condominio que aprueban en Asamblea un presupuesto fijo en divisas (por ejemplo, $\$25.00\text{ USD}$ o $\$40.00\text{ USD}$ fijos al mes por vivienda).
+   - Cada unidad recibe un cargo base fijo (`monto_cuota_fija_usd` global del periodo, o `Unidad.cuota_fija_especial_usd` si el Documento de Condominio asigna una tarifa fija distinta a locales comerciales o penthouses).
+   - **Conciliación Contable de Superávit / Déficit en Cuota Fija:** Aunque el cobro al vecino sea fijo, la Junta sigue registrando todos los `egresos` reales del mes. Al facturar o cerrar el mes, el sistema calcula automáticamente la diferencia ($\Delta = \sum \text{Recibos Emitidos} - \sum \text{Egresos Reales}$):
+     - Si $\Delta > 0$ (**Superávit Operativo**): el excedente se acredita de forma transparente al **Fondo de Reserva / Caja Chica** para cubrir mantenimientos futuros.
+     - Si $\Delta < 0$ (**Déficit Operativo**): se descuenta del Fondo acumulado o permite a la Junta anexar una línea adicional de `CUOTA_EXTRAORDINARIA` aprobada por Carta Consulta.
+3. **Modalidad C — Prorrateo Variable en Partes Iguales (`modalidad = "PARTES_IGUALES"`):**
+   - Cuando los gastos reales del mes varían cada periodo, pero todas las unidades tienen exactamente el mismo peso ($1/N$), aplicando igualmente el **Método del Resto Mayor (Hamilton)** para que no se pierda ni sobre ningún centavo ($\pm \$0.01\text{ USD}$).
+4. **Certificado de Solvencia de Condominio (Art. 14 LPH):** Documento probatorio exigido en notarías, registros subalternos y administraciones para autorizar compraventas, mudanzas o alquileres, certificando que la unidad tiene deuda cero ($0.00\text{ USD}$).
 
 ---
 
@@ -20,7 +29,8 @@ En un régimen de Propiedad Horizontal (como la *Ley de Propiedad Horizontal* de
 ### 2.1. Extensión de `Unidad` (`unidades`) y `Egreso` (`egresos`)
 | Tabla | Columna Nueva | Tipo SQL | Restricciones | Propósito |
 | :--- | :--- | :--- | :--- | :--- |
-| `unidades` | `alicuota` | `NUMERIC(7, 4)` | `NOT NULL DEFAULT 0.0000`, `CHECK (alicuota >= 0 AND alicuota <= 100)` | Porcentaje de participación de la unidad en los gastos comunes y votaciones (p. ej. `Decimal("1.2500")`). |
+| `unidades` | `alicuota` | `NUMERIC(7, 4)` | `NOT NULL DEFAULT 0.0000`, `CHECK (alicuota >= 0 AND alicuota <= 100)` | Porcentaje de participación de la unidad en gastos variables y votaciones (p. ej. `Decimal("1.2500")`). |
+| `unidades` | `cuota_fija_usd` | `NUMERIC(12, 2)` | `NULL`, `CHECK (cuota_fija_usd IS NULL OR cuota_fija_usd >= 0)` | Tarifa fija personalizada opcional para esta unidad cuando el condominio opera bajo `CUOTA_FIJA` diferenciada (si es `NULL`, usa el `monto_cuota_fija_usd` global del periodo). |
 | `unidades` | `credito_disponible_usd` | `NUMERIC(12, 2)` | `NOT NULL DEFAULT 0.00`, `CHECK (credito_disponible_usd >= 0)` | Saldo a favor acumulado por sobrepagos aprobados, descontable automáticamente en la siguiente facturación mensual. |
 | `egresos` | `incidencia_id` | `INTEGER` | `FOREIGN KEY (incidencias.id) NULL` | Vinculación opcional de trazabilidad entre un gasto de reparación y la incidencia vecinal que lo originó. |
 | `egresos` | `es_gasto_comun` | `BOOLEAN` | `NOT NULL DEFAULT TRUE` | Si es `True`, se incluye en el prorrateo mensual por alícuota; si es `False`, corresponde a un cargo individual o ejecución contra fondo acumulado. |
@@ -45,7 +55,7 @@ Representa los fondos patrimoniales del condominio (Fondo de Reserva Legal, Caja
 Desglose línea por línea de cada `Recibo` emitido (transparencia contable en el Recibo de Condominio):
 - `id`: `INTEGER PRIMARY KEY`
 - `recibo_id`: `INTEGER FOREIGN KEY (recibos.id) ON DELETE CASCADE NOT NULL`
-- `tipo_item`: `VARCHAR(30) NOT NULL` (`"GASTO_COMUN" | "FONDO_RESERVA" | "CUOTA_EXTRAORDINARIA" | "CARGO_INDIVIDUAL" | "ABONO_CREDITO_PREVIO"`)
+- `tipo_item`: `VARCHAR(30) NOT NULL` (`"CUOTA_FIJA" | "GASTO_COMUN" | "FONDO_RESERVA" | "CUOTA_EXTRAORDINARIA" | "CARGO_INDIVIDUAL" | "ABONO_CREDITO_PREVIO"`)
 - `descripcion`: `VARCHAR(255) NOT NULL`
 - `monto_usd`: `NUMERIC(12, 2) NOT NULL` (positivo para cargos, negativo únicamente para `"ABONO_CREDITO_PREVIO"`)
 
@@ -143,6 +153,8 @@ class FondoCondominioCreate(BaseModel):
 class FacturarPeriodoRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     periodo: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    modalidad: Literal["ALICUOTA", "CUOTA_FIJA", "PARTES_IGUALES"] = "ALICUOTA"
+    monto_cuota_fija_usd: Decimal | None = Field(default=None, gt=Decimal("0.00"))
     incluir_fondo_reserva: bool = True
     cuota_extraordinaria_total_usd: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     descripcion_cuota_extraordinaria: str | None = Field(default=None, max_length=200)
