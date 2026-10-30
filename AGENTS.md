@@ -29,6 +29,7 @@ Welcome to the **Condominio App** repository. All AI coding assistants (Google A
 3. [frontend_parity_and_closure.md](file:///.agents/rules/frontend_parity_and_closure.md):
    - **Terminal ↔ Frontend Parity:** Zero console-only actions or orphan API endpoints without a matching Vue 3 interface (`docs/API_ROUTES.md`).
    - **Zero Read-Only Operational Consoles:** Operational management views MUST offer tactical mutation actions (create, approve, reject with mandatory reason, toggle, complete) instead of passive read-only views.
+   - **UX/UI Hospitality, Perceptual Tokens & Compositor Motion (`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`):** Enforce centralized `OKLCH` / `light-dark()` tokens, two-part shadows, top-layer `<dialog>` entry/exit animations (`@starting-style` + `transition-behavior: allow-discrete` + `overlay` + mobile Bottom Sheet + `data-closing` fallback), SPA `document.startViewTransition`, non-color-only state indicators (icons + text for colorblind safety), and strict `@media (prefers-reduced-motion: reduce)` / `@media (forced-colors: active)` compliance.
    - **Closure Protocol:** Strict execution of tests in ephemeral Docker, secret scanning, dependency audit, and clean git staging.
 
 4. [continuous_agent_evolution.md](file:///.agents/rules/continuous_agent_evolution.md):

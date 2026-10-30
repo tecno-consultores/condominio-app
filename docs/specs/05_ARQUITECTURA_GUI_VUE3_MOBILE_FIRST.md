@@ -1,7 +1,7 @@
 # 🎨 Especificación 05: Arquitectura GUI Vue 3 Mobile-First y Ergonomía Nivel 11X
 
-**Estado:** Hitos 5, 6 y 7 Completados en `frontend/` (100% Vistas Auth, Finanzas/Tesorería, Operaciones/Incidencias/Conserjería y Administración implementadas con 0 componentes huérfanos) / Hito 8 (Certificación E2E/Lighthouse) pendiente  
-**Ecosistema:** Vue 3 (Composition API `<script setup lang="ts">`) + Vite + Pinia + Vue Router + TypeScript Strict
+**Estado:** Hitos 5, 6, 7, 10 y 11 Completados en `frontend/` (`33/33` componentes `.vue` cubiertos con 0 huérfanos) / Hitos 12–15 y Hito 8 (Certificación E2E/Lighthouse) especificados  
+**Ecosistema:** Vue 3 (Composition API `<script setup lang="ts">`) + Vite + Pinia + Vue Router + TypeScript Strict + Tokens `OKLCH` / `light-dark()` + `View Transitions API` + `@starting-style`
 
 ---
 
@@ -212,3 +212,11 @@ El repositorio mantiene dos manuales independientes en formato Markdown puro (`.
    - **Anexo:** Comando e instrucciones paso a paso para generar el PDF listo para distribuir.
 2. **`docs/MANUAL_USUARIO_RESIDENTE.md`:**
    - Manual redactado en lenguaje claro y directo para **Propietarios, Inquilinos y Conserjes**: registro inicial y activación de cuenta, consulta del Dashboard Financiero y recibos, cómo reportar pagos en Bs o USD paso a paso, uso del botón "¡Me sumo!" en incidencias, votación en Cartas Consulta y verificación de su recibo criptográfico, generación de Pases QR para visitantes, retiro de paquetes en garita, reserva de áreas sociales y descarga del Certificado de Solvencia.
+
+---
+
+## 7. Hospitalidad Residencial, Sistema de Tokens `OKLCH`, Modo Oscuro (`light-dark()`) y Micro-Transiciones (Hito 15)
+
+La especificación completa del sistema de tokens perceptuales (`frontend/src/assets/tokens.css`), soporte de modo claro/oscuro (`light-dark()` + `useThemeMode.ts`), navegación agrupada con iconos SVG (`SidebarNav.vue` y `BottomNavBar.vue`), Dashboard Contextual con cuadrícula de 4 acciones rápidas en la zona del pulgar, estados vacíos ilustrados (`EmptyStateCard.vue`), esqueletos de carga (`SkeletonCard.vue`), transiciones espaciales SPA (`document.startViewTransition` en `useViewTransition.ts`), animaciones de entrada/salida en el Top Layer (`@starting-style` + `transition-behavior: allow-discrete` + `overlay` + Bottom Sheet móvil en `<dialog>`) y animaciones hacia tamaños intrínsecos (`interpolate-size: allow-keywords` + `calc-size(auto, size)`) se encuentra formalizada en:
+
+- **[`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)**

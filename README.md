@@ -94,6 +94,7 @@ make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-c
 8. **[`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`](./docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)** — Motor de Alícuotas ($\sum = 100\%$), Método del Resto Mayor (Hamilton), Fondos de Reserva, Facturación Mensual LPH, Saldo a Favor y Certificado Digital de Solvencia (`HMAC-SHA256`).
 9. **[`docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md`](./docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)** — Gobernanza Digital (Art. 23 y 24 LPH), Cartas Consulta y Asambleas, Voto Ponderado por Alícuota con firma `HMAC-SHA256` y Acta Automática.
 10. **[`docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`](./docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md)** — Control de Acceso QR (`HMAC-SHA256` + `jti` anti-replay en KeyDB), Paquetería en Garita y Reserva de Áreas Sociales vinculada a Solvencia.
+11. **[`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)** — Diseño UX/UI de "Hospitalidad Residencial", Sistema de Tokens `OKLCH` + `light-dark()`, Navegación agrupada con SVG, Dashboard Contextual, Estados Vacíos ilustrados, `View Transitions API`, `@starting-style` + Bottom Sheet en `<dialog>` y `calc-size()`.
 
 ---
 

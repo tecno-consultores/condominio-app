@@ -19,6 +19,10 @@
    - Operational management views (Treasury approvals, User assignment tray, Structure builder, Board roles, Janitor tasks) must offer tactical mutation actions (create, approve, reject with mandatory reason modal, toggle, complete) whenever the backend API supports mutations.
 4. **Non-Destructive UI Error Handling:**
    - Pinia stores must never reset populated arrays or objects to empty primitives (e.g. `items.value = []`) inside generic `catch` blocks if valid data already exists in memory. Maintain the last known valid state and set an explicit `isStale` / `error` flag.
+5. **UX/UI Residential Hospitality, Perceptual Tokens & Motion Architecture (`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`):**
+   - Centralize visual tokens in `OKLCH` with `light-dark()` (`color-scheme: light dark`), using `color-mix(in oklab, ...)` for safe gamut tints, two-part elevation shadows, and top accent borders (`border-block-start: 4px`).
+   - Never rely on color alone to convey status (`SOLVENTE`, `ABONO_PARCIAL`, `MOROSO`, `EN_REVISION`); always pair color badges with semantic icons/glyphs and maintain $\ge 3:1$ non-text contrast and `@media (forced-colors: active)` outlines.
+   - Animate only compositor-friendly properties (`opacity`, `transform`) or top-layer discrete transitions (`@starting-style`, `transition-behavior: allow-discrete`, `overlay` with `data-closing` fallback for Firefox/Safari), SPA `document.startViewTransition`, and `interpolate-size: allow-keywords` / `calc-size(auto, size)` (with `block-size: auto` fallback), strictly honoring `@media (prefers-reduced-motion: reduce)` per rule (never global `0.01ms` resets).
 
 ---
 
