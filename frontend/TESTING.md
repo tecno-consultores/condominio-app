@@ -36,8 +36,11 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
 - `src/stores/governanceStore.unit.ts`, `src/components/governance/*.unit.ts` y `src/views/governance/*.unit.ts` (Hito 11):
   - `governanceStore.unit.ts` (listado, detalle, creación idempotente de Cartas Consulta y Asambleas, emisión de voto ponderado con recibo `HMAC-SHA256`, cierre de consulta con `acta_generada_id` y catch no destructivo).
   - `VoteReceiptModal.unit.ts` (modal `<dialog closedby="any">` con recibo criptográfico verificable y cierre por backdrop), `ConsultationsListView.unit.ts` (`/consultas`) y `ConsultationDetailView.unit.ts` (`/consultas/:id` con `<progress id="quorum-progress-bar">` y escrutinio en tiempo real).
+- `src/stores/accessAmenitiesStore.unit.ts` y `src/views/operations/{VisitorPassesView,GatehouseScannerView,ParcelsTrackerView}.unit.ts` (Hito 12):
+  - `accessAmenitiesStore.unit.ts` (emisión, listado, revocación y verificación en garita de Pases de Visita QR `HMAC-SHA256`, registro y confirmación de entrega de paquetería en garita, y catch no destructivo `isStale = true`).
+  - `VisitorPassesView.unit.ts` (`/accesos/pases`), `GatehouseScannerView.unit.ts` (`/operaciones/garita-qr`) y `ParcelsTrackerView.unit.ts` (`/operaciones/paqueteria`).
 - `src/App.unit.ts`: Montaje del contenedor raíz.
-- **Total Certificado (Hitos 5, 6, 7, 10 y 11):** **33 componentes `.vue` auditados (0 huérfanos)**, **41 suites `.unit.ts` (83/83 tests aprobados)** con **99.31% líneas, 99.06% sentencias, 97.67% funciones y 95.85% ramas**.
+- **Total Certificado (Hitos 5, 6, 7, 10, 11 y 12):** **36 componentes `.vue` auditados (0 huérfanos)**, **45 suites `.unit.ts` (91/91 tests aprobados)** con **99.39% líneas, 99.11% sentencias, 97.64% funciones y 95.44% ramas**.
 
 ---
 

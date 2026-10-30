@@ -8,6 +8,7 @@ import redis.asyncio as redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 GRACE_PERIOD_SECONDS = 5
 REVOKED_USER_TTL_SECONDS = 86_400
+QR_NONCE_TTL_SECONDS = 259_200
 
 _redis_client: redis.Redis | None = None
 _local_revoked_users: set[int] = set()
@@ -103,3 +104,39 @@ async def is_user_session_revoked(
         except Exception:
             return False
     return False
+
+
+def build_qr_nonce_key(jti: str) -> str:
+    """Construye la clave Anti-Replay en KeyDB para el JTI de un pase QR de único uso."""
+    return f"qr_used:{jti.strip()}"
+
+
+async def burn_qr_nonce(
+    client: redis.Redis | None,
+    jti: str,
+    ttl_seconds: int = QR_NONCE_TTL_SECONDS,
+) -> bool:
+    """Registra atómicamente el consumo de un pase QR (SET NX EX) en KeyDB Multi-Hilo.
+
+    Retorna True si el JTI no había sido quemado antes (primer uso válido).
+    Retorna False si el JTI ya existía en KeyDB (intento de Replay Attack).
+    """
+    if client is None:
+        return True
+    key = build_qr_nonce_key(jti)
+    is_first_use = await client.set(key, "1", nx=True, ex=max(1, int(ttl_seconds)))
+    return bool(is_first_use)
+
+
+async def is_qr_nonce_burned(
+    client: redis.Redis | None,
+    jti: str,
+) -> bool:
+    """Verifica si un JTI de pase QR ya fue quemado o revocado en KeyDB."""
+    if client is None:
+        return False
+    try:
+        val = await client.get(build_qr_nonce_key(jti))
+        return val in ("1", b"1")
+    except Exception:
+        return False

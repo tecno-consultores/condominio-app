@@ -286,9 +286,7 @@ def generar_firma_voto_consulta(
     secret_key: str,
 ) -> str:
     """Genera la firma HMAC-SHA256 para un voto emitido en una Carta Consulta o Asamblea."""
-    mensaje = construir_mensaje_voto_consulta(
-        consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso
-    )
+    mensaje = construir_mensaje_voto_consulta(consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso)
     return hmac.new(
         secret_key.encode("utf-8"),
         mensaje.encode("utf-8"),
@@ -352,3 +350,84 @@ def evaluar_escrutinio_consulta(
     if alicuota_aprobatoria >= quorum_min:
         return "CERRADA_APROBADA", participacion_total, alicuota_aprobatoria
     return "CERRADA_RECHAZADA", participacion_total, alicuota_aprobatoria
+
+
+def construir_claims_pase_qr(
+    jti: str,
+    unidad_id: int,
+    modalidad: str,
+    exp_unix: int,
+) -> str:
+    """Construye el payload canónico QR|v1 para un Pase de Visita (Hito 12)."""
+    return f"QR|v1|{jti.strip()}|{int(unidad_id)}|{modalidad.strip()}|{int(exp_unix)}"
+
+
+def generar_firma_pase_qr(
+    jti: str,
+    unidad_id: int,
+    modalidad: str,
+    exp_unix: int,
+    secret_key: str,
+) -> str:
+    """Genera la firma HMAC-SHA256 del payload de un Pase de Visita QR."""
+    claims = construir_claims_pase_qr(jti, unidad_id, modalidad, exp_unix)
+    return hmac.new(
+        secret_key.encode("utf-8"),
+        claims.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def construir_token_pase_qr(
+    jti: str,
+    unidad_id: int,
+    modalidad: str,
+    exp_unix: int,
+    firma_hmac: str,
+) -> str:
+    """Construye el token compacto base64url(claims).firma_hmac para compartir al visitante."""
+    claims = construir_claims_pase_qr(jti, unidad_id, modalidad, exp_unix)
+    b64_claims = base64.urlsafe_b64encode(claims.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"{b64_claims}.{firma_hmac.strip()}"
+
+
+def _decodificar_b64_claims_qr(b64_segment: str) -> list[str]:
+    padding = "=" * (-len(b64_segment) % 4)
+    try:
+        raw = base64.urlsafe_b64decode((b64_segment + padding).encode("ascii")).decode("utf-8")
+    except Exception as exc:
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida") from exc
+    partes = raw.split("|")
+    if len(partes) != 6 or partes[0] != "QR" or partes[1] != "v1":
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
+    return partes
+
+
+def decodificar_y_verificar_token_pase_qr(
+    qr_token: str,
+    secret_key: str,
+) -> tuple[str, int, str, int, str]:
+    """Decodifica y verifica en tiempo constante un token de Pase de Visita QR.
+
+    Retorna (jti, unidad_id, modalidad, exp_unix, firma_hmac) o lanza ErrorFinanciero.
+    """
+    token_limpio = (qr_token or "").strip()
+    if "." not in token_limpio:
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
+    b64_part, firma_recibida = token_limpio.split(".", 1)
+    if not b64_part or not firma_recibida:
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
+
+    partes = _decodificar_b64_claims_qr(b64_part)
+    jti = partes[2].strip()
+    modalidad = partes[4].strip()
+    try:
+        unidad_id = int(partes[3])
+        exp_unix = int(partes[5])
+    except ValueError as exc:
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida") from exc
+
+    esperada = generar_firma_pase_qr(jti, unidad_id, modalidad, exp_unix, secret_key)
+    if not jti or not hmac.compare_digest(firma_recibida.strip(), esperada):
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
+    return jti, unidad_id, modalidad, exp_unix, esperada

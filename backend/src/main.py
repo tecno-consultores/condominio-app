@@ -12,7 +12,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.database import Base, engine
-from src.routers import administracion, auth, consultas, finanzas, incidencias, operaciones, pagos
+from src.routers import accesos, administracion, auth, consultas, finanzas, incidencias, operaciones, pagos
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,7 @@ app.include_router(administracion.router)
 app.include_router(incidencias.router)
 app.include_router(operaciones.router)
 app.include_router(consultas.router)
+app.include_router(accesos.router)
 
 
 @app.get("/health", tags=["System"])

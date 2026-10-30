@@ -301,9 +301,7 @@ class OpcionConsulta(Base):
 
     __tablename__ = "opciones_consulta"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    consulta_id: Mapped[int] = mapped_column(
-        ForeignKey("consultas_comunitarias.id", ondelete="CASCADE"), index=True
-    )
+    consulta_id: Mapped[int] = mapped_column(ForeignKey("consultas_comunitarias.id", ondelete="CASCADE"), index=True)
     etiqueta: Mapped[str] = mapped_column(String(120), nullable=False)
     es_opcion_aprobatoria: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -323,3 +321,42 @@ class VotoConsulta(Base):
     fecha_voto: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ip_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     firma_hmac: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+
+
+class PaseVisita(Base):
+    """Pase de acceso peatonal/vehicular con token QR firmado con HMAC-SHA256 y nonce jti anti-replay — Hito 12."""
+
+    __tablename__ = "pases_visita"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    jti: Mapped[str] = mapped_column(String(36), unique=True, index=True, nullable=False)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True, nullable=False)
+    creado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    nombre_visitante: Mapped[str] = mapped_column(String(120), nullable=False)
+    cedula_visitante: Mapped[str] = mapped_column(String(25), nullable=False)
+    placa_vehiculo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    modalidad: Mapped[str] = mapped_column(String(20), default="UNICO_USO", nullable=False)
+    valido_desde: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valido_hasta: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    estado: Mapped[str] = mapped_column(String(20), default="ACTIVO", index=True, nullable=False)
+    usado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verificado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    firma_hmac: Mapped[str] = mapped_column(String(64), nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PaqueteRecibido(Base):
+    """Encomienda o paquete recepcionado en garita/conserjería con cadena de custodia — Hito 12."""
+
+    __tablename__ = "paquetes_recibidos"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True, nullable=False)
+    recibido_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    empresa_envio: Mapped[str] = mapped_column(String(60), nullable=False)
+    descripcion: Mapped[str] = mapped_column(String(200), nullable=False)
+    url_foto_evidencia: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    estado: Mapped[str] = mapped_column(String(20), default="EN_GARITA", index=True, nullable=False)
+    fecha_recepcion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    fecha_entrega: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retirado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)

@@ -67,13 +67,16 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
 - `tests/test_hito11_consultas_asambleas.unit.py`:
   - `src/finanzas.py`: firma y verificación `HMAC-SHA256` de votos (`generar_firma_voto_consulta`, `verificar_firma_voto_consulta`), anonimización de IP (`calcular_ip_hash_voto`), umbrales de quórum (`umbral_quorum_por_regla`: `DOS_TERCIOS` $66.6700\%$, `MAYORIA_SIMPLE` $50.0100\%$, `UNANIMIDAD` $100.0000\%$) y motor de escrutinio ponderado por `alicuota_capturada` (`evaluar_escrutinio_consulta` para `APROBADA`, `RECHAZADA` y `SIN_QUORUM`).
   - `src/routers/consultas.py`: contención de Usuario Fantasma (`403 Forbidden`), creación idempotente de Cartas Consulta (`POST /api/consultas` validando al menos una opción aprobatoria y rechazando duplicados con `409 Conflict`), listado y detalle con recibo de voto propio (`GET /api/consultas`, `GET /api/consultas/{id}`), emisión de voto ponderado (`POST /api/consultas/{id}/votar` bloqueando inquilinos sin poder `puede_votar_asamblea=False` con `403`, fechas de cierre vencidas con `409` y doble voto por unidad con `409`) y cierre con generación atómica de acuerdo en `BitacoraActa` (`POST /api/consultas/{id}/cerrar`).
+- `tests/test_hito12_accesos_paqueteria.unit.py`:
+  - `src/finanzas.py` y `src/redis_client.py`: construcción, firma y verificación en tiempo constante `HMAC-SHA256` de pases QR (`construir_claims_pase_qr`, `generar_firma_pase_qr`, `construir_token_pase_qr`, `decodificar_y_verificar_token_pase_qr`) y quema atómica de nonce Anti-Replay en KeyDB (`build_qr_nonce_key`, `burn_qr_nonce`, `is_qr_nonce_burned`).
+  - `src/routers/accesos.py`: emisión idempotente de pases de visita QR (`POST /api/accesos/pases`), listado (`GET /api/accesos/pases/mios`), revocación inmediata (`DELETE /api/accesos/pases/{id}`), verificación en garita (`POST /api/accesos/verificar-qr` bloqueando firmas adulteradas con `400`, pases vencidos/revocados con `409` y ataques de repetición con `409`) y cadena de custodia de paquetería (`POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{id}/entregar`).
 
 ---
 
 ## 2. Pruebas BDD, Paridad PostgreSQL 17, Caos y Resiliencia
 
-- `test/api_test.feature`: 15 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
-- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 23 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
+- `test/api_test.feature`: 17 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
+- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 25 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
 - `tests/locustfile.py`: Perfil de carga concurrente y saturación para inyección de caos y estrés con Pumba + Locust + Prometheus.
 
 ---

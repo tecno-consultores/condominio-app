@@ -1,7 +1,7 @@
 # 🛂 Especificación 09: Dominio de Control de Acceso QR, Paquetería en Garita y Reserva de Áreas Sociales
 
-**Estado:** `[ESPECIFICADO — FASE 4 / HITOS 12 Y 13]`  
-**Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/routers/accesos.py`, `backend/src/routers/reservas.py`, `backend/alembic/versions/0005_hito12_accesos_reservas.py`  
+**Estado:** `[HITO 12 IMPLEMENTADO Y CERTIFICADO (ACCESOS QR + PAQUETERÍA) / HITO 13 ESPECIFICADO (RESERVA DE ÁREAS SOCIALES)]`  
+**Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/routers/accesos.py`, `backend/src/routers/reservas.py`, `backend/alembic/versions/0005_hito12_accesos_paqueteria.py`  
 **Módulos Frontend Objetivo:** `frontend/src/stores/accessAmenitiesStore.ts`, `frontend/src/views/operations/VisitorPassesView.vue`, `frontend/src/views/operations/GatehouseScannerView.vue`, `frontend/src/views/operations/ParcelsTrackerView.vue`, `frontend/src/views/operations/AmenitiesReservationView.vue`
 
 ---

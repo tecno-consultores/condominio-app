@@ -431,9 +431,7 @@ def _crear_recibo_e_items_unidad(
         estado=estado_inicial,
         bloqueado=False,
     )
-    items_orm = [
-        ReciboItem(recibo_id=0, tipo_item=t, descripcion=d, monto_usd=m) for t, d, m in lineas_cargo
-    ]
+    items_orm = [ReciboItem(recibo_id=0, tipo_item=t, descripcion=d, monto_usd=m) for t, d, m in lineas_cargo]
     if credito_usado > CERO:
         items_orm.append(
             ReciboItem(
@@ -459,9 +457,7 @@ async def _cargar_contexto_facturacion(
         )
 
     egr_res = await db.execute(select(Egreso).where(Egreso.periodo == datos.periodo))
-    egresos_comunes = [
-        e for e in egr_res.scalars().all() if getattr(e, "es_gasto_comun", True) is not False
-    ]
+    egresos_comunes = [e for e in egr_res.scalars().all() if getattr(e, "es_gasto_comun", True) is not False]
     total_egresos = cuantizar(sum((e.monto_usd for e in egresos_comunes), CERO))
 
     fondo_res = await db.execute(
@@ -493,9 +489,7 @@ async def _persistir_lote_facturacion(
     pares_recibo_items: list[tuple[Recibo, list[ReciboItem]]] = []
 
     for u in unidades:
-        recibo, items_orm, bruto_u, credito_u = _crear_recibo_e_items_unidad(
-            u, periodo, items_por_unidad[u.id]
-        )
+        recibo, items_orm, bruto_u, credito_u = _crear_recibo_e_items_unidad(u, periodo, items_por_unidad[u.id])
         db.add(recibo)
         pares_recibo_items.append((recibo, items_orm))
         total_bruto += bruto_u
@@ -552,9 +546,7 @@ async def facturar_periodo(
     unidades, total_egresos, fondo_reserva, recargo_reserva = await _cargar_contexto_facturacion(db, datos)
 
     try:
-        items_por_unidad, superavit_fondo = _calcular_cargos_modalidad(
-            datos, unidades, total_egresos, recargo_reserva
-        )
+        items_por_unidad, superavit_fondo = _calcular_cargos_modalidad(datos, unidades, total_egresos, recargo_reserva)
     except ErrorFinanciero as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

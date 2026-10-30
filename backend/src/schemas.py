@@ -1,10 +1,10 @@
+from datetime import UTC, datetime
 from datetime import date as date_type
-from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 import email_validator
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def _validar_correo(valor: str) -> str:
@@ -575,3 +575,98 @@ class CerrarConsultaResponse(BaseModel):
     total_votos: int
     acta_bitacora_id: int
     hash_global_escrutinio: str
+
+
+# ==============================================================================
+# ESQUEMAS DE ACCESOS QR Y PAQUETERÍA EN GARITA (Hito 12)
+# ==============================================================================
+
+ModalidadPaseQR = Literal["UNICO_USO", "VENTANA_TEMPORAL"]
+EstadoPaseQR = Literal["ACTIVO", "USADO", "REVOCADO", "EXPIRADO"]
+EstadoPaquete = Literal["EN_GARITA", "ENTREGADO"]
+
+
+class PaseVisitaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unidad_id: int = Field(..., strict=True, gt=0)
+    nombre_visitante: str = Field(..., min_length=3, max_length=120)
+    cedula_visitante: str = Field(..., min_length=5, max_length=25)
+    placa_vehiculo: str | None = Field(default=None, max_length=20)
+    modalidad: ModalidadPaseQR = "UNICO_USO"
+    horas_validez: int = Field(default=24, strict=True, ge=1, le=72)
+    valido_desde: datetime | None = None
+    valido_hasta: datetime | None = None
+
+    @field_validator("valido_desde", "valido_hasta")
+    @classmethod
+    def normalizar_tz(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            return v.replace(tzinfo=UTC)
+        return v
+
+
+class PaseVisitaResponse(BaseModel):
+    id: int
+    jti: str
+    unidad_id: int
+    identificador_unidad: str
+    creado_por_id: int
+    nombre_visitante: str
+    cedula_visitante: str
+    placa_vehiculo: str | None = None
+    modalidad: str
+    valido_desde: datetime
+    valido_hasta: datetime
+    estado: str
+    usado_en: datetime | None = None
+    verificado_por_id: int | None = None
+    firma_hmac: str
+    qr_token: str
+
+
+class VerificarPaseQRRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    qr_token: str = Field(..., min_length=16, max_length=512)
+
+
+class VerificarPaseQRResponse(BaseModel):
+    autorizado: bool
+    pase_id: int
+    jti: str
+    unidad_id: int
+    identificador_unidad: str
+    nombre_visitante: str
+    cedula_visitante: str
+    placa_vehiculo: str | None = None
+    modalidad: str
+    estado: str
+    usado_en: datetime
+    verificado_por_id: int
+    mensaje: str
+
+
+class PaqueteCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unidad_id: int = Field(..., strict=True, gt=0)
+    empresa_envio: str = Field(..., min_length=2, max_length=60)
+    descripcion: str = Field(..., min_length=3, max_length=200)
+    url_foto_evidencia: UrlEvidenciaSegura | None = None
+
+
+class PaqueteResponse(BaseModel):
+    id: int
+    unidad_id: int
+    identificador_unidad: str
+    recibido_por_id: int
+    empresa_envio: str
+    descripcion: str
+    url_foto_evidencia: str | None = None
+    estado: str
+    fecha_recepcion: datetime
+    fecha_entrega: datetime | None = None
+    retirado_por_id: int | None = None

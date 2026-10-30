@@ -68,9 +68,9 @@ def _calcular_metricas_consulta(
     for v in votos:
         alic = Decimal(str(v.alicuota_capturada)).quantize(CUATRO_DECIMALES)
         conteo_por_opcion[v.opcion_id] = conteo_por_opcion.get(v.opcion_id, 0) + 1
-        alicuota_por_opcion[v.opcion_id] = (
-            alicuota_por_opcion.get(v.opcion_id, Decimal("0.0000")) + alic
-        ).quantize(CUATRO_DECIMALES)
+        alicuota_por_opcion[v.opcion_id] = (alicuota_por_opcion.get(v.opcion_id, Decimal("0.0000")) + alic).quantize(
+            CUATRO_DECIMALES
+        )
 
     _, participacion_total, alicuota_aprobatoria = evaluar_escrutinio_consulta(
         quorum_minimo_alicuota=quorum_minimo,
@@ -313,8 +313,7 @@ async def _validar_derecho_voto_unidad(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "Solo el propietario titular o un representante con poder registrado "
-                "puede votar en Cartas Consulta."
+                "Solo el propietario titular o un representante con poder registrado puede votar en Cartas Consulta."
             ),
         )
     return unidad, contrato
@@ -461,8 +460,7 @@ def _generar_texto_acta_cierre(
     hash_global: str,
 ) -> str:
     desglose = "; ".join(
-        f"{op.etiqueta}: {op.votos_cantidad} votos ({op.alicuota_acumulada:.4f}% alícuota)"
-        for op in opciones_resp
+        f"{op.etiqueta}: {op.votos_cantidad} votos ({op.alicuota_acumulada:.4f}% alícuota)" for op in opciones_resp
     )
     return (
         f"[ACTA AUTOMÁTICA LPH ART. 23/24] Cierre de '{consulta.titulo}' ({consulta.tipo_consulta}). "

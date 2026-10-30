@@ -21,10 +21,13 @@ import TreasuryClosingView from '../views/finance/TreasuryClosingView.vue';
 import TreasuryPaymentsView from '../views/finance/TreasuryPaymentsView.vue';
 import ConsultationDetailView from '../views/governance/ConsultationDetailView.vue';
 import ConsultationsListView from '../views/governance/ConsultationsListView.vue';
+import GatehouseScannerView from '../views/operations/GatehouseScannerView.vue';
 import IncidentsFeedView from '../views/operations/IncidentsFeedView.vue';
 import OperationsTasksView from '../views/operations/OperationsTasksView.vue';
+import ParcelsTrackerView from '../views/operations/ParcelsTrackerView.vue';
 import SecretaryLogbookView from '../views/operations/SecretaryLogbookView.vue';
 import SpokespersonGalleryView from '../views/operations/SpokespersonGalleryView.vue';
+import VisitorPassesView from '../views/operations/VisitorPassesView.vue';
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -124,6 +127,27 @@ export const routes: RouteRecordRaw[] = [
     path: '/consultas/:id',
     name: 'consulta-detail',
     component: ConsultationDetailView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/accesos/pases',
+    name: 'accesos-pases',
+    component: VisitorPassesView,
+    meta: { requiresActive: true },
+  },
+  {
+    path: '/operaciones/garita-qr',
+    name: 'operaciones-garita-qr',
+    component: GatehouseScannerView,
+    meta: {
+      requiresActive: true,
+      roles: ['CONSERJE', 'PRESIDENTE', 'VOCERO'] as RolUsuario[],
+    },
+  },
+  {
+    path: '/operaciones/paqueteria',
+    name: 'operaciones-paqueteria',
+    component: ParcelsTrackerView,
     meta: { requiresActive: true },
   },
   {

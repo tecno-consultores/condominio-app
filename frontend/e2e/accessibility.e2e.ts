@@ -37,10 +37,13 @@ test.describe('Hitos 5, 6, 10 y 11 — Accesibilidad WCAG 2.1 AA y Geometría Vi
     expect(criticalOrSerious).toEqual([]);
   });
 
-  test('Rutas protegidas de Gobernanza Digital (/consultas) redirigen a /login preservando WCAG 2.1 AA', async ({
+  test('Rutas protegidas de Gobernanza Digital (/consultas) y Accesos QR (/accesos/pases) redirigen a /login preservando WCAG 2.1 AA', async ({
     page,
   }) => {
     await page.goto('/consultas');
+    await expect(page.locator('#login-form')).toBeVisible();
+
+    await page.goto('/accesos/pases');
     await expect(page.locator('#login-form')).toBeVisible();
 
     const results = await new AxeBuilder({ page })

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
 
-Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH y Gobernanza Digital (Hitos 5, 6, 7, 10 y 11)
+Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH, Gobernanza Digital y Accesos QR / Paquetería (Hitos 5, 6, 7, 10, 11 y 12)
 
   Background:
     * configure driver = { type: 'chrome', headless: true, addOptions: ['--no-sandbox', '--disable-dev-shm-usage'] }
@@ -67,4 +67,12 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     Given driver baseUrl + '/consultas'
     Then waitFor('#login-form')
     Given driver baseUrl + '/consultas/1'
+    Then waitFor('#login-form')
+
+  Scenario: 7. Redirección automática de rutas de Accesos QR y Paquetería en Garita de Hito 12 (/accesos/pases, /operaciones/garita-qr y /operaciones/paqueteria) hacia /login sin sesión autenticada
+    Given driver baseUrl + '/accesos/pases'
+    Then waitFor('#login-form')
+    Given driver baseUrl + '/operaciones/garita-qr'
+    Then waitFor('#login-form')
+    Given driver baseUrl + '/operaciones/paqueteria'
     Then waitFor('#login-form')

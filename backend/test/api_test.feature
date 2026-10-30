@@ -262,3 +262,67 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And request {}
     When method post
     Then status 403
+
+  # ==============================================================================
+  # Grupo 6: Control de Acceso QR (HMAC-SHA256 + KeyDB Anti-Replay) y Paquetería (Hito 12)
+  # ==============================================================================
+
+  Scenario: 16. Endpoints de Pases de Visita QR y Paquetería en Garita sin sesión devuelven 401 Unauthorized
+    Given path '/api/accesos/pases/mios'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+    Given path '/api/paqueteria'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+  Scenario: 17. Usuario Fantasma recibe 403 Forbidden al emitir pases QR, verificar en garita o gestionar paquetería
+    Given path '/api/auth/register'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001200'
+    And request
+      """
+      {
+        "nombre": "Fantasma Hito 12 BDD",
+        "cedula": "V-40404012",
+        "correo": "fantasma.hito12@test.com",
+        "telefono": "+584144040412",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "fantasma.hito12@test.com", password: "Password123!" }
+    When method post
+    Then status 200
+
+    Given path '/api/accesos/pases/mios'
+    When method get
+    Then status 403
+
+    Given path '/api/accesos/pases'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001201'
+    And request { unidad_id: 1, nombre_visitante: "Visitante BDD", cedula_visitante: "V-19888777", modalidad: "UNICO_USO", horas_validez: 12 }
+    When method post
+    Then status 403
+
+    Given path '/api/accesos/verificar-qr'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001202'
+    And request { qr_token: "UVJ8djF8anRpfDF8VU5JQ09fVVNPfDE4MDAwMDAwMDA.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+    When method post
+    Then status 403
+
+    Given path '/api/paqueteria'
+    When method get
+    Then status 403
+
+    Given path '/api/paqueteria/registrar'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001203'
+    And request { unidad_id: 1, empresa_envio: "ZOOM", descripcion: "Caja BDD" }
+    When method post
+    Then status 403

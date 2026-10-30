@@ -161,9 +161,7 @@ async def asignar_y_activar_usuario(
     )
     contratos_previos = list(res_contratos.scalars().all())
     puede_votar = (
-        datos.puede_votar_asamblea
-        if datos.puede_votar_asamblea is not None
-        else (datos.tipo_ocupante == "PROPIETARIO")
+        datos.puede_votar_asamblea if datos.puede_votar_asamblea is not None else (datos.tipo_ocupante == "PROPIETARIO")
     )
     if contratos_previos:
         for contrato in contratos_previos:
@@ -268,9 +266,7 @@ async def actualizar_alicuota_unidad(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada.")
 
     unidad.alicuota = datos.alicuota.quantize(Decimal("0.0001"))
-    unidad.cuota_fija_usd = (
-        datos.cuota_fija_usd.quantize(Decimal("0.01")) if datos.cuota_fija_usd is not None else None
-    )
+    unidad.cuota_fija_usd = datos.cuota_fija_usd.quantize(Decimal("0.01")) if datos.cuota_fija_usd is not None else None
     await db.commit()
     await db.refresh(unidad)
     return UnidadResponse.model_validate(unidad)
