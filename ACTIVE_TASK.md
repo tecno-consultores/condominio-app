@@ -30,7 +30,7 @@
   - `docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md`
   - `docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`
 - [x] **CP-P.3:** Actualización de especificaciones existentes (`docs/specs/01..06`, `docs/specs/README.md`, `docs/ARCHITECTURE.md`, `docs/API_ROUTES.md` y `SECURITY.md`).
-- [x] **CP-P.4:** Reestructuración detallada de `ROADMAP.md` con todos los hitos y sub-tareas de mejoras y nuevos módulos (Hitos 10, 11, 12 y 13: Backend + Frontend + QA 11X).
+- [x] **CP-P.4:** Reestructuración detallada de `ROADMAP.md` con todos los hitos y sub-tareas de mejoras y nuevos módulos (Hitos 10, 11, 12, 13 y 14: Backend + Frontend + Ayuda Contextual en cada pantalla + Manuales Markdown para Admin/Instalador y Usuario + QA 11X).
 - [x] **CP-P.5:** Evolución de archivos de gobernanza (`AGENTS.md`, `.agents/rules/`, `scripts/limpieza.sh`, `.gitignore`).
 - [x] **CP-P.6:** Actualización de `CHANGELOG.md`, `README.md` y cierre de checkpoints en `ACTIVE_TASK.md`.
 - [x] **CP-P.7:** Certificación con `./.agents/scripts/certify_task_completion.sh`.

@@ -10,7 +10,7 @@
 - **Fase 1 (Backend FastAPI & Seguridad 11X):** **`[100% COMPLETADA]`** — Hitos 1, 2, 3, 3.5 y 4 completados y certificados.
 - **Fase 2 (Frontend Vue 3 Mobile-First Core):** **`[100% COMPLETADA]`** — **Hitos 5, 6 y 7 `[COMPLETADOS]`** y certificados.
 - **Fase 3 (Integración E2E, Accesibilidad y Caos Nivel 11X):** Parcial — Hito 9 **`[COMPLETADO]`**; Hito 8 pendiente de ejecución tras completar módulos de Fase 4.
-- **Fase 4 (Evolución PropTech & Ley de Propiedad Horizontal — Specs 06..09):** **`[100% ESPECIFICADA — LISTA PARA IMPLEMENTACIÓN]`** — Hitos 10, 11, 12 y 13 detallados con contratos de idempotencia, criptografía `HMAC-SHA256`, paridad Alembic y GUI Vue 3.
+- **Fase 4 (Evolución PropTech, Ley de Propiedad Horizontal, Ayuda Contextual y Manuales — Specs 05..09):** **`[100% ESPECIFICADA — LISTA PARA IMPLEMENTACIÓN]`** — Hitos 10, 11, 12, 13 y 14 detallados con contratos de idempotencia, criptografía `HMAC-SHA256`, paridad Alembic, ayuda interactiva por pantalla y manuales Markdown exportables a PDF.
 - **Leyenda:**
   - `[COMPLETADO]` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
   - `[PENDIENTE]` = Hito con especificación cerrada en `docs/specs/`, listo para implementación.
@@ -117,7 +117,7 @@
 
 ---
 
-## 🏛️ FASE 4: Evolución Funcional PropTech & Ley de Propiedad Horizontal (Hitos 10 al 13)
+## 🏛️ FASE 4: Evolución Funcional PropTech, Ley de Propiedad Horizontal y Experiencia de Usuario (Hitos 10 al 14)
 
 > **Regla Rectora para Fase 4:** Cada hito de esta fase incluye tanto el Backend (migración Alembic en PostgreSQL 17, lógica de negocio idempotente y endpoints REST) como su paridad 1:1 en el Frontend Vue 3 Mobile-First (stores Pinia con Catch No Destructivo, vistas sin huérfanos `.unit.ts` y escenarios BDD en `backend/test/api_test.feature` y `frontend/test/ui_business_flow.feature`).
 
@@ -152,3 +152,12 @@
   - [ ] **Sub-tarea 13.1 (Modelos y Router de Reserva de Áreas Sociales con Bloqueo por Morosidad):** Modelar `AreaSocial` y `ReservaAreaSocial` e implementar `backend/src/routers/reservas.py` (`POST/GET /api/reservas/areas`, `POST /api/reservas/solicitar` exigiendo deuda cero en `Recibo` y creando automáticamente `TareaDiaria` de inspección post-evento, y `PUT /api/reservas/{id}/inspeccionar`).
   - [ ] **Sub-tarea 13.2 (Paridad GUI Vue 3 — Reserva de Amenidades):** Implementar `AmenitiesReservationView.vue` (`/reservas/areas`) integrada en `useAccessAmenitiesStore`.
   - [ ] **Sub-tarea 13.3 (Certificación QA 11X del Hito 13):** Pruebas unitarias ($\ge 95\%$), paridad ORM ↔ Alembic de las 24 tablas totales del sistema, Grafo AST y escenarios BDD Karate Labs.
+
+### Hito 14: Ayuda Contextual en Cada Pantalla y Manuales Editables en Markdown (Admin/Instalador y Usuario) `[PENDIENTE — ESPECIFICADO]`
+- **Especificación:** [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Sección 6)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 14.1 (Catálogo de Ayuda Contextual por Ruta y Rol):** Implementar `frontend/src/utils/screenHelpCatalog.ts` con guías paso a paso, propósito y preguntas frecuentes para **todas las pantallas del sistema** (interfaces de Propietarios/Inquilinos/Conserje e interfaces de Administración/Tesorería/Secretaría/Vocería).
+  - [ ] **Sub-tarea 14.2 (Componente Universal `ContextualHelpModal.vue` e Integración en Layout):** Implementar `frontend/src/components/layout/ContextualHelpModal.vue` (`#dialog-contextual-help`) y el botón `#btn-contextual-help` en `AppShellLayout.vue` y vistas públicas, cumpliendo accesibilidad WCAG 2.1 AA y prueba unitaria `ContextualHelpModal.unit.ts` (0 componentes huérfanos).
+  - [ ] **Sub-tarea 14.3 (Manual Editable de Administrador e Instalador en Markdown):** Crear `docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md` (instalación con Docker, configuración de estructura, alícuotas y cuotas fijas, activación de Usuarios Fantasma, junta, tesorería, candado contable, cartas consulta, garita QR e instrucciones para exportar a PDF).
+  - [ ] **Sub-tarea 14.4 (Manual Editable de Usuario Residente en Markdown):** Crear `docs/MANUAL_USUARIO_RESIDENTE.md` (registro, lectura del dashboard y recibos, reporte de pagos en Bs/USD, incidencias "¡Me sumo!", votación en cartas consulta, pases QR de visitas, paquetería, reservas y certificado de solvencia, listo para personalizar y convertir en PDF para enviar a los vecinos).
+  - [ ] **Sub-tarea 14.5 (Certificación QA 11X del Hito 14):** Pruebas unitarias en Vitest ($\ge 95\%$), `make -C frontend qa-orphans`, actualización del Grafo AST y escenarios BDD UI en `frontend/test/ui_business_flow.feature`.

@@ -180,3 +180,27 @@ Todos los componentes nuevos deben cumplir el invariante **Cero Componentes Hué
 | **Hito 12** | `/accesos/pases` y `/operaciones/garita-qr` | `VisitorPassesView.vue`, `GatehouseScannerView.vue` | `useAccessAmenitiesStore` | `#form-crear-pase-qr`, `#qr-pass-card-{id}`, `#input-scan-qr-token`, `#btn-verify-qr` |
 | **Hito 12** | `/operaciones/paqueteria` | `ParcelsTrackerView.vue` | `useAccessAmenitiesStore` | `#form-registrar-paquete`, `.parcel-card`, `#btn-confirm-parcel-{id}` |
 | **Hito 13** | `/reservas/areas` | `AmenitiesReservationView.vue` | `useAccessAmenitiesStore` | `#solvency-gate-banner`, `.amenity-card`, `#form-solicitar-reserva`, `#btn-submit-reserva` |
+| **Hito 14** | Universal (Todas las Vistas) | `ContextualHelpModal.vue` (`frontend/src/components/layout/ContextualHelpModal.vue`) | `screenHelpCatalog.ts` | `#btn-contextual-help`, `#dialog-contextual-help`, `#help-screen-title`, `#help-steps-list`, `#btn-close-help` |
+
+---
+
+## 6. Sistema Universal de Ayuda Contextual en Cada Pantalla y Manuales Editables en Markdown (Hito 14)
+
+### 6.1. Opción de Ayuda Contextual Interactiva en Cada Pantalla (`ContextualHelpModal.vue`)
+Para facilitar el aprendizaje y uso diario tanto a **Propietarios/Inquilinos/Conserjes** como a los miembros de la **Junta de Condominio (Presidente, Tesorero, Secretario, Voceros)**:
+1. **Ubicación e Invocación Universal:**
+   - El layout maestro `AppShellLayout.vue` (y las pantallas públicas `/login`, `/register`, `/espera-aprobacion`) incluye un botón táctil siempre accesible en la barra superior: `#btn-contextual-help` (`? Ayuda`), con área mínima de $48 \times 48\text{ px}$ y atributo `aria-label="Abrir ayuda de esta pantalla"`.
+2. **Contenido Dinámico Sensible a la Ruta y al Rol (`frontend/src/utils/screenHelpCatalog.ts`):**
+   - Al pulsarse `#btn-contextual-help`, se abre un `<dialog>` nativo accesible (`#dialog-contextual-help`, `ContextualHelpModal.vue`) que detecta la ruta activa (`useRoute().path`) y el rol del usuario (`authStore.user?.rol`) y presenta:
+     - **Propósito de la Pantalla:** Explicación breve y sin tecnicismos de qué se hace en esa vista.
+     - **Guía Paso a Paso (1, 2, 3):** Instrucciones accionables (ej. en `/finanzas/reportar-pago` explica cómo elegir moneda USD/VES, cuándo es obligatorio el número de referencia y cómo verificar si es Pago Total o Abono Parcial; en `/tesoreria/cierre` advierte que el **Candado Contable** es irreversible; en `/tesoreria/facturacion` explica cuándo elegir `CUOTA_FIJA`, `ALICUOTA` o `PARTES_IGUALES`).
+     - **Consejos y Errores Frecuentes:** Respuestas rápidas a las dudas más habituales de esa pantalla.
+
+### 6.2. Manuales Maestros en Markdown Editables y Exportables a PDF (`docs/`)
+El repositorio mantiene dos manuales independientes en formato Markdown puro (`.md`) con estructura limpia de capítulos, tablas y listas numeradas para que cualquier administrador pueda editarlos fácilmente y exportarlos a **PDF** (`pandoc`, VS Code Markdown PDF o impresión desde visor Markdown) para enviarlos por WhatsApp o correo electrónico:
+1. **`docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md`:**
+   - **Parte I (Instalador / Soporte Técnico):** Despliegue con Docker Compose, configuración de variables `.env`, proxy reverso / SSL, respaldos de PostgreSQL 17 y MinIO, y uso de `scripts/limpieza.sh`.
+   - **Parte II (Administrador / Junta de Condominio):** Configuración inicial de Torres/Calles y Unidades (`/admin/estructura`), carga de alícuotas o cuotas fijas mensuales, activación de Usuarios Fantasma (`/admin/usuarios`), designación de Junta (`/admin/junta`), flujo completo de Tesorería (Tasa BCV, Egresos, Facturación Trimodal `CUOTA_FIJA` / `ALICUOTA` / `PARTES_IGUALES`, Aprobación/Rechazo de Pagos, Solvencias y Candado Contable), Cartas Consulta (Art. 23 LPH), Bitácora, Conserjería y Garita QR.
+   - **Anexo:** Comando e instrucciones paso a paso para generar el PDF listo para distribuir.
+2. **`docs/MANUAL_USUARIO_RESIDENTE.md`:**
+   - Manual redactado en lenguaje claro y directo para **Propietarios, Inquilinos y Conserjes**: registro inicial y activación de cuenta, consulta del Dashboard Financiero y recibos, cómo reportar pagos en Bs o USD paso a paso, uso del botón "¡Me sumo!" en incidencias, votación en Cartas Consulta y verificación de su recibo criptográfico, generación de Pases QR para visitantes, retiro de paquetes en garita, reserva de áreas sociales y descarga del Certificado de Solvencia.
