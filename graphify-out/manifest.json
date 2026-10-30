@@ -342,10 +342,10 @@
     "semantic_hash": "853719ba679dfd69fff17e5132644d33"
   },
   "frontend/src/components/finance/CollectionTrafficLight.vue": {
-    "mtime": 1793322142.4077713,
-    "seen": 1793323282.4149332,
-    "ast_hash": "96ae40e7f6e7a649b314fd5a92ad8a4b",
-    "semantic_hash": "96ae40e7f6e7a649b314fd5a92ad8a4b"
+    "mtime": 1793327145.3742435,
+    "seen": 1793327539.2308733,
+    "ast_hash": "42ba2c967cf75c8bc425f85783a089e5",
+    "semantic_hash": "42ba2c967cf75c8bc425f85783a089e5"
   },
   "frontend/src/components/finance/ExpensesDonutChart.unit.ts": {
     "mtime": 1793322145.9034886,
@@ -366,10 +366,10 @@
     "semantic_hash": "99ddc6acddf22408f665f2eede7ce1dc"
   },
   "frontend/src/components/finance/RejectPaymentModal.vue": {
-    "mtime": 1793322646.5470078,
-    "seen": 1793323282.4149373,
-    "ast_hash": "77856ac9c7647523f1aa393aeab2f49f",
-    "semantic_hash": "77856ac9c7647523f1aa393aeab2f49f"
+    "mtime": 1793327144.0823479,
+    "seen": 1793327539.2309768,
+    "ast_hash": "d1de04e96a9d057fa1899046101cc04d",
+    "semantic_hash": "d1de04e96a9d057fa1899046101cc04d"
   },
   "frontend/src/components/layout/AppFooter.unit.ts": {
     "mtime": 1793320970.250549,
@@ -384,16 +384,16 @@
     "semantic_hash": "b3a9d0659f1c147b1be351b59880085e"
   },
   "frontend/src/components/layout/AppShellLayout.unit.ts": {
-    "mtime": 1793320972.3363805,
-    "seen": 1793323282.4149406,
-    "ast_hash": "de199d8443649a04893ddb74463537cd",
-    "semantic_hash": "de199d8443649a04893ddb74463537cd"
+    "mtime": 1793327204.6144536,
+    "seen": 1793327539.2310731,
+    "ast_hash": "08760a6370f9e80e02557e51e647c2bf",
+    "semantic_hash": "08760a6370f9e80e02557e51e647c2bf"
   },
   "frontend/src/components/layout/AppShellLayout.vue": {
-    "mtime": 1793320971.2214706,
-    "seen": 1793323282.4149418,
-    "ast_hash": "29dedce08eaaafd926bd2752b5f7d37b",
-    "semantic_hash": "29dedce08eaaafd926bd2752b5f7d37b"
+    "mtime": 1793327139.8496902,
+    "seen": 1793327539.231075,
+    "ast_hash": "640727d2043aa9ada040cfd061b2a67b",
+    "semantic_hash": "640727d2043aa9ada040cfd061b2a67b"
   },
   "frontend/src/components/layout/BottomNavBar.unit.ts": {
     "mtime": 1793320943.945676,
@@ -402,10 +402,10 @@
     "semantic_hash": "97022a9e299cb847107b326ee86bd8bb"
   },
   "frontend/src/components/layout/BottomNavBar.vue": {
-    "mtime": 1793320942.6067843,
-    "seen": 1793323282.414944,
-    "ast_hash": "3bf25908b3c0ece86b4d6020c68f8beb",
-    "semantic_hash": "3bf25908b3c0ece86b4d6020c68f8beb"
+    "mtime": 1793327141.487558,
+    "seen": 1793327539.2311268,
+    "ast_hash": "ea35a2628af925c2bff47b7fcaf26603",
+    "semantic_hash": "ea35a2628af925c2bff47b7fcaf26603"
   },
   "frontend/src/components/layout/SidebarNav.unit.ts": {
     "mtime": 1793320946.1175003,
@@ -414,10 +414,10 @@
     "semantic_hash": "7d8e31267fa8c1620ad29b9eaa990597"
   },
   "frontend/src/components/layout/SidebarNav.vue": {
-    "mtime": 1793323724.4808486,
-    "seen": 1793324134.0530772,
-    "ast_hash": "0628f8a0177cc6bff83bcc5b2662fdbe",
-    "semantic_hash": "0628f8a0177cc6bff83bcc5b2662fdbe"
+    "mtime": 1793327142.6654625,
+    "seen": 1793327539.2311823,
+    "ast_hash": "41a5e132920b62674f40a094918bff3b",
+    "semantic_hash": "41a5e132920b62674f40a094918bff3b"
   },
   "frontend/src/components/layout/StaleDataBanner.unit.ts": {
     "mtime": 1793320941.5498698,
@@ -552,10 +552,10 @@
     "semantic_hash": "6678bac6afe263cbd45d9d2f7734579c"
   },
   "frontend/src/views/finance/DashboardView.vue": {
-    "mtime": 1793322225.765031,
-    "seen": 1793323282.414973,
-    "ast_hash": "274b05fb2c7d64f073c413e4ee948c33",
-    "semantic_hash": "274b05fb2c7d64f073c413e4ee948c33"
+    "mtime": 1793327146.7321336,
+    "seen": 1793327539.232378,
+    "ast_hash": "5fd5a9143e455d338e9a8398a4afc8ba",
+    "semantic_hash": "5fd5a9143e455d338e9a8398a4afc8ba"
   },
   "frontend/src/views/finance/PaymentWizardView.unit.ts": {
     "mtime": 1793322564.8556132,
@@ -576,10 +576,10 @@
     "semantic_hash": "1c9dc10d93c22d146c3ac196458baed0"
   },
   "frontend/src/views/finance/TreasuryClosingView.vue": {
-    "mtime": 1793322649.0588048,
-    "seen": 1793323282.4149773,
-    "ast_hash": "49ab431757c6264f2a7125c1367e2940",
-    "semantic_hash": "49ab431757c6264f2a7125c1367e2940"
+    "mtime": 1793327148.0460274,
+    "seen": 1793327539.2324748,
+    "ast_hash": "ec1e30ae690f3cd307a0b0e751e585e0",
+    "semantic_hash": "ec1e30ae690f3cd307a0b0e751e585e0"
   },
   "frontend/src/views/finance/TreasuryPaymentsView.unit.ts": {
     "mtime": 1793322655.3312974,
@@ -768,9 +768,9 @@
     "semantic_hash": "1d66dac98a094b7cb6da7a7c367fa3e4"
   },
   "scripts/limpieza.sh": {
-    "mtime": 1793324299.0093937,
-    "seen": 1793324341.2453737,
-    "ast_hash": "5dca92ab7e17294057f7e63f46b5008d",
-    "semantic_hash": "5dca92ab7e17294057f7e63f46b5008d"
+    "mtime": 1793326153.9444082,
+    "seen": 1793327539.232957,
+    "ast_hash": "9b4ee10099d77363216c174b774ccaad",
+    "semantic_hash": "9b4ee10099d77363216c174b774ccaad"
   }
 }
