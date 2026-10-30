@@ -11,7 +11,7 @@ from sqlalchemy.future import select
 from src.database import get_db
 from src.dependencies import extract_bearer_or_cookie_token
 from src.models import ContratoOcupacion, Usuario
-from src.redis_client import check_and_set_idempotency_key, get_redis_client
+from src.redis_client import check_and_set_idempotency_key, get_redis_client, is_user_session_revoked
 from src.schemas import UsuarioCreate, UsuarioResponse
 from src.security import create_access_token, decode_access_token, get_password_hash, verify_password
 
@@ -146,6 +146,12 @@ async def get_me(request: Request, db: AsyncSession = Depends(get_db)) -> dict[s
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+    if getattr(user, "id", None) is not None and await is_user_session_revoked(get_redis_client(), int(user.id)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión revocada por la administración",
+        )
 
     return {
         "id": user.id,

@@ -15,6 +15,8 @@ const emit = defineEmits<{
 const links = [
   { id: 'side-dashboard', label: 'Resumen Financiero', to: '/dashboard' },
   { id: 'side-pagar', label: 'Reportar Pago', to: '/finanzas/reportar-pago' },
+  { id: 'side-solvencia', label: 'Certificado de Solvencia', to: '/finanzas/solvencia' },
+  { id: 'side-facturacion', label: 'Facturación Mensual LPH', to: '/tesoreria/facturacion' },
   { id: 'side-incidencias', label: 'Embudo de Incidencias', to: '/incidencias' },
   { id: 'side-tareas', label: 'Tareas de Conserjería', to: '/operaciones/tareas' },
   { id: 'side-voceros', label: 'Galería de Voceros', to: '/voceros/galeria' },

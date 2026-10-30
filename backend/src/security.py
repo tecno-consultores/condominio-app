@@ -137,11 +137,31 @@ def validate_safe_outgoing_url(url_str: str) -> str:
     return url_str.strip()
 
 
+def validate_file_magic_bytes(header: bytes) -> str:
+    """Inspecciona los primeros 16 bytes binarios del archivo para prevenir falsificación de MIME Type (Patrón 15)."""
+    sample = header[:16]
+    if sample.startswith(b"%PDF-"):
+        return "application/pdf"
+    if sample.startswith(b"\x89PNG\r\n\x1a\n") or sample.startswith(b"\x89PNG"):
+        return "image/png"
+    if sample.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(sample) >= 12 and sample[:4] == b"RIFF" and sample[8:12] == b"WEBP":
+        return "image/webp"
+    if len(sample) >= 12 and sample[4:12] in (b"ftypavif", b"ftypavis", b"ftypmif1"):
+        return "image/avif"
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail="Formato binario de archivo no permitido (Magic Bytes inválidos).",
+    )
+
+
 async def read_uploaded_file_safely(
     file: AsyncChunkReader,
     max_bytes: int = MAX_UPLOAD_SIZE_BYTES,
+    verify_magic_bytes: bool = False,
 ) -> bytes:
-    """Lee un archivo en streaming aplicando cuota estricta Anti-DoS/OOM (Patrón 6)."""
+    """Lee un archivo en streaming aplicando cuota estricta Anti-DoS/OOM (Patrón 6) y Magic Bytes (Patrón 15)."""
     total_bytes = 0
     buffer = bytearray()
 
@@ -153,6 +173,9 @@ async def read_uploaded_file_safely(
                 detail="El archivo excede el tamaño máximo permitido de 2 MB.",
             )
         buffer.extend(chunk)
+
+    if verify_magic_bytes:
+        validate_file_magic_bytes(bytes(buffer[:16]))
 
     return bytes(buffer)
 

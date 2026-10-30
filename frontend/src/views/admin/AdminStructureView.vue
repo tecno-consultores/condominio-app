@@ -6,10 +6,14 @@ import { useOperationsStore, type TipoEstructura } from '../../stores/operations
 
 const operationsStore = useOperationsStore();
 const { currentKey, rotateKey } = useIdempotency();
+const { currentKey: alicuotaKey, rotateKey: rotateAlicuotaKey } = useIdempotency();
 
 const nombre = ref('');
 const tipo = ref<TipoEstructura>('TORRE');
 const identificadoresRaw = ref('');
+const selectedUnidadId = ref(1);
+const alicuotaValor = ref('10.0000');
+const cuotaFijaUnidad = ref('');
 const validationError = ref<string | null>(null);
 const successBanner = ref<string | null>(null);
 
@@ -45,6 +49,34 @@ async function handleGenerateStructure(): Promise<void> {
     nombre.value = '';
     identificadoresRaw.value = '';
     successBanner.value = `Estructura "${res.nombre}" generada con ${res.unidades_creadas} unidades.`;
+  } catch {
+    // Error preservado en operationsStore.errorMessage
+  }
+}
+
+async function handleUpdateAlicuota(): Promise<void> {
+  validationError.value = null;
+  successBanner.value = null;
+
+  const numAlicuota = Number.parseFloat(alicuotaValor.value);
+  if (!Number.isFinite(numAlicuota) || numAlicuota < 0 || numAlicuota > 100) {
+    validationError.value = 'La alícuota debe ser un porcentaje válido entre 0.0000 y 100.0000.';
+    return;
+  }
+
+  try {
+    const rawAlicuota = String(alicuotaValor.value).trim();
+    const rawCuotaFija = String(cuotaFijaUnidad.value ?? '').trim();
+    const updated = await operationsStore.actualizarAlicuotaUnidad(
+      selectedUnidadId.value,
+      {
+        alicuota: rawAlicuota,
+        cuota_fija_usd: rawCuotaFija ? rawCuotaFija : null,
+      },
+      alicuotaKey.value,
+    );
+    rotateAlicuotaKey();
+    successBanner.value = `Unidad ${updated.identificador} actualizada (Alícuota: ${updated.alicuota ?? rawAlicuota}%).`;
   } catch {
     // Error preservado en operationsStore.errorMessage
   }
@@ -136,6 +168,63 @@ async function handleGenerateStructure(): Promise<void> {
         </button>
       </form>
 
+      <form
+        id="form-actualizar-alicuota"
+        class="admin-structure__form"
+        novalidate
+        @submit.prevent="handleUpdateAlicuota"
+      >
+        <h2 class="admin-structure__section-title">
+          Configurar Alícuota LPH y Cuota Fija por Unidad
+        </h2>
+        <div class="admin-structure__grid">
+          <div class="admin-structure__field">
+            <label for="select-alicuota-unidad" class="admin-structure__label">Unidad</label>
+            <select
+              id="select-alicuota-unidad"
+              v-model.number="selectedUnidadId"
+              class="admin-structure__input"
+            >
+              <option v-for="u in operationsStore.data.unidades" :key="u.id" :value="u.id">
+                #{{ u.id }} — {{ u.identificador }}
+              </option>
+            </select>
+          </div>
+
+          <div class="admin-structure__field">
+            <label for="input-alicuota-valor" class="admin-structure__label">
+              Alícuota de Participación (%)
+            </label>
+            <input
+              id="input-alicuota-valor"
+              v-model="alicuotaValor"
+              type="number"
+              step="0.0001"
+              class="admin-structure__input"
+              placeholder="Ej. 12.5000"
+            />
+          </div>
+
+          <div class="admin-structure__field">
+            <label for="input-cuota-fija-unidad" class="admin-structure__label">
+              Cuota Fija Diferenciada (USD, opcional)
+            </label>
+            <input
+              id="input-cuota-fija-unidad"
+              v-model="cuotaFijaUnidad"
+              type="number"
+              step="0.01"
+              class="admin-structure__input"
+              placeholder="Ej. 25.00"
+            />
+          </div>
+        </div>
+
+        <button id="btn-submit-alicuota" type="submit" class="admin-structure__submit">
+          Guardar Alícuota / Cuota Fija
+        </button>
+      </form>
+
       <section class="admin-structure__units" aria-label="Unidades registradas">
         <h2 class="admin-structure__section-title">
           Unidades Registradas ({{ operationsStore.data.unidades.length }})
@@ -147,6 +236,7 @@ async function handleGenerateStructure(): Promise<void> {
             class="admin-structure__unit-chip"
           >
             <strong>#{{ u.id }}</strong> — {{ u.identificador }}
+            <span v-if="u.alicuota"> ({{ u.alicuota }}%)</span>
           </li>
         </ul>
       </section>

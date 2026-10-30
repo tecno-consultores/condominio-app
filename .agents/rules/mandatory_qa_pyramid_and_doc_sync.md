@@ -33,7 +33,9 @@ Any addition, modification, or bug fix in application source code (`backend/`, `
 
 ## 2. Rule Zero: Ephemeral Docker Execution
 
-**NEVER** execute tests, migrations, linters, or operational scripts directly on the host machine (`Ubuntu`, `macOS`, or `Windows`). All executions must occur inside the project's ephemeral Docker containers (`docker-compose.qa.yml` and `Makefile`).
+**NEVER** execute tests, migrations, linters, or operational scripts directly on the host machine (`Ubuntu`, `macOS`, or `Windows`). All executions must occur inside the project's ephemeral Docker containers (`docker-compose.qa.yml` and `Makefile`). If `make` is not installed on the host shell, invoke `docker compose -f backend/docker-compose.qa.yml run --rm qa-backend ...` and `docker compose -f frontend/docker-compose.qa.yml run --rm qa-vue3 ...` directly.
+- When starting `postgres:17-alpine` for `qa-parity`, always pass `--wait` (`docker compose -f backend/docker-compose.qa.yml up -d --wait postgres`) so PostgreSQL is ready before `alembic upgrade head`.
+- In Vue 3 templates (`@vue/runtime-dom`), `<input type="number" v-model="...">` automatically coerces bound `ref` values to `number` on input events; always wrap with `String(val.value ?? '').trim()` before calling string methods.
 
 ---
 
@@ -49,8 +51,8 @@ Following any code modification, the AI agent **MUST autonomously and continuous
    - Update milestone and sub-task status in `ROADMAP.md`.
 4. **Assurance Metrics in `TESTING.md`, `backend/TESTING.md` & `frontend/TESTING.md`:**
    - Record updated test counts, pass rates, and coverage percentages.
-5. **Deterministic Checkpoint Log in `ACTIVE_TASK.md`:**
-   - Update `ACTIVE_TASK.md` at the start, after each sub-task (`CP-X.Y`), and upon completion of every milestone.
+5. **Deterministic Checkpoint Log in `.agents/ACTIVE_TASK.md`:**
+   - Update `.agents/ACTIVE_TASK.md` at the start, after each sub-task (`CP-X.Y`), and upon completion of every milestone.
 6. **Project Root & Scripts (`README.md`, `SECURITY.md`, `scripts/limpieza.sh`):**
    - Update whenever architectural blueprints, tools, or dependencies evolve.
 

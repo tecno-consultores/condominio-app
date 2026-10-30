@@ -7,6 +7,7 @@ from sqlalchemy.future import select
 
 from src.database import get_db
 from src.models import Usuario
+from src.redis_client import get_redis_client, is_user_session_revoked
 from src.security import decode_access_token
 
 
@@ -42,6 +43,13 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+
+    user_id = getattr(user, "id", None)
+    if user_id is not None and await is_user_session_revoked(get_redis_client(), int(user_id)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión revocada por la administración",
+        )
     return user
 
 

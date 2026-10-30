@@ -16,14 +16,20 @@ from src.main import _es_produccion, app
 from src.redis_client import (
     build_idempotency_key,
     check_and_set_idempotency_key,
+    clear_user_session_revocation,
     get_redis_client,
     get_refresh_token_from_grace_period,
+    is_user_session_revoked,
+    revoke_user_session,
     rotate_refresh_token_with_grace_period,
 )
 from src.routers.auth import LoginData
 from src.schemas import (
+    AlicuotaUpdateRequest,
     CierreMensualRequest,
     EgresoCreate,
+    FacturarPeriodoRequest,
+    FondoCondominioCreate,
     PagoRechazo,
     PagoReportar,
     ReciboCreate,
@@ -36,6 +42,7 @@ from src.security import (
     get_password_hash,
     read_uploaded_file_safely,
     validate_csrf_token,
+    validate_file_magic_bytes,
     validate_safe_outgoing_url,
     verify_password,
     verify_websocket_origin,
@@ -155,6 +162,74 @@ async def test_read_uploaded_file_safely_exceeds_quota_raises_413() -> None:
     assert exc_info.value.status_code == 413
 
 
+async def test_validate_file_magic_bytes_and_upload_enforcement() -> None:
+    assert validate_file_magic_bytes(b"%PDF-1.7\n...") == "application/pdf"
+    assert validate_file_magic_bytes(b"\x89PNG\r\n\x1a\n...") == "image/png"
+    assert validate_file_magic_bytes(b"\xff\xd8\xff\xe0...") == "image/jpeg"
+    assert validate_file_magic_bytes(b"RIFF\x24\x00\x00\x00WEBPVP8 ") == "image/webp"
+    assert validate_file_magic_bytes(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00") == "image/avif"
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_file_magic_bytes(b"MZ\x90\x00executable")
+    assert exc_info.value.status_code == 415
+
+    png_upload = _DummyUpload([b"\x89PNG\r\n\x1a\npayload"])
+    data = await read_uploaded_file_safely(png_upload, max_bytes=1024, verify_magic_bytes=True)
+    assert data.startswith(b"\x89PNG")
+
+    bad_upload = _DummyUpload([b"#!/bin/sh\nrm -rf /"])
+    with pytest.raises(HTTPException) as exc_bad:
+        await read_uploaded_file_safely(bad_upload, max_bytes=1024, verify_magic_bytes=True)
+    assert exc_bad.value.status_code == 415
+
+
+async def test_redis_user_session_revocation_and_dependency_gate(client: TestClient) -> None:
+    mock_redis = AsyncMock()
+    await revoke_user_session(mock_redis, 777)
+    assert await is_user_session_revoked(mock_redis, 777) is True
+    await clear_user_session_revocation(mock_redis, 777)
+
+    mock_redis.get.return_value = "1"
+    assert await is_user_session_revoked(mock_redis, 888) is True
+
+    mock_redis.get.side_effect = RuntimeError("redis offline")
+    mock_redis.set.side_effect = RuntimeError("redis offline")
+    mock_redis.delete.side_effect = RuntimeError("redis offline")
+    await revoke_user_session(mock_redis, 999)
+    assert await is_user_session_revoked(mock_redis, 999) is True
+    await clear_user_session_revocation(mock_redis, 999)
+    assert await is_user_session_revoked(mock_redis, 999) is False
+    assert await is_user_session_revoked(None, 999) is False
+
+    # Verificar que get_current_user rechaza con 401 si la sesión está revocada
+    token = create_access_token(data={"sub": "revocado@test.com", "rol": "PROPIETARIO", "id": 555})
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+
+    class RevokedUser:
+        id: int = 555
+        correo: str = "revocado@test.com"
+        nombre: str = "Revocado"
+        rol: str = "PROPIETARIO"
+        es_activo: bool = True
+
+    mock_result.scalars().first.return_value = RevokedUser()
+    mock_session.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_session
+    await revoke_user_session(None, 555)
+    try:
+        res = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 401
+        assert "revocada" in res.json()["detail"]
+
+        res_dep = client.get("/api/finanzas/tasa", headers={"Authorization": f"Bearer {token}"})
+        assert res_dep.status_code == 401
+        assert "revocada" in res_dep.json()["detail"]
+    finally:
+        await clear_user_session_revocation(None, 555)
+        app.dependency_overrides = {}
+
+
 def test_verify_websocket_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://app.condominio.com,https://admin.condominio.com")
@@ -236,6 +311,12 @@ def test_mass_assignment_extra_forbid_on_all_input_schemas() -> None:
         )
     with pytest.raises(ValidationError):
         CierreMensualRequest.model_validate({"periodo": "2026-10", "estado": "ABIERTO"})
+    with pytest.raises(ValidationError):
+        AlicuotaUpdateRequest.model_validate({"alicuota": "10.0000", "extra": 1})
+    with pytest.raises(ValidationError):
+        FondoCondominioCreate.model_validate({"nombre": "Fondo Reserva", "saldo_actual_usd": "9999.00"})
+    with pytest.raises(ValidationError):
+        FacturarPeriodoRequest.model_validate({"periodo": "2026-10", "modalidad": "ALICUOTA", "hack": True})
 
 
 def test_bearer_token_authentication_and_production_422_sanitization(

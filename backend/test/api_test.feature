@@ -133,3 +133,55 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Given path '/api/pagos/revision'
     When method get
     Then status 403
+
+  # ==============================================================================
+  # Grupo 4: Facturación Mensual LPH, Alícuotas, Fondos y Solvencia Digital (Hito 10)
+  # ==============================================================================
+
+  Scenario: 11. Consulta de fondos patrimoniales y desglose de recibos sin sesión devuelve 401
+    Given path '/api/finanzas/fondos'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+    Given path '/api/finanzas/recibos/1/desglose'
+    When method get
+    Then status 401
+    And match response.detail == 'No autenticado'
+
+  Scenario: 12. Usuario Fantasma recibe 403 Forbidden en endpoints de Alícuotas, Fondos, Facturación y Solvencia
+    Given path '/api/auth/login'
+    And request { correo: "fantasma.bdd@test.com", password: "Password123!" }
+    When method post
+    Then status 200
+
+    Given path '/api/estructura/unidades/1/alicuota'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001011'
+    And request { alicuota: "25.0000", cuota_fija_usd: "30.00" }
+    When method put
+    Then status 403
+
+    Given path '/api/finanzas/fondos'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001012'
+    And request { nombre: "Fondo BDD", tipo: "RESERVA_LEGAL", porcentaje_recargo: "10.00" }
+    When method post
+    Then status 403
+
+    Given path '/api/finanzas/facturar-periodo'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001013'
+    And request { periodo: "2026-10", modalidad: "CUOTA_FIJA", monto_cuota_fija_usd: "25.00" }
+    When method post
+    Then status 403
+
+    Given path '/api/finanzas/solvencia/1'
+    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001014'
+    And request {}
+    When method post
+    Then status 403
+
+  Scenario: 13. Verificación pública de Certificado de Solvencia inexistente devuelve 404
+    Given path '/api/finanzas/solvencia/verificar/SOLV-202610-9999-XXXX'
+    And param sig = 'firma_prueba_hmac_sha256'
+    When method get
+    Then status 404
+    And match response.detail contains 'no encontrado'

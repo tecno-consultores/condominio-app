@@ -1,6 +1,7 @@
 """Endpoints del flujo de reporte, revisión y aprobación de pagos."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import redis.asyncio as aioredis
@@ -10,8 +11,15 @@ from sqlalchemy.future import select
 
 from src.database import get_db
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
-from src.finanzas import ErrorFinanciero, aplicar_pago, convertir_a_usd, validar_referencia
-from src.models import AuditoriaRecibo, PagoReportado, Recibo, TasaCambio, Usuario
+from src.finanzas import (
+    ErrorFinanciero,
+    aplicar_pago,
+    calcular_excedente_pago,
+    convertir_a_usd,
+    cuantizar,
+    validar_referencia,
+)
+from src.models import AuditoriaRecibo, PagoReportado, Recibo, TasaCambio, Unidad, Usuario
 from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import PagoRechazo, PagoReportar, PagoResponse
 
@@ -78,6 +86,22 @@ async def reportar_pago(
             )
 
         validar_referencia(pago.metodo_pago, pago.numero_referencia)
+        metodo_norm = pago.metodo_pago.strip().upper()
+        ref_limpia = pago.numero_referencia.strip() if pago.numero_referencia else None
+        if metodo_norm != "EFECTIVO" and ref_limpia:
+            dup_res = await db.execute(
+                select(PagoReportado).where(
+                    PagoReportado.metodo_pago == pago.metodo_pago,
+                    PagoReportado.numero_referencia == ref_limpia,
+                    PagoReportado.estado != "RECHAZADO",
+                )
+            )
+            if dup_res.scalars().first() is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El número de referencia bancaria ya fue registrado previamente",
+                )
+
         tasa = await obtener_tasa_del_dia(db)
         recibo = await _obtener_recibo(db, pago.recibo_id)
         if recibo.bloqueado:
@@ -159,10 +183,20 @@ async def aprobar_pago(
             detail="El periodo está cerrado (Candado Contable)",
         )
 
+    excedente = calcular_excedente_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
     nuevo_pagado, nuevo_estado = aplicar_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
-    recibo.monto_pagado_usd = nuevo_pagado
+    recibo.monto_pagado_usd = recibo.monto_usd if excedente > Decimal("0.00") else nuevo_pagado
     recibo.estado = nuevo_estado
     pago.estado = "APROBADO"
+    motivo_auditoria: str | None = None
+    if excedente > Decimal("0.00"):
+        res_unidad = await db.execute(select(Unidad).where(Unidad.id == recibo.unidad_id))
+        unidad = res_unidad.scalars().first()
+        if unidad is not None:
+            credito_previo = getattr(unidad, "credito_disponible_usd", None) or Decimal("0.00")
+            unidad.credito_disponible_usd = cuantizar(credito_previo + excedente)
+        motivo_auditoria = f"Sobrepago acreditado a saldo a favor: +{excedente} USD"
+
     db.add(
         AuditoriaRecibo(
             recibo_id=recibo.id,
@@ -170,7 +204,7 @@ async def aprobar_pago(
             usuario_id=usuario.id,
             estado_viejo="EN_REVISION",
             estado_nuevo="APROBADO",
-            motivo=None,
+            motivo=motivo_auditoria,
         )
     )
     await db.commit()

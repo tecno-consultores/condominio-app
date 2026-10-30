@@ -134,17 +134,17 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 
 ---
 
-## 9. Motor de Alícuotas, Facturación Mensual LPH y Solvencia Digital (Fase 4 — Spec 07)
+## 9. Motor de Alícuotas, Facturación Mensual LPH y Solvencia Digital (Fase 4 — Spec 07 — Implementado en Hito 10)
 
-### 🖥️ Vistas: Facturación por Alícuota y Certificado de Solvencia
+### 🖥️ Vistas: Facturación Trimodal y Certificado de Solvencia
 * **Rutas Vue:** `/tesoreria/facturacion`, `/finanzas/solvencia`
 * **Diseño GUI:**
-  * **Facturación Mensual:** Resumen de egresos comunes del periodo, recargo del Fondo de Reserva Legal (10%), vista previa del prorrateo por alícuota (*Método del Resto Mayor / Hamilton*) y botón idempotente de emisión de recibos.
-  * **Solvencia Digital:** Consulta de deuda cero ($0.00\text{ USD}$) y descarga/visualización de Certificado de Solvencia con QR firmado (`HMAC-SHA256`).
+  * **Facturación Mensual (`BillingGeneratorView.vue`):** Selector de modalidad (`ALICUOTA` mediante el *Método del Resto Mayor / Hamilton*, `CUOTA_FIJA` mensual con conciliación automática de superávit/déficit hacia `FondoCondominio`, y `PARTES_IGUALES`), gestión de fondos patrimoniales, aplicación automática de saldo a favor (`credito_disponible_usd`) y modal de desglose de recibos (`ReceiptBreakdownModal.vue`).
+  * **Solvencia Digital (`SolvencyCertificateView.vue`):** Emisión de Certificado Digital de Solvencia para unidades con deuda cero ($0.00\text{ USD}$) con sello QR firmado (`HMAC-SHA256`) y verificador público de autenticidad.
 * **Endpoints FastAPI:**
-  * `PUT /api/estructura/unidades/{id}/alicuota`: Actualiza el porcentaje de participación de la unidad. *[Header: Idempotency-Key]*
+  * `PUT /api/estructura/unidades/{id}/alicuota`: Actualiza el porcentaje de participación (`alicuota`) y la cuota fija diferenciada (`cuota_fija_usd`) de la unidad. *[Header: Idempotency-Key]*
   * `POST /api/finanzas/fondos` y `GET /api/finanzas/fondos`: Gestión de fondos patrimoniales y de reserva. *[Header: Idempotency-Key]*
-  * `POST /api/finanzas/facturar-periodo`: Prorratea los gastos comunes según la alícuota de cada unidad y aplica saldos a favor (`credito_disponible_usd`). *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/facturar-periodo`: Emite recibos mensuales bajo modalidad `ALICUOTA`, `CUOTA_FIJA` o `PARTES_IGUALES` y aplica saldos a favor (`credito_disponible_usd`). *[Header: Idempotency-Key]*
   * `GET /api/finanzas/recibos/{id}/desglose`: Devuelve las líneas detalladas (`ReciboItem`) del recibo.
   * `POST /api/finanzas/solvencia/{unidad_id}` y `GET /api/finanzas/solvencia/verificar/{folio}`: Emite y verifica certificados digitales de solvencia. *[Header: Idempotency-Key]*
 

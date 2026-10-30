@@ -13,14 +13,22 @@ from src.finanzas import (
     ESTADO_PARCIAL,
     ESTADO_PENDIENTE,
     ErrorFinanciero,
+    aplicar_credito_disponible,
     aplicar_pago,
     calcular_deuda_total,
+    calcular_excedente_pago,
     calcular_saldo_pendiente,
+    construir_qr_token_solvencia,
     convertir_a_usd,
     cuantizar,
     determinar_estado_recibo,
+    generar_firma_solvencia,
+    prorratear_partes_iguales,
+    prorratear_por_alicuotas,
     requiere_referencia,
     validar_referencia,
+    validar_suma_alicuotas,
+    verificar_firma_solvencia,
 )
 
 
@@ -183,3 +191,73 @@ def test_calcular_deuda_total_suma_saldos() -> None:
 
 def test_calcular_deuda_total_lista_vacia() -> None:
     assert calcular_deuda_total([]) == CERO
+
+
+def test_calcular_excedente_pago() -> None:
+    assert calcular_excedente_pago(Decimal("100.00"), Decimal("0.00"), Decimal("40.00")) == CERO
+    assert calcular_excedente_pago(Decimal("100.00"), Decimal("0.00"), Decimal("100.00")) == CERO
+    assert calcular_excedente_pago(Decimal("100.00"), Decimal("20.00"), Decimal("95.50")) == Decimal("15.50")
+
+
+def test_validar_suma_alicuotas() -> None:
+    assert validar_suma_alicuotas([]) is False
+    assert validar_suma_alicuotas([Decimal("-1.0000"), Decimal("101.0000")]) is False
+    assert validar_suma_alicuotas([Decimal("101.0000")]) is False
+    assert validar_suma_alicuotas([Decimal("33.3333"), Decimal("33.3333"), Decimal("33.3334")]) is True
+    assert validar_suma_alicuotas([Decimal("33.3333"), Decimal("33.3333"), Decimal("33.3333")]) is True
+    assert validar_suma_alicuotas([Decimal("50.0000"), Decimal("40.0000")]) is False
+
+
+def test_prorratear_por_alicuotas_metodo_hamilton_exacto() -> None:
+    unidades = [(1, Decimal("33.3333")), (2, Decimal("33.3333")), (3, Decimal("33.3333"))]
+    res = prorratear_por_alicuotas(Decimal("100.00"), unidades)
+    assert res[1] == Decimal("33.34")
+    assert res[2] == Decimal("33.33")
+    assert res[3] == Decimal("33.33")
+    assert sum(res.values()) == Decimal("100.00")
+
+    res_cero = prorratear_por_alicuotas(Decimal("0.00"), unidades)
+    assert res_cero == {1: CERO, 2: CERO, 3: CERO}
+
+
+def test_prorratear_por_alicuotas_errores() -> None:
+    with pytest.raises(ErrorFinanciero, match="negativo"):
+        prorratear_por_alicuotas(Decimal("-10.00"), [(1, Decimal("100.0000"))])
+    with pytest.raises(ErrorFinanciero, match="al menos una unidad"):
+        prorratear_por_alicuotas(Decimal("10.00"), [])
+    with pytest.raises(ErrorFinanciero, match="negativas"):
+        prorratear_por_alicuotas(Decimal("10.00"), [(1, Decimal("-5.0000")), (2, Decimal("10.0000"))])
+    with pytest.raises(ErrorFinanciero, match="mayor que cero"):
+        prorratear_por_alicuotas(Decimal("10.00"), [(1, Decimal("0.0000"))])
+
+
+def test_prorratear_partes_iguales() -> None:
+    res = prorratear_partes_iguales(Decimal("100.00"), [10, 20, 30])
+    assert res == {10: Decimal("33.34"), 20: Decimal("33.33"), 30: Decimal("33.33")}
+    with pytest.raises(ErrorFinanciero, match="al menos una unidad"):
+        prorratear_partes_iguales(Decimal("50.00"), [])
+
+
+def test_aplicar_credito_disponible() -> None:
+    assert aplicar_credito_disponible(Decimal("50.00"), Decimal("15.00")) == (
+        Decimal("35.00"),
+        Decimal("15.00"),
+        CERO,
+    )
+    assert aplicar_credito_disponible(Decimal("40.00"), Decimal("65.00")) == (
+        CERO,
+        Decimal("40.00"),
+        Decimal("25.00"),
+    )
+    with pytest.raises(ErrorFinanciero, match="negativos"):
+        aplicar_credito_disponible(Decimal("-1.00"), Decimal("10.00"))
+
+
+def test_firmar_y_verificar_solvencia_hmac() -> None:
+    firma = generar_firma_solvencia("SOLV-202610-0001", "A-01", "2026-10-31", "secreto-11x")
+    assert len(firma) == 64
+    assert verificar_firma_solvencia("SOLV-202610-0001", "A-01", "2026-10-31", firma, "secreto-11x") is True
+    assert verificar_firma_solvencia("SOLV-202610-0001", "A-02", "2026-10-31", firma, "secreto-11x") is False
+    assert verificar_firma_solvencia("SOLV-202610-0001", "A-01", "2026-10-31", "   ", "secreto-11x") is False
+    qr = construir_qr_token_solvencia("SOLV-202610-0001", "A-01", "2026-10-31", firma)
+    assert qr.endswith(f".{firma}")

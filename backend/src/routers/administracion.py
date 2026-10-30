@@ -1,5 +1,6 @@
 """Rutas administrativas: generación de estructura/unidades, activación de usuarios fantasma y Junta (Hito 4)."""
 
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -10,8 +11,9 @@ from sqlalchemy.future import select
 from src.database import get_db
 from src.dependencies import get_current_user, verificar_roles
 from src.models import ContratoOcupacion, Estructura, Unidad, Usuario
-from src.redis_client import check_and_set_idempotency_key, get_redis_client
+from src.redis_client import check_and_set_idempotency_key, clear_user_session_revocation, get_redis_client
 from src.schemas import (
+    AlicuotaUpdateRequest,
     EstructuraGenerarRequest,
     EstructuraGenerarResponse,
     JuntaCargoRequest,
@@ -23,6 +25,7 @@ from src.schemas import (
 router = APIRouter(prefix="/api", tags=["Administracion"])
 
 _ROLES_DIRECTIVA = ("PRESIDENTE", "VICEPRESIDENTE")
+_ROLES_ALICUOTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO")
 
 
 @router.get("/estructura/unidades", response_model=list[UnidadResponse])
@@ -69,7 +72,13 @@ async def generar_estructura(
         await db.flush()
         unidades_creadas: list[Unidad] = []
         for ident in dict.fromkeys(i.strip() for i in datos.identificadores if i.strip()):
-            unidad = Unidad(identificador=ident, estructura_id=estructura.id or 1)
+            unidad = Unidad(
+                identificador=ident,
+                estructura_id=estructura.id or 1,
+                alicuota=Decimal("0.0000"),
+                cuota_fija_usd=None,
+                credito_disponible_usd=Decimal("0.00"),
+            )
             db.add(unidad)
             unidades_creadas.append(unidad)
         await db.commit()
@@ -165,6 +174,7 @@ async def asignar_y_activar_usuario(
     objetivo.rol = datos.rol
     await db.commit()
     await db.refresh(objetivo)
+    await clear_user_session_revocation(get_redis_client(), objetivo.id)
     return objetivo
 
 
@@ -208,3 +218,48 @@ async def asignar_cargo_junta(
     await db.commit()
     await db.refresh(objetivo)
     return objetivo
+
+
+@router.put(
+    "/estructura/unidades/{unidad_id}/alicuota",
+    response_model=UnidadResponse,
+    responses={
+        403: {"description": "Permisos insuficientes"},
+        404: {"description": "Unidad no encontrada"},
+        409: {"description": "Idempotencia repetida"},
+    },
+)
+async def actualizar_alicuota_unidad(
+    unidad_id: int,
+    datos: AlicuotaUpdateRequest,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1),
+    db: AsyncSession = Depends(get_db),
+    redis_client: Any = Depends(get_redis_client),
+    usuario_actual: Usuario = Depends(get_current_user),
+) -> UnidadResponse:
+    """Actualiza la alícuota y/o cuota fija mensual de una unidad (Art. 7 LPH)."""
+    verificar_roles(usuario_actual, _ROLES_ALICUOTA)
+
+    es_nueva = await check_and_set_idempotency_key(
+        redis_client,
+        idempotency_key,
+        scope=f"alicuota:{unidad_id}",
+    )
+    if not es_nueva:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esta actualización de alícuota ya fue procesada.",
+        )
+
+    res_u = await db.execute(select(Unidad).where(Unidad.id == unidad_id))
+    unidad = res_u.scalars().first()
+    if not unidad:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada.")
+
+    unidad.alicuota = datos.alicuota.quantize(Decimal("0.0001"))
+    unidad.cuota_fija_usd = (
+        datos.cuota_fija_usd.quantize(Decimal("0.01")) if datos.cuota_fija_usd is not None else None
+    )
+    await db.commit()
+    await db.refresh(unidad)
+    return UnidadResponse.model_validate(unidad)

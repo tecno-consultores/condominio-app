@@ -13,8 +13,10 @@ import AdminStructureView from '../views/admin/AdminStructureView.vue';
 import LoginView from '../views/auth/LoginView.vue';
 import PendingApprovalView from '../views/auth/PendingApprovalView.vue';
 import RegisterView from '../views/auth/RegisterView.vue';
+import BillingGeneratorView from '../views/finance/BillingGeneratorView.vue';
 import DashboardView from '../views/finance/DashboardView.vue';
 import PaymentWizardView from '../views/finance/PaymentWizardView.vue';
+import SolvencyCertificateView from '../views/finance/SolvencyCertificateView.vue';
 import TreasuryClosingView from '../views/finance/TreasuryClosingView.vue';
 import TreasuryPaymentsView from '../views/finance/TreasuryPaymentsView.vue';
 import IncidentsFeedView from '../views/operations/IncidentsFeedView.vue';
@@ -72,6 +74,18 @@ export const routes: RouteRecordRaw[] = [
     name: 'tesoreria-cierre',
     component: TreasuryClosingView,
     meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
+  },
+  {
+    path: '/tesoreria/facturacion',
+    name: 'tesoreria-facturacion',
+    component: BillingGeneratorView,
+    meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
+  },
+  {
+    path: '/finanzas/solvencia',
+    name: 'finanzas-solvencia',
+    component: SolvencyCertificateView,
+    meta: { requiresActive: true },
   },
   {
     path: '/incidencias',

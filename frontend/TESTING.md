@@ -25,16 +25,16 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
   - Guardias de navegación para rutas públicas (`/login`, `/register`), ruta de contención fantasma (`/espera-aprobacion`) y rutas protegidas por rol (`meta.roles`).
 - `src/components/layout/*.unit.ts`:
   - `AppShellLayout.unit.ts` (contenedor fluido `container-type: inline-size` y `max-inline-size: 76rem`), `BottomNavBar.unit.ts` (adaptación `@media (pointer: coarse)`), `SidebarNav.unit.ts`, `AppFooter.unit.ts` y `StaleDataBanner.unit.ts`.
-- `src/stores/financeStore.unit.ts` y `src/components/finance/*.unit.ts` (Hito 6):
-  - `financeStore.unit.ts` (conversión USD/VES, cobertura de abono parcial vs pago total, catch no destructivo en resumen y pagos en revisión, y Candado Contable).
-  - `ClosingBanner.unit.ts`, `AnnouncementsCarousel.unit.ts`, `CollectionTrafficLight.unit.ts`, `ExpensesDonutChart.unit.ts` y `RejectPaymentModal.unit.ts`.
-- `src/views/auth/*.unit.ts` y `src/views/finance/*.unit.ts` (Hitos 5 y 6):
-  - `LoginView.unit.ts`, `RegisterView.unit.ts`, `PendingApprovalView.unit.ts`, `DashboardView.unit.ts`, `PaymentWizardView.unit.ts`, `TreasuryPaymentsView.unit.ts` y `TreasuryClosingView.unit.ts`.
-- `src/stores/operationsStore.unit.ts`, `src/components/operations/*.unit.ts`, `src/views/operations/*.unit.ts` y `src/views/admin/*.unit.ts` (Hito 7):
-  - `operationsStore.unit.ts` (estructura, activación de usuarios fantasma, cargos de junta, embudo de incidencias, checklist diario de conserjería, galería de voceros con límite de 30 fotos/mes, bitácora de secretaría y catch no destructivo).
+- `src/stores/financeStore.unit.ts` y `src/components/finance/*.unit.ts` (Hitos 6 y 10):
+  - `financeStore.unit.ts` (conversión USD/VES, cobertura de abono parcial vs pago total, catch no destructivo en resumen, pagos en revisión, fondos patrimoniales, facturación trimodal LPH, desglose de recibos, emisión/verificación de certificados de solvencia y Candado Contable).
+  - `ClosingBanner.unit.ts`, `AnnouncementsCarousel.unit.ts`, `CollectionTrafficLight.unit.ts`, `ExpensesDonutChart.unit.ts`, `RejectPaymentModal.unit.ts` y `ReceiptBreakdownModal.unit.ts`.
+- `src/views/auth/*.unit.ts` y `src/views/finance/*.unit.ts` (Hitos 5, 6 y 10):
+  - `LoginView.unit.ts`, `RegisterView.unit.ts`, `PendingApprovalView.unit.ts`, `DashboardView.unit.ts`, `PaymentWizardView.unit.ts`, `TreasuryPaymentsView.unit.ts`, `TreasuryClosingView.unit.ts`, `BillingGeneratorView.unit.ts` y `SolvencyCertificateView.unit.ts`.
+- `src/stores/operationsStore.unit.ts`, `src/components/operations/*.unit.ts`, `src/views/operations/*.unit.ts` y `src/views/admin/*.unit.ts` (Hitos 7 y 10):
+  - `operationsStore.unit.ts` (estructura, actualización de alícuota y cuota fija por unidad, activación de usuarios fantasma, cargos de junta, embudo de incidencias, checklist diario de conserjería, galería de voceros con límite de 30 fotos/mes, bitácora de secretaría y catch no destructivo).
   - `IncidentCard.unit.ts`, `TaskChecklistItem.unit.ts`, `IncidentsFeedView.unit.ts`, `OperationsTasksView.unit.ts`, `SpokespersonGalleryView.unit.ts`, `SecretaryLogbookView.unit.ts`, `AdminStructureView.unit.ts`, `AdminGhostUsersView.unit.ts` y `AdminBoardRolesView.unit.ts`.
 - `src/App.unit.ts`: Montaje del contenedor raíz.
-- **Total Certificado (Hitos 5, 6 y 7):** **27 componentes `.vue` auditados (0 huérfanos)**, **34 suites `.unit.ts` (70/70 tests aprobados)** con **99.80% líneas/sentencias, 97.88% funciones y 95.73% ramas**.
+- **Total Certificado (Hitos 5, 6, 7 y 10):** **30 componentes `.vue` auditados (0 huérfanos)**, **37 suites `.unit.ts` (75/75 tests aprobados)** con **99.84% líneas/sentencias, 98.26% funciones y 95.37% ramas**.
 
 ---
 

@@ -335,5 +335,30 @@ describe('operationsStore — Patrón No Destructivo, Incidencias, Conserjería,
     await expect(store.asignarCargoJunta({ usuario_id: 99, cargo: 'TESORERO' })).rejects.toThrow();
     await expect(store.completarTareaDiaria(99)).rejects.toThrow();
     await expect(store.completarTareaDiaria(99)).rejects.toThrow();
+
+    vi.spyOn(apiClient, 'put')
+      .mockResolvedValueOnce({
+        id: 1,
+        identificador: 'Apto 1-A',
+        estructura_id: 1,
+        alicuota: '25.0000',
+        cuota_fija_usd: '30.00',
+      })
+      .mockRejectedValueOnce(new ApiError(404, 'Unidad no existe'))
+      .mockRejectedValueOnce(new Error('Red alícuota'));
+
+    store.data.unidades = [{ id: 1, identificador: 'Apto 1-A', estructura_id: 1 }];
+    const uUpd = await store.actualizarAlicuotaUnidad(
+      1,
+      { alicuota: '25.0000', cuota_fija_usd: '30.00' },
+      'idemp-ali-1',
+    );
+    expect(uUpd.alicuota).toBe('25.0000');
+    await expect(
+      store.actualizarAlicuotaUnidad(999, { alicuota: '10.0000' }, 'idemp-ali-2'),
+    ).rejects.toThrow();
+    await expect(
+      store.actualizarAlicuotaUnidad(999, { alicuota: '10.0000' }, 'idemp-ali-3'),
+    ).rejects.toThrow();
   });
 });

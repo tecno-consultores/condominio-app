@@ -11,6 +11,14 @@ export interface UnidadDTO {
   id: number;
   identificador: string;
   estructura_id: number;
+  alicuota?: string;
+  cuota_fija_usd?: string | null;
+  credito_disponible_usd?: string;
+}
+
+export interface AlicuotaUpdateDTO {
+  alicuota: string;
+  cuota_fija_usd?: string | null;
 }
 
 export interface EstructuraGenerarRequestDTO {
@@ -452,6 +460,36 @@ export const useOperationsStore = defineStore('operations', () => {
     }
   }
 
+  async function actualizarAlicuotaUnidad(
+    unidadId: number,
+    payload: AlicuotaUpdateDTO,
+    idempotencyKey: string,
+  ): Promise<UnidadDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const updated = await apiClient.put<UnidadDTO>(
+        `/api/estructura/unidades/${unidadId}/alicuota`,
+        payload,
+        { idempotencyKey },
+      );
+      data.value = {
+        ...data.value,
+        unidades: data.value.unidades.map((u) => (u.id === unidadId ? updated : u)),
+      };
+      lastUpdatedAt.value = Date.now();
+      return updated;
+    } catch (error) {
+      errorMessage.value =
+        error instanceof ApiError
+          ? error.detail
+          : 'No se pudo actualizar la alícuota o cuota fija de la unidad.';
+      throw error;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   return {
     data,
     isLoading,
@@ -473,5 +511,6 @@ export const useOperationsStore = defineStore('operations', () => {
     subirFotoVocero,
     fetchBitacora,
     crearActaBitacora,
+    actualizarAlicuotaUnidad,
   };
 });

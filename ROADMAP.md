@@ -9,8 +9,9 @@
 
 - **Fase 1 (Backend FastAPI & Seguridad 11X):** **`[100% COMPLETADA]`** — Hitos 1, 2, 3, 3.5 y 4 completados y certificados.
 - **Fase 2 (Frontend Vue 3 Mobile-First Core):** **`[100% COMPLETADA]`** — **Hitos 5, 6 y 7 `[COMPLETADOS]`** y certificados.
-- **Fase 3 (Integración E2E, Accesibilidad y Caos Nivel 11X):** Parcial — Hito 9 **`[COMPLETADO]`**; Hito 8 pendiente de ejecución tras completar módulos de Fase 4.
-- **Fase 4 (Evolución PropTech, Ley de Propiedad Horizontal, Ayuda Contextual y Manuales — Specs 05..09):** **`[100% ESPECIFICADA — LISTA PARA IMPLEMENTACIÓN]`** — Hitos 10, 11, 12, 13 y 14 detallados con contratos de idempotencia, criptografía `HMAC-SHA256`, paridad Alembic, ayuda interactiva por pantalla y manuales Markdown exportables a PDF.
+- **Fase 3 (Resiliencia Extrema e Ingeniería del Caos Nivel 11X):** **`[100% COMPLETADA]`** — **Hito 9 `[COMPLETADO]`** (el **Hito 8** de Certificación E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI fue reubicado al cierre del Roadmap como **Fase 5** para certificar la totalidad de pantallas de las Fases 2 y 4).
+- **Fase 4 (Evolución PropTech, Ley de Propiedad Horizontal, Ayuda Contextual y Manuales — Specs 05..09):** **`[EN EJECUCIÓN — HITO 10 COMPLETADO]`** — **Hito 10 `[COMPLETADO]`**; **Hito 11** siguiente en espera de implementación (junto con Hitos 12, 13 y 14).
+- **Fase 5 (Certificación Integral E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI):** **`[PENDIENTE AL CIERRE DE FASE 4]`** — **Hito 8** ubicado al final para auditar todas las vistas del sistema.
 - **Leyenda:**
   - `[COMPLETADO]` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
   - `[PENDIENTE]` = Hito con especificación cerrada en `docs/specs/`, listo para implementación.
@@ -99,14 +100,7 @@
 
 ---
 
-## 🛡️ FASE 3: Integración E2E, Accesibilidad y Caos Nivel 11X
-
-### Hito 8: Certificación E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI `[PENDIENTE]`
-- **Especificación:** [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Secciones 3 y 8)
-- **Sub-tareas de Certificación:**
-  - [ ] **Sub-tarea 8.1 (Playwright E2E y Geometría Visual Anti-JSDOM):** Ejecutar suites `.e2e.ts` en Chromium headless validando flujos de negocio y verificando con `getBoundingClientRect()` en viewports móviles (`375x667`, `390x844`) que ningún botón primario, FAB o `AppFooter` quede oculto tras el `BottomNavBar`.
-  - [ ] **Sub-tarea 8.2 (Auditoría WCAG 2.1 AA y Regresión Visual):** Certificar **0 violaciones** `critical` o `serious` con `@axe-core/playwright` tanto en tema claro como en tema oscuro, y validar snapshots visuales (`maxDiffPixelRatio: 0.02`).
-  - [ ] **Sub-tarea 8.3 (Karate UI y Lighthouse CI):** Certificar `make qa-ui-bdd` (`frontend/test/ui_business_flow.feature`) y `make qa-lighthouse` (Performance $\ge 90\%$, Accessibility $\ge 95\%$, Best Practices $\ge 95\%$).
+## 🛡️ FASE 3: Resiliencia Extrema e Ingeniería del Caos Nivel 11X
 
 ### Hito 9: Ingeniería del Caos y Resiliencia Extrema `[COMPLETADO]`
 - **Especificación:** [`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md)
@@ -121,14 +115,14 @@
 
 > **Regla Rectora para Fase 4:** Cada hito de esta fase incluye tanto el Backend (migración Alembic en PostgreSQL 17, lógica de negocio idempotente y endpoints REST) como su paridad 1:1 en el Frontend Vue 3 Mobile-First (stores Pinia con Catch No Destructivo, vistas sin huérfanos `.unit.ts` y escenarios BDD en `backend/test/api_test.feature` y `frontend/test/ui_business_flow.feature`).
 
-### Hito 10: Mejoras Core, Motor de Alícuotas, Facturación Mensual LPH, Fondos y Solvencia Digital `[PENDIENTE — ESPECIFICADO]`
+### Hito 10: Mejoras Core, Motor de Alícuotas, Facturación Mensual LPH, Fondos y Solvencia Digital `[COMPLETADO]`
 - **Especificaciones:** [`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md), [`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`](./docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 10.1 (Mejoras de Seguridad Core — Magic Bytes, Revocación KeyDB y Anti-Fraude Referencias):** Implementar `validate_file_magic_bytes` en `backend/src/security.py`, lista de revocación instantánea `revoked_user:{id}` en `backend/src/redis_client.py` / `dependencies.py`, y bloqueo `HTTP 409 Conflict` ante reutilización de `(metodo, numero_referencia)` en `backend/src/routers/pagos.py`.
-  - [ ] **Sub-tarea 10.2 (Migración 0003 y Modelos de Alícuotas, Cuota Fija, Fondos, Desglose y Solvencia):** Extender `Unidad` (`alicuota`, `cuota_fija_usd`, `credito_disponible_usd`) y `Egreso` (`incidencia_id`, `es_gasto_comun`), crear modelos `FondoCondominio`, `ReciboItem` y `CertificadoSolvencia` en `backend/src/models.py`, y verificar migración `0003_hito10_alicuotas_solvencia.py` con `make -C backend qa-parity`.
-  - [ ] **Sub-tarea 10.3 (Facturación Trimodal: Alícuotas / Cuota Fija / Partes Iguales y Endpoints de Solvencia):** Implementar `prorratear_por_alicuotas` (Método del Resto Mayor / Hamilton), soporte para `modalidad = "CUOTA_FIJA"` (con conciliación automática de superávit/déficit hacia `FondoCondominio`) y `"PARTES_IGUALES"`, `aplicar_credito_disponible` en `backend/src/finanzas.py`, acreditación automática de sobrepagos en `PUT /api/pagos/{id}/aprobar`, y endpoints `PUT /api/estructura/unidades/{id}/alicuota`, `POST/GET /api/finanzas/fondos`, `POST /api/finanzas/facturar-periodo`, `GET /api/finanzas/recibos/{id}/desglose`, `POST /api/finanzas/solvencia/{unidad_id}` y `GET /api/finanzas/solvencia/verificar/{folio}`.
-  - [ ] **Sub-tarea 10.4 (Paridad GUI Vue 3 — Facturación y Certificado de Solvencia):** Extender `useFinanceStore` e implementar `BillingGeneratorView.vue` (`/tesoreria/facturacion`), `ReceiptBreakdownModal.vue` y `SolvencyCertificateView.vue` (`/finanzas/solvencia`), más edición de alícuotas en `AdminStructureView.vue`.
-  - [ ] **Sub-tarea 10.5 (Certificación QA 11X del Hito 10):** Pruebas unitarias en backend y frontend ($\ge 95\%$ cobertura, 0 huérfanos), paridad PostgreSQL 17, actualización del Grafo AST y escenarios BDD Karate Labs.
+  - [x] **Sub-tarea 10.1 (Mejoras de Seguridad Core — Magic Bytes, Revocación KeyDB y Anti-Fraude Referencias):** Implementado `validate_file_magic_bytes` en `backend/src/security.py`, lista de revocación instantánea `revoked_user:{id}` en `backend/src/redis_client.py` / `dependencies.py` / `auth.py`, y bloqueo `HTTP 409 Conflict` ante reutilización de `(metodo, numero_referencia)` en `backend/src/routers/pagos.py`.
+  - [x] **Sub-tarea 10.2 (Migración 0003 y Modelos de Alícuotas, Cuota Fija, Fondos, Desglose y Solvencia):** Extendidos `Unidad` (`alicuota`, `cuota_fija_usd`, `credito_disponible_usd`) y `Egreso` (`incidencia_id`, `es_gasto_comun`), creados modelos `FondoCondominio`, `ReciboItem` y `CertificadoSolvencia` en `backend/src/models.py`, y verificada migración `0003_hito10_alicuotas_solvencia.py` contra PostgreSQL 17 real (**20 tablas en paridad 1:1**).
+  - [x] **Sub-tarea 10.3 (Facturación Trimodal: Alícuotas / Cuota Fija / Partes Iguales y Endpoints de Solvencia):** Implementados `prorratear_por_alicuotas` (Método del Resto Mayor / Hamilton), soporte para `modalidad = "CUOTA_FIJA"` (con conciliación automática de superávit/déficit hacia `FondoCondominio`) y `"PARTES_IGUALES"`, `aplicar_credito_disponible`, `calcular_excedente_pago` y firma `HMAC-SHA256` en `backend/src/finanzas.py`, acreditación automática de sobrepagos en `PUT /api/pagos/{id}/aprobar`, y endpoints `PUT /api/estructura/unidades/{id}/alicuota`, `POST/GET /api/finanzas/fondos`, `POST /api/finanzas/facturar-periodo`, `GET /api/finanzas/recibos/{id}/desglose`, `POST /api/finanzas/solvencia/{unidad_id}` y `GET /api/finanzas/solvencia/verificar/{folio}`.
+  - [x] **Sub-tarea 10.4 (Paridad GUI Vue 3 — Facturación y Certificado de Solvencia):** Extendidos `useFinanceStore` y `useOperationsStore` con Catch No Destructivo, e implementados `BillingGeneratorView.vue` (`/tesoreria/facturacion`), `ReceiptBreakdownModal.vue`, `SolvencyCertificateView.vue` (`/finanzas/solvencia`) y edición de alícuota/cuota fija en `AdminStructureView.vue`.
+  - [x] **Sub-tarea 10.5 (Certificación QA 11X del Hito 10):** **182 pruebas unitarias en backend (`99.83%` cobertura)**, **37 suites / 75 pruebas unitarias en frontend (`99.84%` líneas/sentencias, `98.26%` funciones, `95.37%` ramas)**, **0 componentes huérfanos (`30/30` `.vue`)**, paridad PostgreSQL 17 (`20` tablas), actualización del Grafo AST y escenarios BDD Karate Labs (`backend/test/api_test.feature` y `frontend/test/ui_business_flow.feature`).
 
 ### Hito 11: Gobernanza Digital, Cartas Consulta (Art. 23 LPH) y Asambleas con Voto Criptográfico `[PENDIENTE — ESPECIFICADO]`
 - **Especificación:** [`docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md`](./docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)
@@ -161,3 +155,15 @@
   - [ ] **Sub-tarea 14.3 (Manual Editable de Administrador e Instalador en Markdown):** Crear `docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md` (instalación con Docker, configuración de estructura, alícuotas y cuotas fijas, activación de Usuarios Fantasma, junta, tesorería, candado contable, cartas consulta, garita QR e instrucciones para exportar a PDF).
   - [ ] **Sub-tarea 14.4 (Manual Editable de Usuario Residente en Markdown):** Crear `docs/MANUAL_USUARIO_RESIDENTE.md` (registro, lectura del dashboard y recibos, reporte de pagos en Bs/USD, incidencias "¡Me sumo!", votación en cartas consulta, pases QR de visitas, paquetería, reservas y certificado de solvencia, listo para personalizar y convertir en PDF para enviar a los vecinos).
   - [ ] **Sub-tarea 14.5 (Certificación QA 11X del Hito 14):** Pruebas unitarias en Vitest ($\ge 95\%$), `make -C frontend qa-orphans`, actualización del Grafo AST y escenarios BDD UI en `frontend/test/ui_business_flow.feature`.
+
+---
+
+## 🏆 FASE 5: Certificación Integral E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI
+
+### Hito 8: Certificación E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Cobertura Total Fases 1..4) `[PENDIENTE]`
+- **Especificación:** [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Secciones 3 y 8)
+- **Nota de Gobernanza:** Reubicado al cierre del Roadmap para auditar simultáneamente la totalidad de las vistas de identidad, finanzas, facturación LPH, solvencia, operaciones, gobernanza, accesos QR, reservas y ayuda contextual.
+- **Sub-tareas de Certificación:**
+  - [ ] **Sub-tarea 8.1 (Playwright E2E y Geometría Visual Anti-JSDOM):** Ejecutar suites `.e2e.ts` en Chromium headless validando flujos de negocio de los Hitos 5 al 14 y verificando con `getBoundingClientRect()` en viewports móviles (`375x667`, `390x844`) que ningún botón primario, FAB o `AppFooter` quede oculto tras el `BottomNavBar`.
+  - [ ] **Sub-tarea 8.2 (Auditoría WCAG 2.1 AA y Regresión Visual):** Certificar **0 violaciones** `critical` o `serious` con `@axe-core/playwright` tanto en tema claro como en tema oscuro, y validar snapshots visuales (`maxDiffPixelRatio: 0.02`).
+  - [ ] **Sub-tarea 8.3 (Karate UI y Lighthouse CI):** Certificar `make qa-ui-bdd` (`frontend/test/ui_business_flow.feature`) y `make qa-lighthouse` (Performance $\ge 90\%$, Accessibility $\ge 95\%$, Best Practices $\ge 95\%$).

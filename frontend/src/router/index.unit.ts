@@ -91,6 +91,10 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     });
     await router.push('/tesoreria/pagos');
     expect(router.currentRoute.value.path).toBe('/tesoreria/pagos');
+    await router.push('/tesoreria/facturacion');
+    expect(router.currentRoute.value.path).toBe('/tesoreria/facturacion');
+    await router.push('/finanzas/solvencia');
+    expect(router.currentRoute.value.path).toBe('/finanzas/solvencia');
     await router.push('/tesoreria/cierre');
     expect(router.currentRoute.value.path).toBe('/tesoreria/cierre');
     await router.push('/incidencias');

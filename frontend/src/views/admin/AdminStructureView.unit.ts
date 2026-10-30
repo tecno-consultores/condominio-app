@@ -68,4 +68,54 @@ describe('AdminStructureView.vue — Generador de Estructura Física', () => {
     await flushPromises();
     expect(wrapper.find('#estructura-success-banner').exists()).toBe(false);
   });
+
+  it('valida y actualiza la alícuota y cuota fija de una unidad', async () => {
+    const store = useOperationsStore();
+    store.data.unidades = [
+      {
+        id: 1,
+        identificador: 'Apto 1-A',
+        estructura_id: 1,
+        alicuota: '10.0000',
+        cuota_fija_usd: null,
+      },
+    ];
+    vi.spyOn(store, 'fetchAdminData').mockResolvedValue();
+    const alicuotaSpy = vi.spyOn(store, 'actualizarAlicuotaUnidad').mockResolvedValue({
+      id: 1,
+      identificador: 'Apto 1-A',
+      estructura_id: 1,
+      alicuota: '25.0000',
+      cuota_fija_usd: '30.00',
+    });
+
+    const wrapper = mount(AdminStructureView);
+    await flushPromises();
+
+    await wrapper.find('#select-alicuota-unidad').setValue('1');
+    await wrapper.find('#input-alicuota-valor').setValue('150');
+    await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
+    expect(wrapper.find('#estructura-validation-error').text()).toContain('alícuota');
+
+    await wrapper.find('#input-alicuota-valor').setValue('25.0000');
+    await wrapper.find('#input-cuota-fija-unidad').setValue('30.00');
+    await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
+    await flushPromises();
+    expect(alicuotaSpy).toHaveBeenCalledOnce();
+    expect(wrapper.find('#estructura-success-banner').text()).toContain('Apto 1-A');
+
+    // Actualización con cuota fija vacía y manejo de error de red
+    alicuotaSpy.mockResolvedValueOnce({
+      id: 1,
+      identificador: 'Apto 1-A',
+      estructura_id: 1,
+    });
+    await wrapper.find('#input-cuota-fija-unidad').setValue('');
+    await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
+    await flushPromises();
+
+    alicuotaSpy.mockRejectedValueOnce(new Error('Fallo red'));
+    await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
+    await flushPromises();
+  });
 });

@@ -5,7 +5,10 @@ import { apiClient, ApiError } from '../services/apiClient';
 export type MonedaPago = 'USD' | 'VES';
 export type MetodoPago = 'PAGO_MOVIL' | 'TRANSFERENCIA' | 'ZELLE' | 'EFECTIVO';
 export type EstadoPago = 'EN_REVISION' | 'APROBADO' | 'RECHAZADO';
-export type EstadoRecibo = 'PENDIENTE' | 'ABONO_PARCIAL' | 'SOLVENTE' | 'MOROSO';
+export type EstadoRecibo =
+  'PENDIENTE' | 'ABONO_PARCIAL' | 'SOLVENTE' | 'MOROSO' | 'PAGADO' | 'PAGADO_PARCIAL';
+export type ModalidadFacturacion = 'ALICUOTA' | 'CUOTA_FIJA' | 'PARTES_IGUALES';
+export type TipoFondoCondominio = 'RESERVA_LEGAL' | 'CAJA_CHICA' | 'ESPECIAL';
 
 export interface TasaCambioDTO {
   id: number;
@@ -14,8 +17,10 @@ export interface TasaCambioDTO {
 }
 
 export interface EstadoCobranzaItemDTO {
+  recibo_id?: number;
   unidad_id: number;
   periodo: string;
+  monto_usd?: string;
   estado: EstadoRecibo;
   saldo_usd: string;
 }
@@ -71,12 +76,101 @@ export interface CierreMensualDTO {
   estado: 'PRELIMINAR' | 'CERRADO';
 }
 
+export interface FondoCondominioDTO {
+  id: number;
+  nombre: string;
+  tipo: TipoFondoCondominio;
+  porcentaje_recargo: string;
+  saldo_actual_usd: string;
+  es_activo: boolean;
+}
+
+export interface FondoCondominioCreateDTO {
+  nombre: string;
+  tipo: TipoFondoCondominio;
+  porcentaje_recargo: string;
+}
+
+export interface FacturarPeriodoRequestDTO {
+  periodo: string;
+  modalidad: ModalidadFacturacion;
+  monto_cuota_fija_usd?: string | null;
+  incluir_fondo_reserva?: boolean;
+  cuota_extraordinaria_total_usd?: string;
+  descripcion_cuota_extraordinaria?: string | null;
+}
+
+export interface FacturarPeriodoResponseDTO {
+  periodo: string;
+  modalidad: ModalidadFacturacion;
+  recibos_emitidos: number;
+  total_egresos_comunes_usd: string;
+  recargo_fondo_reserva_usd: string;
+  cuota_extraordinaria_total_usd: string;
+  total_facturado_bruto_usd: string;
+  total_credito_descontado_usd: string;
+  total_facturado_neto_usd: string;
+  superavit_conciliado_fondo_usd: string;
+}
+
+export interface ReciboItemDTO {
+  id: number;
+  recibo_id: number;
+  tipo_item: string;
+  descripcion: string;
+  monto_usd: string;
+}
+
+export interface ReciboDesgloseDTO {
+  recibo_id: number;
+  unidad_id: number;
+  identificador_unidad: string;
+  alicuota_aplicada: string;
+  periodo: string;
+  monto_usd: string;
+  monto_pagado_usd: string;
+  saldo_pendiente_usd: string;
+  credito_descontado_usd: string;
+  estado: string;
+  bloqueado: boolean;
+  items: ReciboItemDTO[];
+}
+
+export interface CertificadoSolvenciaDTO {
+  id: number;
+  folio: string;
+  unidad_id: number;
+  identificador_unidad: string;
+  emitido_por_id: number;
+  fecha_emision: string;
+  fecha_vencimiento: string;
+  deuda_verificada_usd: string;
+  firma_hmac: string;
+  qr_token: string;
+}
+
+export interface VerificarSolvenciaDTO {
+  valido: boolean;
+  folio: string;
+  unidad_id: number;
+  identificador_unidad: string;
+  fecha_vencimiento: string;
+  vigente: boolean;
+  deuda_verificada_usd: string;
+  firma_hmac: string;
+}
+
 export interface FinanceStateData {
   tasaActiva: TasaCambioDTO | null;
   resumen: ResumenFinancieroDTO | null;
   pagosEnRevision: PagoDTO[];
   comunicados: ComunicadoDTO[];
   ultimoCierre: CierreMensualDTO | null;
+  fondos: FondoCondominioDTO[];
+  ultimaFacturacion: FacturarPeriodoResponseDTO | null;
+  desgloseActivo: ReciboDesgloseDTO | null;
+  certificadoSolvenciaActivo: CertificadoSolvenciaDTO | null;
+  verificacionSolvencia: VerificarSolvenciaDTO | null;
 }
 
 export function convertUsdToVes(usdAmount: string | number, rateUsdVes: string | number): string {
@@ -123,6 +217,11 @@ export const useFinanceStore = defineStore('finance', () => {
     pagosEnRevision: [],
     comunicados: [],
     ultimoCierre: null,
+    fondos: [],
+    ultimaFacturacion: null,
+    desgloseActivo: null,
+    certificadoSolvenciaActivo: null,
+    verificacionSolvencia: null,
   });
 
   const isLoading = ref(false);
@@ -320,6 +419,165 @@ export const useFinanceStore = defineStore('finance', () => {
     }
   }
 
+  async function fetchFondos(): Promise<void> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const fondos = await apiClient.get<FondoCondominioDTO[]>('/api/finanzas/fondos');
+      data.value = {
+        ...data.value,
+        fondos,
+      };
+      isStale.value = false;
+      lastUpdatedAt.value = Date.now();
+    } catch (error) {
+      isStale.value = true;
+      errorMessage.value =
+        error instanceof ApiError
+          ? error.detail
+          : 'No se pudieron sincronizar los fondos patrimoniales. Mostrando datos en caché.';
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function crearFondo(
+    payload: FondoCondominioCreateDTO,
+    idempotencyKey: string,
+  ): Promise<FondoCondominioDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const created = await apiClient.post<FondoCondominioDTO>('/api/finanzas/fondos', payload, {
+        idempotencyKey,
+      });
+      data.value = {
+        ...data.value,
+        fondos: [...data.value.fondos, created],
+      };
+      lastUpdatedAt.value = Date.now();
+      return created;
+    } catch (error) {
+      errorMessage.value =
+        error instanceof ApiError ? error.detail : 'No se pudo crear el fondo patrimonial.';
+      throw error;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function facturarPeriodo(
+    payload: FacturarPeriodoRequestDTO,
+    idempotencyKey: string,
+  ): Promise<FacturarPeriodoResponseDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const res = await apiClient.post<FacturarPeriodoResponseDTO>(
+        '/api/finanzas/facturar-periodo',
+        payload,
+        { idempotencyKey },
+      );
+      data.value = {
+        ...data.value,
+        ultimaFacturacion: res,
+      };
+      lastUpdatedAt.value = Date.now();
+      return res;
+    } catch (error) {
+      errorMessage.value =
+        error instanceof ApiError
+          ? error.detail
+          : 'No se pudo emitir la facturación del periodo seleccionado.';
+      throw error;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function fetchReciboDesglose(reciboId: number): Promise<ReciboDesgloseDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const desglose = await apiClient.get<ReciboDesgloseDTO>(
+        `/api/finanzas/recibos/${reciboId}/desglose`,
+      );
+      data.value = {
+        ...data.value,
+        desgloseActivo: desglose,
+      };
+      isStale.value = false;
+      lastUpdatedAt.value = Date.now();
+      return desglose;
+    } catch (error) {
+      isStale.value = true;
+      errorMessage.value =
+        error instanceof ApiError
+          ? error.detail
+          : 'No se pudo consultar el desglose del recibo seleccionado.';
+      throw error;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function emitirCertificadoSolvencia(
+    unidadId: number,
+    idempotencyKey: string,
+  ): Promise<CertificadoSolvenciaDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const cert = await apiClient.post<CertificadoSolvenciaDTO>(
+        `/api/finanzas/solvencia/${unidadId}`,
+        {},
+        { idempotencyKey },
+      );
+      data.value = {
+        ...data.value,
+        certificadoSolvenciaActivo: cert,
+      };
+      lastUpdatedAt.value = Date.now();
+      return cert;
+    } catch (error) {
+      errorMessage.value =
+        error instanceof ApiError
+          ? error.detail
+          : 'No se pudo emitir el Certificado de Solvencia para la unidad indicada.';
+      throw error;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function verificarCertificadoSolvencia(
+    folio: string,
+    sig: string,
+  ): Promise<VerificarSolvenciaDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const path = `/api/finanzas/solvencia/verificar/${encodeURIComponent(folio.trim())}?sig=${encodeURIComponent(sig.trim())}`;
+      const res = await apiClient.get<VerificarSolvenciaDTO>(path);
+      data.value = {
+        ...data.value,
+        verificacionSolvencia: res,
+      };
+      isStale.value = false;
+      lastUpdatedAt.value = Date.now();
+      return res;
+    } catch (error) {
+      isStale.value = true;
+      errorMessage.value =
+        error instanceof ApiError
+          ? error.detail
+          : 'No se pudo verificar el Certificado de Solvencia.';
+      throw error;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   return {
     data,
     isLoading,
@@ -336,6 +594,12 @@ export const useFinanceStore = defineStore('finance', () => {
     aprobarPago,
     rechazarPago,
     ejecutarCierreMensual,
+    fetchFondos,
+    crearFondo,
+    facturarPeriodo,
+    fetchReciboDesglose,
+    emitirCertificadoSolvencia,
+    verificarCertificadoSolvencia,
   };
 });
 

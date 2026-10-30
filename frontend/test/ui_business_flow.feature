@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
 
-Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones y Administración (Hitos 5, 6 y 7)
+Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración y Facturación LPH (Hitos 5, 6, 7 y 10)
 
   Background:
     * configure driver = { type: 'chrome', headless: true, addOptions: ['--no-sandbox', '--disable-dev-shm-usage'] }
@@ -55,4 +55,10 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones y 
     Given driver baseUrl + '/admin/usuarios'
     Then waitFor('#login-form')
     Given driver baseUrl + '/admin/junta'
+    Then waitFor('#login-form')
+
+  Scenario: 5. Redirección automática de rutas protegidas de Hito 10 (/tesoreria/facturacion y /finanzas/solvencia) hacia /login sin sesión autenticada
+    Given driver baseUrl + '/tesoreria/facturacion'
+    Then waitFor('#login-form')
+    Given driver baseUrl + '/finanzas/solvencia'
     Then waitFor('#login-form')

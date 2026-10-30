@@ -284,4 +284,144 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
     vi.spyOn(apiClient, 'post').mockRejectedValueOnce(new Error('Timeout cierre'));
     await expect(store.ejecutarCierreMensual('2026-11')).rejects.toThrow('Timeout cierre');
   });
+
+  it('gestiona fondos patrimoniales, facturación mensual LPH, desglose de recibos y certificados de solvencia (Hito 10)', async () => {
+    const store = useFinanceStore();
+
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          nombre: 'Fondo de Reserva Legal',
+          tipo: 'RESERVA_LEGAL',
+          porcentaje_recargo: '10.00',
+          saldo_actual_usd: '150.00',
+          es_activo: true,
+        },
+      ])
+      .mockResolvedValueOnce({
+        recibo_id: 7,
+        unidad_id: 1,
+        identificador_unidad: 'Apto 1-A',
+        alicuota_aplicada: '25.0000',
+        periodo: '2026-10',
+        monto_usd: '25.00',
+        monto_pagado_usd: '0.00',
+        saldo_pendiente_usd: '25.00',
+        credito_descontado_usd: '0.00',
+        estado: 'PENDIENTE',
+        bloqueado: false,
+        items: [],
+      })
+      .mockResolvedValueOnce({
+        valido: true,
+        folio: 'SOLV-202610-0001-ABCD',
+        unidad_id: 1,
+        identificador_unidad: 'Apto 1-A',
+        fecha_vencimiento: '2026-10-31',
+        vigente: true,
+        deuda_verificada_usd: '0.00',
+        firma_hmac: 'sig123',
+      });
+
+    await store.fetchFondos();
+    expect(store.data.fondos).toHaveLength(1);
+
+    const desglose = await store.fetchReciboDesglose(7);
+    expect(desglose.identificador_unidad).toBe('Apto 1-A');
+
+    const verif = await store.verificarCertificadoSolvencia('SOLV-202610-0001-ABCD', 'sig123');
+    expect(verif.valido).toBe(true);
+
+    vi.spyOn(apiClient, 'post')
+      .mockResolvedValueOnce({
+        id: 2,
+        nombre: 'Caja Chica',
+        tipo: 'CAJA_CHICA',
+        porcentaje_recargo: '5.00',
+        saldo_actual_usd: '0.00',
+        es_activo: true,
+      })
+      .mockResolvedValueOnce({
+        periodo: '2026-10',
+        modalidad: 'ALICUOTA',
+        recibos_emitidos: 4,
+        total_egresos_comunes_usd: '100.00',
+        recargo_fondo_reserva_usd: '10.00',
+        cuota_extraordinaria_total_usd: '0.00',
+        total_facturado_bruto_usd: '110.00',
+        total_credito_descontado_usd: '0.00',
+        total_facturado_neto_usd: '110.00',
+        superavit_conciliado_fondo_usd: '0.00',
+      })
+      .mockResolvedValueOnce({
+        id: 1,
+        folio: 'SOLV-202610-0001-ABCD',
+        unidad_id: 1,
+        identificador_unidad: 'Apto 1-A',
+        emitido_por_id: 1,
+        fecha_emision: '2026-10-30T10:00:00Z',
+        fecha_vencimiento: '2026-10-31',
+        deuda_verificada_usd: '0.00',
+        firma_hmac: 'sig123',
+        qr_token: 'payload.sig123',
+      });
+
+    await store.crearFondo(
+      { nombre: 'Caja Chica', tipo: 'CAJA_CHICA', porcentaje_recargo: '5.00' },
+      'idemp-f-1',
+    );
+    expect(store.data.fondos).toHaveLength(2);
+
+    const fact = await store.facturarPeriodo(
+      { periodo: '2026-10', modalidad: 'ALICUOTA' },
+      'idemp-fact-1',
+    );
+    expect(fact.recibos_emitidos).toBe(4);
+
+    const cert = await store.emitirCertificadoSolvencia(1, 'idemp-solv-1');
+    expect(cert.folio).toBe('SOLV-202610-0001-ABCD');
+
+    // Fallos de red y ApiError en Hito 10 (Catch No Destructivo)
+    vi.spyOn(apiClient, 'get')
+      .mockRejectedValueOnce(new Error('Err fondos'))
+      .mockRejectedValueOnce(new ApiError(500, 'Err fondos api'))
+      .mockRejectedValueOnce(new Error('Err desglose'))
+      .mockRejectedValueOnce(new ApiError(404, 'Recibo no existe'))
+      .mockRejectedValueOnce(new Error('Err verif'))
+      .mockRejectedValueOnce(new ApiError(400, 'Firma inválida'));
+
+    await store.fetchFondos();
+    await store.fetchFondos();
+    expect(store.data.fondos).toHaveLength(2);
+    expect(store.isStale).toBe(true);
+
+    await expect(store.fetchReciboDesglose(999)).rejects.toThrow();
+    await expect(store.fetchReciboDesglose(999)).rejects.toThrow();
+    await expect(store.verificarCertificadoSolvencia('X', 'Y')).rejects.toThrow();
+    await expect(store.verificarCertificadoSolvencia('X', 'Y')).rejects.toThrow();
+
+    vi.spyOn(apiClient, 'post')
+      .mockRejectedValueOnce(new ApiError(409, 'Fondo duplicado'))
+      .mockRejectedValueOnce(new Error('Red fondo'))
+      .mockRejectedValueOnce(new ApiError(409, 'Ya facturado'))
+      .mockRejectedValueOnce(new Error('Red facturar'))
+      .mockRejectedValueOnce(new ApiError(409, 'Deuda pendiente'))
+      .mockRejectedValueOnce(new Error('Red solvencia'));
+
+    await expect(
+      store.crearFondo({ nombre: 'X', tipo: 'ESPECIAL', porcentaje_recargo: '0' }, 'k1'),
+    ).rejects.toThrow();
+    await expect(
+      store.crearFondo({ nombre: 'X', tipo: 'ESPECIAL', porcentaje_recargo: '0' }, 'k2'),
+    ).rejects.toThrow();
+    await expect(
+      store.facturarPeriodo({ periodo: '2026-10', modalidad: 'ALICUOTA' }, 'k3'),
+    ).rejects.toThrow();
+    await expect(
+      store.facturarPeriodo({ periodo: '2026-10', modalidad: 'ALICUOTA' }, 'k4'),
+    ).rejects.toThrow();
+    await expect(store.emitirCertificadoSolvencia(1, 'k5')).rejects.toThrow();
+    await expect(store.emitirCertificadoSolvencia(1, 'k6')).rejects.toThrow();
+  });
 });

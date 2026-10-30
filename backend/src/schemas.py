@@ -1,9 +1,10 @@
 from datetime import date as date_type
+from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import email_validator
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 def _validar_correo(valor: str) -> str:
@@ -134,6 +135,8 @@ class EgresoCreate(BaseModel):
     monto: Decimal = Field(gt=0)
     moneda: Moneda
     url_factura: UrlEvidenciaSegura | None = None
+    incidencia_id: int | None = Field(default=None, strict=True)
+    es_gasto_comun: bool = True
 
 
 class CierreMensualRequest(BaseModel):
@@ -172,6 +175,32 @@ class UnidadResponse(BaseModel):
     id: int
     identificador: str
     estructura_id: int
+    alicuota: Decimal = Decimal("0.0000")
+    cuota_fija_usd: Decimal | None = None
+    credito_disponible_usd: Decimal = Decimal("0.00")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalizar_nulos_en_memoria(cls, data: Any) -> Any:
+        if hasattr(data, "identificador") and not isinstance(data, dict):
+            alicuota_raw = getattr(data, "alicuota", None)
+            credito_raw = getattr(data, "credito_disponible_usd", None)
+            return {
+                "id": getattr(data, "id", 0),
+                "identificador": getattr(data, "identificador", ""),
+                "estructura_id": getattr(data, "estructura_id", 1),
+                "alicuota": Decimal("0.0000") if alicuota_raw is None else alicuota_raw,
+                "cuota_fija_usd": getattr(data, "cuota_fija_usd", None),
+                "credito_disponible_usd": Decimal("0.00") if credito_raw is None else credito_raw,
+            }
+        return data
+
+
+class AlicuotaUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alicuota: Decimal = Field(..., ge=Decimal("0.0000"), le=Decimal("100.0000"))
+    cuota_fija_usd: Decimal | None = Field(default=None, ge=Decimal("0.00"))
 
 
 class EstructuraGenerarResponse(BaseModel):
@@ -326,3 +355,109 @@ class ComunicadoResponse(BaseModel):
     contenido: str
     enlace_externo: str | None
     activo: bool
+
+
+TipoFondoCondominio = Literal["RESERVA_LEGAL", "CAJA_CHICA", "ESPECIAL"]
+ModalidadFacturacion = Literal["ALICUOTA", "CUOTA_FIJA", "PARTES_IGUALES"]
+TipoReciboItem = Literal[
+    "CUOTA_FIJA",
+    "GASTO_COMUN",
+    "FONDO_RESERVA",
+    "CUOTA_EXTRAORDINARIA",
+    "CARGO_INDIVIDUAL",
+    "ABONO_CREDITO_PREVIO",
+]
+
+
+class FondoCondominioCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: str = Field(..., min_length=3, max_length=100)
+    tipo: TipoFondoCondominio = "RESERVA_LEGAL"
+    porcentaje_recargo: Decimal = Field(default=Decimal("10.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
+
+
+class FondoCondominioResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    tipo: str
+    porcentaje_recargo: Decimal
+    saldo_actual_usd: Decimal
+    es_activo: bool
+
+
+class FacturarPeriodoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    periodo: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    modalidad: ModalidadFacturacion = "ALICUOTA"
+    monto_cuota_fija_usd: Decimal | None = Field(default=None, gt=Decimal("0.00"))
+    incluir_fondo_reserva: bool = True
+    cuota_extraordinaria_total_usd: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
+    descripcion_cuota_extraordinaria: str | None = Field(default=None, max_length=200)
+
+
+class ReciboItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    recibo_id: int
+    tipo_item: str
+    descripcion: str
+    monto_usd: Decimal
+
+
+class ReciboDesgloseResponse(BaseModel):
+    recibo_id: int
+    unidad_id: int
+    identificador_unidad: str
+    alicuota_aplicada: Decimal
+    periodo: str
+    monto_usd: Decimal
+    monto_pagado_usd: Decimal
+    saldo_pendiente_usd: Decimal
+    credito_descontado_usd: Decimal
+    estado: str
+    bloqueado: bool
+    items: list[ReciboItemResponse]
+
+
+class FacturarPeriodoResponse(BaseModel):
+    periodo: str
+    modalidad: str
+    recibos_emitidos: int
+    total_egresos_comunes_usd: Decimal
+    recargo_fondo_reserva_usd: Decimal
+    cuota_extraordinaria_total_usd: Decimal
+    total_facturado_bruto_usd: Decimal
+    total_credito_descontado_usd: Decimal
+    total_facturado_neto_usd: Decimal
+    superavit_conciliado_fondo_usd: Decimal
+
+
+class CertificadoSolvenciaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    folio: str
+    unidad_id: int
+    identificador_unidad: str
+    emitido_por_id: int
+    fecha_emision: datetime
+    fecha_vencimiento: date_type
+    deuda_verificada_usd: Decimal
+    firma_hmac: str
+    qr_token: str
+
+
+class VerificarSolvenciaResponse(BaseModel):
+    valido: bool
+    folio: str
+    unidad_id: int
+    identificador_unidad: str
+    fecha_vencimiento: date_type
+    vigente: bool
+    deuda_verificada_usd: Decimal
+    firma_hmac: str

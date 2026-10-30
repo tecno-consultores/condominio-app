@@ -30,7 +30,7 @@ qa-unit:
 qa-parity:
 	@echo "🗄️ Verificando Paridad ORM vs Migraciones Alembic y Motor Real PostgreSQL 17..."
 	python3 ../.agents/scripts/verify_alembic_orm_parity.py
-	docker compose -f $(COMPOSE_FILE) up -d postgres
+	docker compose -f $(COMPOSE_FILE) up -d --wait postgres
 	docker compose -f $(COMPOSE_FILE) run --rm -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
 
 qa-bdd:

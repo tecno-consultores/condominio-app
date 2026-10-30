@@ -33,6 +33,11 @@ class Unidad(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     identificador: Mapped[str] = mapped_column(String, unique=True, index=True)
     estructura_id: Mapped[int] = mapped_column(ForeignKey("estructuras.id"))
+    alicuota: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("0.0000"), server_default="0.0000")
+    cuota_fija_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True, default=None)
+    credito_disponible_usd: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), default=Decimal("0.00"), server_default="0.00"
+    )
 
 
 class ContratoOcupacion(Base):
@@ -101,6 +106,8 @@ class Egreso(Base):
     monto_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     tasa_cambio: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     url_factura: Mapped[str | None] = mapped_column(String, nullable=True)
+    incidencia_id: Mapped[int | None] = mapped_column(ForeignKey("incidencias.id"), nullable=True, default=None)
+    es_gasto_comun: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     bloqueado: Mapped[bool] = mapped_column(Boolean, default=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -221,3 +228,42 @@ class Comunicado(Base):
     enlace_externo: Mapped[str | None] = mapped_column(String, nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FondoCondominio(Base):
+    """Fondo patrimonial del condominio (Reserva Legal, Caja Chica o Especial) — Hito 10."""
+
+    __tablename__ = "fondos_condominio"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    nombre: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    tipo: Mapped[str] = mapped_column(String(30), default="RESERVA_LEGAL")
+    porcentaje_recargo: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("10.00"))
+    saldo_actual_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    es_activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReciboItem(Base):
+    """Línea de desglose contable dentro de un Recibo emitido — Hito 10."""
+
+    __tablename__ = "recibos_items"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    recibo_id: Mapped[int] = mapped_column(ForeignKey("recibos.id", ondelete="CASCADE"), index=True)
+    tipo_item: Mapped[str] = mapped_column(String(30))
+    descripcion: Mapped[str] = mapped_column(String(255))
+    monto_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CertificadoSolvencia(Base):
+    """Certificado digital de solvencia de condominio firmado con HMAC-SHA256 — Hito 10."""
+
+    __tablename__ = "certificados_solvencia"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    folio: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True)
+    emitido_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    fecha_emision: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    fecha_vencimiento: Mapped[date_type] = mapped_column(Date, nullable=False)
+    deuda_verificada_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    firma_hmac: Mapped[str] = mapped_column(String(64), nullable=False)

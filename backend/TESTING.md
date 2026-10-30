@@ -60,13 +60,17 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
   - `src/routers/administracion.py`: generación idempotente de estructura/unidades (`POST /api/estructura/generar`), listado de unidades (`GET /api/estructura/unidades`), listado de Usuarios Fantasma (`GET /api/usuarios/pendientes`), activación/asignación de unidad (`PUT /api/usuarios/{id}/asignar`) y designación de cargos de Junta (`PUT /api/junta/cargos` validando contrato activo de `PROPIETARIO`).
   - `src/routers/incidencias.py`: listado de incidencias abiertas por prioridad (`GET /api/incidencias/abiertas`), creación idempotente (`POST /api/incidencias/crear`) y adhesión única por vecino (`POST /api/incidencias/{id}/adherir`).
   - `src/routers/operaciones.py`: plantillas y tareas del conserje con cierre automático de incidencia vinculada (`PUT /api/tareas/{id}/completar`), galería de voceros con límite estricto de 30 fotos/mes (`POST /api/voceros/fotos` devolviendo `429 Too Many Requests`), bitácora del secretario (`POST /api/bitacora/acta`, `GET /api/bitacora/historial`) y comunicados con validación Anti-SSRF (`POST /api/comunicados`, `GET /api/comunicados/recientes`).
+- `tests/test_hito10_alicuotas_solvencia.unit.py`:
+  - `src/security.py` y `src/redis_client.py`: validación binaria de Magic Bytes (`validate_file_magic_bytes` para PDF, PNG, JPEG, WEBP y AVIF devolviendo `415`) y revocación instantánea de sesiones en KeyDB (`revoke_user_session`, `is_user_session_revoked`, `clear_user_session_revocation`) verificada en `get_current_user` y `GET /api/auth/me`.
+  - `src/routers/pagos.py`: bloqueo `HTTP 409 Conflict` ante reutilización de `(metodo, numero_referencia)` en pagos bancarios no rechazados y acreditación automática de sobrepagos en `Unidad.credito_disponible_usd`.
+  - `src/routers/administracion.py` y `src/routers/finanzas.py`: actualización idempotente de alícuota y cuota fija (`PUT /api/estructura/unidades/{id}/alicuota`), fondos patrimoniales (`POST/GET /api/finanzas/fondos`), facturación mensual trimodal (`POST /api/finanzas/facturar-periodo` en modalidades `ALICUOTA`, `CUOTA_FIJA` con conciliación a fondo y `PARTES_IGUALES`), desglose de recibo (`GET /api/finanzas/recibos/{id}/desglose`) y emisión/verificación criptográfica `HMAC-SHA256` de certificados de solvencia (`POST /api/finanzas/solvencia/{unidad_id}`, `GET /api/finanzas/solvencia/verificar/{folio}`).
 
 ---
 
 ## 2. Pruebas BDD, Paridad PostgreSQL 17, Caos y Resiliencia
 
-- `test/api_test.feature`: 7 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
-- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
+- `test/api_test.feature`: 13 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
+- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 20 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
 - `tests/locustfile.py`: Perfil de carga concurrente y saturación para inyección de caos y estrés con Pumba + Locust + Prometheus.
 
 ---
