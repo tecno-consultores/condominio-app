@@ -8,6 +8,8 @@ venv/
 .venv/
 __pycache__/
 *.py[cod]
+*.sqlite3
+*.db
 .Python
 build/
 dist/

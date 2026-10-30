@@ -8,8 +8,9 @@
 ## 📊 Estado General del Proyecto
 
 - **Fase 1 (Backend FastAPI & Seguridad 11X):** **`[100% COMPLETADA]`** — Hitos 1, 2, 3, 3.5 y 4 completados y certificados.
-- **Fase 2 (Frontend Vue 3 Mobile-First):** **`[100% COMPLETADA]`** — **Hitos 5, 6 y 7 `[COMPLETADOS]`** y certificados.
-- **Fase 3 (Integración E2E, Accesibilidad y Caos Nivel 11X):** Parcial — Hito 9 **`[COMPLETADO]`**; Hito 8 pendiente tras Fase 2.
+- **Fase 2 (Frontend Vue 3 Mobile-First Core):** **`[100% COMPLETADA]`** — **Hitos 5, 6 y 7 `[COMPLETADOS]`** y certificados.
+- **Fase 3 (Integración E2E, Accesibilidad y Caos Nivel 11X):** Parcial — Hito 9 **`[COMPLETADO]`**; Hito 8 pendiente de ejecución tras completar módulos de Fase 4.
+- **Fase 4 (Evolución PropTech & Ley de Propiedad Horizontal — Specs 06..09):** **`[100% ESPECIFICADA — LISTA PARA IMPLEMENTACIÓN]`** — Hitos 10, 11, 12 y 13 detallados con contratos de idempotencia, criptografía `HMAC-SHA256`, paridad Alembic y GUI Vue 3.
 - **Leyenda:**
   - `[COMPLETADO]` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
   - `[PENDIENTE]` = Hito con especificación cerrada en `docs/specs/`, listo para implementación.
@@ -116,10 +117,38 @@
 
 ---
 
-## 🏛️ FASE 4: Evolución Funcional PropTech & Ley de Propiedad Horizontal (Backlog Estratégico)
+## 🏛️ FASE 4: Evolución Funcional PropTech & Ley de Propiedad Horizontal (Hitos 10 al 13)
 
-- **Especificación Maestra:** [`docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md`](./docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md)
-- **Hito 10: Motor de Alícuotas, Facturación Mensual (Recibo LPH) y Fondo de Reserva `[ESPECIFICADO]`**
-- **Hito 11: Gobernanza Digital, Asambleas y Carta Consulta (Art. 23 LPH) con Firma HMAC-SHA256 `[ESPECIFICADO]`**
-- **Hito 12: Control de Acceso Peatonal/Vehicular (Pases QR Firmados) y Paquetería en Garita `[ESPECIFICADO]`**
-- **Hito 13: Reserva de Áreas Sociales Vinculada a Solvencia y Certificado Digital de Solvencia `[ESPECIFICADO]`**
+> **Regla Rectora para Fase 4:** Cada hito de esta fase incluye tanto el Backend (migración Alembic en PostgreSQL 17, lógica de negocio idempotente y endpoints REST) como su paridad 1:1 en el Frontend Vue 3 Mobile-First (stores Pinia con Catch No Destructivo, vistas sin huérfanos `.unit.ts` y escenarios BDD en `backend/test/api_test.feature` y `frontend/test/ui_business_flow.feature`).
+
+### Hito 10: Mejoras Core, Motor de Alícuotas, Facturación Mensual LPH, Fondos y Solvencia Digital `[PENDIENTE — ESPECIFICADO]`
+- **Especificaciones:** [`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md), [`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`](./docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 10.1 (Mejoras de Seguridad Core — Magic Bytes, Revocación KeyDB y Anti-Fraude Referencias):** Implementar `validate_file_magic_bytes` en `backend/src/security.py`, lista de revocación instantánea `revoked_user:{id}` en `backend/src/redis_client.py` / `dependencies.py`, y bloqueo `HTTP 409 Conflict` ante reutilización de `(metodo, numero_referencia)` en `backend/src/routers/pagos.py`.
+  - [ ] **Sub-tarea 10.2 (Migración 0003 y Modelos de Alícuotas, Fondos, Desglose y Solvencia):** Extender `Unidad` (`alicuota`, `credito_disponible_usd`) y `Egreso` (`incidencia_id`, `es_gasto_comun`), crear modelos `FondoCondominio`, `ReciboItem` y `CertificadoSolvencia` en `backend/src/models.py`, y verificar migración `0003_hito10_alicuotas_solvencia.py` con `make -C backend qa-parity`.
+  - [ ] **Sub-tarea 10.3 (Algoritmo del Resto Mayor / Hamilton y Endpoints de Facturación y Solvencia):** Implementar `prorratear_por_alicuotas` y `aplicar_credito_disponible` en `backend/src/finanzas.py`, acreditación automática de sobrepagos en `PUT /api/pagos/{id}/aprobar`, y endpoints `PUT /api/estructura/unidades/{id}/alicuota`, `POST/GET /api/finanzas/fondos`, `POST /api/finanzas/facturar-periodo`, `GET /api/finanzas/recibos/{id}/desglose`, `POST /api/finanzas/solvencia/{unidad_id}` y `GET /api/finanzas/solvencia/verificar/{folio}`.
+  - [ ] **Sub-tarea 10.4 (Paridad GUI Vue 3 — Facturación y Certificado de Solvencia):** Extender `useFinanceStore` e implementar `BillingGeneratorView.vue` (`/tesoreria/facturacion`), `ReceiptBreakdownModal.vue` y `SolvencyCertificateView.vue` (`/finanzas/solvencia`), más edición de alícuotas en `AdminStructureView.vue`.
+  - [ ] **Sub-tarea 10.5 (Certificación QA 11X del Hito 10):** Pruebas unitarias en backend y frontend ($\ge 95\%$ cobertura, 0 huérfanos), paridad PostgreSQL 17, actualización del Grafo AST y escenarios BDD Karate Labs.
+
+### Hito 11: Gobernanza Digital, Cartas Consulta (Art. 23 LPH) y Asambleas con Voto Criptográfico `[PENDIENTE — ESPECIFICADO]`
+- **Especificación:** [`docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md`](./docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 11.1 (Migración 0004 y Modelos de Gobernanza LPH):** Añadir `puede_votar_asamblea` en `ContratoOcupacion` y modelar `ConsultaComunitaria`, `OpcionConsulta` y `VotoConsulta` (`UniqueConstraint("consulta_id", "unidad_id")`) en `backend/src/models.py` con migración `0004_hito11_cartas_consulta.py`.
+  - [ ] **Sub-tarea 11.2 (Router de Consultas, Firma HMAC-SHA256 de Voto y Acta Automática):** Implementar `backend/src/routers/consultas.py` (`POST /api/consultas`, `GET /api/consultas`, `GET /api/consultas/{id}`, `POST /api/consultas/{id}/votar` ponderado por `Unidad.alicuota` con recibo `HMAC-SHA256`, y `POST /api/consultas/{id}/cerrar` con generación atómica de acuerdo en `BitacoraActa`).
+  - [ ] **Sub-tarea 11.3 (Paridad GUI Vue 3 — Cartas Consulta y Recibo de Votación):** Implementar `useGovernanceStore` (`frontend/src/stores/governanceStore.ts`), `ConsultationsListView.vue` (`/consultas`), `ConsultationDetailView.vue` (`/consultas/:id`) y `VoteReceiptModal.vue`.
+  - [ ] **Sub-tarea 11.4 (Certificación QA 11X del Hito 11):** Pruebas unitarias aisladas, paridad Alembic en PostgreSQL 17, Grafo AST y escenarios BDD Karate Labs.
+
+### Hito 12: Control de Acceso Peatonal/Vehicular (Pases QR Firmados) y Paquetería en Garita `[PENDIENTE — ESPECIFICADO]`
+- **Especificación:** [`docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`](./docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md) (Secciones 1, 2.1, 2.2 y 3)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 12.1 (Migración 0005 y Modelos de Pases QR y Paquetería):** Modelar `PaseVisita` y `PaqueteRecibido` en `backend/src/models.py` con migración `0005_hito12_accesos_reservas.py`.
+  - [ ] **Sub-tarea 12.2 (Router de Accesos QR con Nonce Anti-Replay en KeyDB y Paquetería):** Implementar `backend/src/routers/accesos.py` (`POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{id}`, `POST /api/accesos/verificar-qr` con quema de `jti` en KeyDB Multi-Hilo, `POST /api/paqueteria/registrar`, `GET /api/paqueteria` y `PUT /api/paqueteria/{id}/entregar`).
+  - [ ] **Sub-tarea 12.3 (Paridad GUI Vue 3 — Pases QR, Garita y Paquetería):** Implementar `useAccessAmenitiesStore`, `VisitorPassesView.vue` (`/accesos/pases`), `GatehouseScannerView.vue` (`/operaciones/garita-qr`) y `ParcelsTrackerView.vue` (`/operaciones/paqueteria`).
+  - [ ] **Sub-tarea 12.4 (Certificación QA 11X del Hito 12):** Pruebas unitarias en Docker efímero, paridad PostgreSQL 17, Grafo AST y escenarios BDD Karate Labs.
+
+### Hito 13: Reserva de Áreas Sociales Vinculada a Solvencia e Inspección Post-Evento `[PENDIENTE — ESPECIFICADO]`
+- **Especificación:** [`docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`](./docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md) (Secciones 2.3, 4 y 5)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 13.1 (Modelos y Router de Reserva de Áreas Sociales con Bloqueo por Morosidad):** Modelar `AreaSocial` y `ReservaAreaSocial` e implementar `backend/src/routers/reservas.py` (`POST/GET /api/reservas/areas`, `POST /api/reservas/solicitar` exigiendo deuda cero en `Recibo` y creando automáticamente `TareaDiaria` de inspección post-evento, y `PUT /api/reservas/{id}/inspeccionar`).
+  - [ ] **Sub-tarea 13.2 (Paridad GUI Vue 3 — Reserva de Amenidades):** Implementar `AmenitiesReservationView.vue` (`/reservas/areas`) integrada en `useAccessAmenitiesStore`.
+  - [ ] **Sub-tarea 13.3 (Certificación QA 11X del Hito 13):** Pruebas unitarias ($\ge 95\%$), paridad ORM ↔ Alembic de las 24 tablas totales del sistema, Grafo AST y escenarios BDD Karate Labs.

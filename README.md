@@ -85,12 +85,15 @@ make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-c
 ## 📚 Documentación y Especificaciones (`docs/specs/`)
 
 1. **[`docs/specs/README.md`](./docs/specs/README.md)** — Índice maestro de especificaciones técnicas y trazabilidad.
-2. **[`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md)** — Arquitectura de contenedores, KeyDB Multi-Hilo y las 14 defensas de seguridad híbrida SPA + API.
+2. **[`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md)** — Arquitectura de contenedores, KeyDB Multi-Hilo, las 18 defensas de seguridad híbrida SPA + API y la matriz canónica de idempotencia (`idemp:{scope}:{key}`).
 3. **[`docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md`](./docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md)** — Ciclo de vida de Usuarios Fantasma, Estructura, Unidades, Contratos y matriz RBAC.
 4. **[`docs/specs/03_DOMINIO_FINANZAS_COBRANZAS_Y_CANDADO.md`](./docs/specs/03_DOMINIO_FINANZAS_COBRANZAS_Y_CANDADO.md)** — Core matemático multimoneda, pagos parciales/totales, auditoría de rechazos y Candado Contable.
 5. **[`docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md`](./docs/specs/04_DOMINIO_OPERACIONES_INCIDENCIAS_Y_WORKER.md)** — Embudo de incidencias ("¡Me sumo!"), cuota de 30 fotos/mes, conserjería y worker AVIF.
 6. **[`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md)** — Especificación completa de la GUI Vue 3 Mobile-First, ergonomía Anti-JSDOM, stores Pinia no destructivos y paridad 1:1 API ↔ GUI.
-7. **[`docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md`](./docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md)** — Investigación del estado del arte PropTech LATAM y Ley de Propiedad Horizontal (Alícuotas, Carta Consulta Art. 23, Accesos QR, Reservas y Solvencia Digital).
+7. **[`docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md`](./docs/specs/06_INFORME_INVESTIGACION_Y_EVOLUCION_PROPIEDAD_HORIZONTAL.md)** — Investigación del estado del arte PropTech LATAM y Ley de Propiedad Horizontal.
+8. **[`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`](./docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)** — Motor de Alícuotas ($\sum = 100\%$), Método del Resto Mayor (Hamilton), Fondos de Reserva, Facturación Mensual LPH, Saldo a Favor y Certificado Digital de Solvencia (`HMAC-SHA256`).
+9. **[`docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md`](./docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)** — Gobernanza Digital (Art. 23 y 24 LPH), Cartas Consulta y Asambleas, Voto Ponderado por Alícuota con firma `HMAC-SHA256` y Acta Automática.
+10. **[`docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`](./docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md)** — Control de Acceso QR (`HMAC-SHA256` + `jti` anti-replay en KeyDB), Paquetería en Garita y Reserva de Áreas Sociales vinculada a Solvencia.
 
 ---
 

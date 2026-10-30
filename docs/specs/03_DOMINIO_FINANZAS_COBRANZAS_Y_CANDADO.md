@@ -62,3 +62,9 @@ sequenceDiagram
 3. **Comportamiento en la GUI (Hito 6):**
    - Del día 1 al 10 de cada mes, el Dashboard (`/dashboard`) muestra un Banner destacado si existe un cierre disponible (`ClosingBanner.vue`).
    - En las vistas de Tesorería (`TreasuryPaymentsView.vue`, `TreasuryClosingView.vue`), cualquier recibo o egreso con `bloqueado == True` deshabilita visualmente los botones de mutación y muestra el sello `"🔒 Mes Cerrado"`.
+
+---
+
+## 4. Extensión Fase 4: Alícuotas, Facturación LPH, Saldo a Favor y Solvencia Digital
+
+La especificación exhaustiva del motor de facturación mensual por alícuota (*Método del Resto Mayor / Hamilton*), fondos patrimoniales (`FondoCondominio`), desglose de recibos (`ReciboItem`), acreditación automática de sobrepagos (`Unidad.credito_disponible_usd`), bloqueo anti-fraude de referencias bancarias duplicadas y emisión de `CertificadoSolvencia` firmado con `HMAC-SHA256` se encuentra en **[07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md](./07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)**.

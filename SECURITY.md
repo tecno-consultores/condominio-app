@@ -105,6 +105,21 @@ flowchart TD
 ### 4.13. Gobernanza Shift-Left de Lockfiles (`uv.lock` y `pnpm-lock.yaml`)
 - **Mitigación Implementada:** Auditoría continua mediante `make -C backend qa-deps` (`uv audit`) y `./auditar-infra.sh` (Trivy IaC + FS) exigiendo **0 vulnerabilidades CRITICAL/HIGH**.
 
+### 4.14. Saneamiento de Esquemas en URLs de Evidencia (`UrlEvidenciaSegura`)
+- **Mitigación Implementada:** Validación estricta en `backend/src/schemas.py` que bloquea esquemas `javascript:`, `data:`, `vbscript:` y `file:` en comprobantes, facturas y fotos.
+
+### 4.15. Inspección de *Magic Bytes* Binarios en Subida de Archivos
+- **Mitigación Especificada (`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`):** Verificación de la firma binaria real (`%PDF-`, `\x89PNG`, `\xFF\xD8\xFF`, `RIFF....WEBP`, `ftypavif`) dentro de `read_uploaded_file_safely` antes de procesar o almacenar archivos.
+
+### 4.16. Revocación Instantánea de Sesiones en KeyDB Multi-Hilo
+- **Mitigación Especificada (`docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md`):** Al desactivar un usuario o finalizar su contrato de ocupación, se registra `revoked_user:{id}` en KeyDB para invalidar en el acto cualquier JWT vigente.
+
+### 4.17. No Repudio y Anti-Replay en Pases QR, Cartas Consulta y Certificados de Solvencia
+- **Mitigación Especificada (`docs/specs/07..09`):** Sello criptográfico `HMAC-SHA256` verificado con `hmac.compare_digest` para Certificados de Solvencia, Votos en Cartas Consulta y Pases de Visita QR, combinado con quema atómica de `jti` (`SET qr_used:{jti} 1 NX EX {ttl}`) en KeyDB Multi-Hilo.
+
+### 4.18. Bloqueo Anti-Fraude de Referencias Bancarias Duplicadas
+- **Mitigación Especificada (`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`):** Restricción de unicidad sobre `(metodo, numero_referencia)` para impedir que múltiples reportes de pago reutilicen el mismo número de operación bancaria.
+
 ---
 
 ## 5. Barreras Automatizadas DevSecOps

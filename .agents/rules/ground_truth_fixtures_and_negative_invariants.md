@@ -24,9 +24,9 @@ For **EVERY** component, service, or integration, the test suite MUST include an
 
 | Fixture Type | Description | Mandatory Assertion (Negative Invariant) |
 | :--- | :--- | :--- |
-| **Fixture A: Virgin / Ghost State** | Newly registered user (`es_activo=False`, `rol="FANTASMA"`) or month with zero receipts/rates. | **MUST assert negative:** `es_activo=False`, zero financial access, redirect to `/espera-aprobacion`. Any positive access is a critical test failure. |
-| **Fixture B: Nominal Configured** | Active resident or board member (`es_activo=True`), exchange rate registered, open period. | **MUST assert positive:** `es_activo=True`, accurate USD/VES calculations, audit trail creation. |
-| **Fixture C: Locked / Degraded State** | Closed accounting month (`bloqueado=True`, `estado="CERRADO"`) or missing daily rate. | **MUST assert graceful handling:** Explicit `409 Conflict` (Candado Contable) or `400/404` without unhandled `500` exceptions or state corruption. |
+| **Fixture A: Virgin / Ghost / Insolvent State** | Newly registered user (`es_activo=False`, `rol="FANTASMA"`), tenant without voting delegation (`puede_votar_asamblea=False`), or unit with pending debt (`saldo_pendiente > 0`). | **MUST assert negative:** `es_activo=False` blocked (`403`) on all financial/operational endpoints; un-delegated tenant blocked (`403`) from Carta Consulta voting; insolvent unit blocked (`403`/`409`) from Amenity Reservations and Solvency Certificates. |
+| **Fixture B: Nominal Configured** | Active resident or board member (`es_activo=True`), exchange rate registered, open period, solvent unit (`deuda == 0.00`). | **MUST assert positive:** `es_activo=True`, penny-exact Hamilton aliquot prorating ($\sum \text{cuotas} == \text{total}$), valid `HMAC-SHA256` signatures on votes/solvency/QR passes, and audit trail creation. |
+| **Fixture C: Locked / Replayed / Duplicate State** | Closed accounting month (`bloqueado=True`, `estado="CERRADO"`), replayed QR `jti` nonce, duplicate vote per unit, or reused bank reference `(metodo, numero_referencia)`. | **MUST assert graceful handling:** Explicit `409 Conflict` (Candado Contable, QR Replay, Duplicate Vote, Duplicate Bank Reference) without unhandled `500` exceptions or state corruption. |
 
 ---
 

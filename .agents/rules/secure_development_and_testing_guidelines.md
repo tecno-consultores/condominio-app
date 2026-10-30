@@ -62,3 +62,9 @@ Apply these non-negotiable security directives before writing any code:
 12. **Modern Web Form Ergonomics & Post-Interaction Validation:**
     - Use `autocomplete="username"` on email login inputs, `autocomplete="current-password"` on sign-in passwords, and `autocomplete="new-password"` on sign-up passwords.
     - Place format and password rules/hints **above** the `<input>` element (`aria-describedby`) so mobile virtual keyboards never obscure them, and style validation states with `:user-invalid` and `:user-valid` after user interaction (`blur`).
+13. **Safe Evidence URI Validation (`UrlEvidenciaSegura`) & Binary Magic-Byte Inspection:**
+    - All attachment/evidence URL fields (`url_comprobante`, `url_factura`, `url_foto`, `url_evidencia`) must use `UrlEvidenciaSegura` to block dangerous URI schemes (`javascript:`, `data:`, `vbscript:`, `file:`).
+    - All file uploads must validate binary magic bytes (`%PDF-`, `\x89PNG`, `\xFF\xD8\xFF`, `RIFF....WEBP`, `ftypavif`) inside `read_uploaded_file_safely`.
+14. **Penny-Exact Aliquot Prorating (Hamilton Method) & Cryptographic Non-Repudiation (`HMAC-SHA256`):**
+    - Condominium expense prorating by unit aliquot (`Unidad.alicuota`) must use `decimal.Decimal` and the **Largest Remainder Method (Hamilton / Hare-Niemeyer)** so that the sum of billed unit receipts strictly equals the total expense pool down to `$0.01`.
+    - Solvency Certificates (`CertificadoSolvencia`), Carta Consulta votes (`VotoConsulta`, Art. 23 LPH), and Visitor QR Passes (`PaseVisita`) must carry `HMAC-SHA256` signatures verified via `hmac.compare_digest`, with single-use QR `jti` nonces burned atomically in KeyDB (`SET qr_used:{jti} 1 NX EX {ttl}`).

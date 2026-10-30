@@ -59,3 +59,11 @@ Evitar que 30 vecinos creen 30 tickets duplicados por la misma avería (ej. asce
 - **Tabla `comunicados`:**
   - `id`, `titulo`, `contenido`, `enlace_externo` (`String | None`, validado con `validate_safe_outgoing_url`), `activo` (`Boolean`), `creado_en`.
   - Endpoints: `GET /api/comunicados/recientes` (alimenta el carrusel del Dashboard).
+
+---
+
+## 5. Extensiones Operativas de Fase 4 (Trazabilidad Contable, Cartas Consulta, Garita QR y Reservas)
+
+1. **Trazabilidad Egreso ↔ Incidencia ([Spec 07](./07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)):** Los egresos de reparación incluyen `incidencia_id` opcional para vincular el gasto financiero con el reporte vecinal que lo originó.
+2. **Asiento Automático de Cartas Consulta en `BitacoraActa` ([Spec 08](./08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)):** El cierre de toda Carta Consulta o Asamblea (`POST /api/consultas/{id}/cerrar`) inserta automáticamente un acta inmutable en `bitacora_actas`.
+3. **Pases QR en Garita, Paquetería y Reservas con Inspección de Conserjería ([Spec 09](./09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md)):** Toda reserva confirmada de un `AreaSocial` genera una `TareaDiaria` de inspección post-evento para el conserje.

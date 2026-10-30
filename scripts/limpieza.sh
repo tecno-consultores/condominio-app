@@ -37,9 +37,13 @@ rm -f zap.yaml backend/zap.yaml
 rm -f profile.svg backend/profile.svg
 rm -rf prometheus_data/ backend/prometheus_data/ frontend/prometheus_data/
 rm -rf .venv backend/.venv
+rm -rf mutants/ backend/mutants/ .mutmut-cache/ backend/.mutmut-cache/
+rm -rf schemathesis-report/ backend/schemathesis-report/
+rm -rf graphify-out/20* graphify-out/cache/ backend/graphify-out/ frontend/graphify-out/
 
 # Artefactos de frontend Vue 3
 rm -rf node_modules frontend/node_modules
+rm -rf .pnpm-store frontend/.pnpm-store
 rm -rf frontend/.nuxt
 rm -rf test-results/ frontend/test-results/
 rm -rf playwright-report/ frontend/playwright-report/

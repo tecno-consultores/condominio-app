@@ -19,11 +19,17 @@
 ### 1.2. `Estructura` (`estructuras`) y `Unidad` (`unidades`)
 - Soporta agrupaciones polimórficas verticales y horizontales (`TipoEstructura = Literal["EDIFICIO", "TORRE", "BLOQUE", "MANZANA", "CALLE"]`).
 - `Unidad.identificador`: `String` único (ej. `Apto 1-A`, `C1-12`).
+- **Extensión Fase 4 ([Spec 07](./07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)):**
+  - `Unidad.alicuota`: `Numeric(7, 4)` (`0.0000` a `100.0000%`), porcentaje legal de participación en gastos comunes y votaciones (Art. 7 LPH).
+  - `Unidad.credito_disponible_usd`: `Numeric(12, 2)` (`>= 0.00`), saldo a favor acumulado por sobrepagos aprobados.
 
 ### 1.3. `ContratoOcupacion` (`contratos_ocupacion`)
 - Mantiene el historial inmutable de quién habita o posee cada unidad a lo largo del tiempo:
   - `usuario_id`, `unidad_id`, `tipo_ocupante` (`PROPIETARIO` | `INQUILINO`), `es_activo`, `fecha_inicio`, `fecha_fin`.
 - Nunca se sobrescribe un ocupante anterior; al cambiar de inquilino o propietario, se cierra el contrato previo (`es_activo = False`, `fecha_fin = now()`) y se inserta uno nuevo.
+- **Extensión Fase 4 ([Spec 08](./08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)):**
+  - `puede_votar_asamblea`: `Boolean` (`True` para `PROPIETARIO`; `False` por defecto para `INQUILINO` salvo poder delegado registrado).
+  - **Soporte Multi-Unidad y Revocación en KeyDB:** Un propietario con múltiples contratos activos puede alternar su `unidad_activa_id` en sesión, y cualquier desactivación de usuario o cierre de contrato inserta `revoked_user:{id}` en **KeyDB Multi-Hilo** para invalidar su JWT de forma inmediata.
 
 ---
 

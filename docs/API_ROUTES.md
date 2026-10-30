@@ -131,3 +131,45 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 * **Endpoints FastAPI:**
   * `POST /api/bitacora/acta`: Guarda una nueva acta o minuta.
   * `GET /api/bitacora/historial`: Devuelve la lista ordenada por fecha.
+
+---
+
+## 9. Motor de Alícuotas, Facturación Mensual LPH y Solvencia Digital (Fase 4 — Spec 07)
+
+### 🖥️ Vistas: Facturación por Alícuota y Certificado de Solvencia
+* **Rutas Vue:** `/tesoreria/facturacion`, `/finanzas/solvencia`
+* **Diseño GUI:**
+  * **Facturación Mensual:** Resumen de egresos comunes del periodo, recargo del Fondo de Reserva Legal (10%), vista previa del prorrateo por alícuota (*Método del Resto Mayor / Hamilton*) y botón idempotente de emisión de recibos.
+  * **Solvencia Digital:** Consulta de deuda cero ($0.00\text{ USD}$) y descarga/visualización de Certificado de Solvencia con QR firmado (`HMAC-SHA256`).
+* **Endpoints FastAPI:**
+  * `PUT /api/estructura/unidades/{id}/alicuota`: Actualiza el porcentaje de participación de la unidad. *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/fondos` y `GET /api/finanzas/fondos`: Gestión de fondos patrimoniales y de reserva. *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/facturar-periodo`: Prorratea los gastos comunes según la alícuota de cada unidad y aplica saldos a favor (`credito_disponible_usd`). *[Header: Idempotency-Key]*
+  * `GET /api/finanzas/recibos/{id}/desglose`: Devuelve las líneas detalladas (`ReciboItem`) del recibo.
+  * `POST /api/finanzas/solvencia/{unidad_id}` y `GET /api/finanzas/solvencia/verificar/{folio}`: Emite y verifica certificados digitales de solvencia. *[Header: Idempotency-Key]*
+
+---
+
+## 10. Gobernanza Digital: Cartas Consulta (Art. 23 LPH) y Asambleas (Fase 4 — Spec 08)
+
+### 🖥️ Vistas: Cartas Consulta y Votación Ponderada por Alícuota
+* **Rutas Vue:** `/consultas`, `/consultas/:id`
+* **Diseño GUI:**
+  * **Listado y Detalle:** Muestra el quórum requerido ($66.67\%$ en 1ra consulta o $50.01\%$ en 2da consulta), barra de progreso en tiempo real por alícuota acumulada y opciones de votación.
+  * **Recibo Criptográfico:** Al votar, presenta modal (`VoteReceiptModal.vue`) con el hash `HMAC-SHA256` del voto y la alícuota capturada.
+* **Endpoints FastAPI:**
+  * `POST /api/consultas`, `GET /api/consultas`, `GET /api/consultas/{id}`: Creación y consulta de Cartas Consulta. *[Header: Idempotency-Key]*
+  * `POST /api/consultas/{id}/votar`: Registra voto único por unidad ponderado por su alícuota (exclusivo `PROPIETARIO` o apoderado autorizado). *[Header: Idempotency-Key]*
+  * `POST /api/consultas/{id}/cerrar`: Cierra el escrutinio y genera automáticamente el acta en `BitacoraActa`. *[Header: Idempotency-Key]*
+
+---
+
+## 11. Control de Acceso QR, Paquetería en Garita y Reserva de Áreas Sociales (Fase 4 — Spec 09)
+
+### 🖥️ Vistas: Pases de Visita QR, Escáner de Garita, Paquetería y Reservas
+* **Rutas Vue:** `/accesos/pases`, `/operaciones/garita-qr`, `/operaciones/paqueteria`, `/reservas/areas`
+* **Endpoints FastAPI:**
+  * `POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{id}`: Emisión y revocación de pases QR firmados con `HMAC-SHA256`. *[Header: Idempotency-Key]*
+  * `POST /api/accesos/verificar-qr`: Verifica firma, vigencia y unicidad (`jti` anti-replay en KeyDB Multi-Hilo). *[Header: Idempotency-Key]*
+  * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{id}/entregar`: Cadena de custodia de encomiendas en conserjería. *[Header: Idempotency-Key]*
+  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con bloqueo automático a unidades insolventes y creación automática de `TareaDiaria` de inspección post-evento. *[Header: Idempotency-Key]*

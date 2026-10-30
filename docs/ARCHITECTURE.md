@@ -91,3 +91,16 @@
 3. **Cierre (Acción Inmutable):** Tesorero pulsa "Cerrar Mes".
 4. **Backend:** Estado del reporte pasa a `CERRADO`. Todos los recibos, pagos y gastos del mes se bloquean (`Read-Only`).
 5. **Frontend:** Muestra Banner destacado a todos los usuarios desde el día 1 hasta el 10: "📊 *Cierre Financiero Disponible*".
+
+### 8.5. Facturación Mensual por Alícuota y Certificado de Solvencia (Spec 07)
+1. **Prorrateo Exacto (Método del Resto Mayor / Hamilton):** El Tesorero ejecuta `POST /api/finanzas/facturar-periodo`. El sistema suma los egresos comunes del mes más el recargo del Fondo de Reserva Legal (10%), los prorratea según la `alicuota` de cada unidad distribuyendo los centavos residuales por resto mayor ($\sum \text{recibos} == \text{total}$) y descuenta automáticamente cualquier saldo a favor (`credito_disponible_usd`).
+2. **Solvencia Digital:** Si una unidad tiene deuda cero ($0.00\text{ USD}$), puede emitir un `CertificadoSolvencia` foliado con sello criptográfico `HMAC-SHA256` verificable en garita o administración.
+
+### 8.6. Gobernanza Digital y Carta Consulta — Art. 23 LPH (Spec 08)
+1. **Apertura:** El Presidente o Secretario publica una `ConsultaComunitaria` con regla de quórum (`DOS_TERCIOS` = $66.67\%$ o `MAYORIA_SIMPLE` = $50.01\%$).
+2. **Votación Ponderada:** Cada unidad emite un único voto (`UniqueConstraint("consulta_id", "unidad_id")`) ejercido por su `PROPIETARIO` activo, cuyo peso es exactamente `Unidad.alicuota`, recibiendo un comprobante firmado con `HMAC-SHA256`.
+3. **Cierre y Acta Automática:** Al cerrarse la consulta, el backend calcula el escrutinio en `Decimal` y asienta automáticamente el acuerdo inmutable en `BitacoraActa`.
+
+### 8.7. Control de Acceso QR, Paquetería y Reservas con Solvencia (Spec 09)
+1. **Pases QR con Anti-Replay:** El residente emite un `PaseVisita` firmado con `HMAC-SHA256` y `jti` único. Al ser escaneado por el conserje en garita (`POST /api/accesos/verificar-qr`), el `jti` se quema atómicamente en **KeyDB Multi-Hilo** impidiendo su reutilización.
+2. **Reservas Bloqueadas por Morosidad:** Al solicitar una reserva de área social (`POST /api/reservas/solicitar`), el backend verifica en tiempo real que la unidad no tenga recibos pendientes ni parciales; al confirmarse, agenda automáticamente una `TareaDiaria` de inspección post-evento para el conserje.

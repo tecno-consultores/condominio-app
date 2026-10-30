@@ -165,3 +165,18 @@ frontend/
 | `/admin/estructura` | Generador idempotente de torres/unidades | `#form-generar-estructura`, `#input-est-nombre`, `#input-est-identificadores`, `#btn-submit-estructura` |
 | `/admin/usuarios` | Bandeja de activación de Usuarios Fantasma | `[data-testid="ghost-user-card-{id}"]`, `#select-unit-{id}`, `#select-rol-{id}`, `#btn-activate-user-{id}` |
 | `/admin/junta` | Asignación de cargos directivos | `#form-asignar-junta`, `#input-junta-usuario-id`, `#select-junta-cargo`, `#btn-submit-junta` |
+
+---
+
+## 5. Arquitectura GUI de Fase 4 (Hitos 10 al 13 — PropTech & LPH)
+
+Todos los componentes nuevos deben cumplir el invariante **Cero Componentes Huérfanos** (`make -C frontend qa-orphans`), **Catch No Destructivo** en Pinia (`isStale = true` conservando el último estado válido) y **Geometría Anti-JSDOM** (respetando el flujo de `AppShellLayout.vue` y `BottomNavBar.vue`):
+
+| Hito | Ruta Vue 3 | Vista / Componente | Store Pinia | Selectores Canónicos (`data-testid` / `id`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Hito 10** | `/tesoreria/facturacion` | `BillingGeneratorView.vue` + `ReceiptBreakdownModal.vue` | `useFinanceStore` | `#form-facturar-periodo`, `#input-facturar-periodo`, `#btn-submit-facturacion`, `#modal-recibo-desglose` |
+| **Hito 10** | `/finanzas/solvencia` | `SolvencyCertificateView.vue` | `useFinanceStore` | `#card-solvencia-status`, `#btn-emitir-solvencia`, `#qr-solvencia-badge` |
+| **Hito 11** | `/consultas` y `/consultas/:id` | `ConsultationsListView.vue`, `ConsultationDetailView.vue`, `VoteReceiptModal.vue` | `useGovernanceStore` | `.consultation-card`, `#quorum-progress-bar`, `#btn-cast-vote`, `#modal-vote-receipt`, `#btn-close-consultation` |
+| **Hito 12** | `/accesos/pases` y `/operaciones/garita-qr` | `VisitorPassesView.vue`, `GatehouseScannerView.vue` | `useAccessAmenitiesStore` | `#form-crear-pase-qr`, `#qr-pass-card-{id}`, `#input-scan-qr-token`, `#btn-verify-qr` |
+| **Hito 12** | `/operaciones/paqueteria` | `ParcelsTrackerView.vue` | `useAccessAmenitiesStore` | `#form-registrar-paquete`, `.parcel-card`, `#btn-confirm-parcel-{id}` |
+| **Hito 13** | `/reservas/areas` | `AmenitiesReservationView.vue` | `useAccessAmenitiesStore` | `#solvency-gate-banner`, `.amenity-card`, `#form-solicitar-reserva`, `#btn-submit-reserva` |
