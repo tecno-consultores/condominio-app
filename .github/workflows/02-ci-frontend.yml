@@ -1,0 +1,28 @@
+name: "Paso 2: QA Frontend Vue 3 Mobile-First Nivel 11X (efímero en Docker)"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  qa-frontend:
+    name: 🧩 Huérfanos UI, Lint SonarJS, Tipado Vue-TSC, Cobertura ≥ 95% y Build Vite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@v4
+
+      - name: 🧩 Verificar Cero Componentes UI Huérfanos
+        run: make qa-orphans
+
+      - name: 🔍 Formato, Tipado y Complejidad Cognitiva (Prettier + vue-tsc + ESLint SonarJS ≤ 15)
+        run: make qa-lint
+
+      - name: 🧪 Pruebas Unitarias Vitest (Cobertura V8 ≥ 95%) + Build Vite
+        run: make qa-unit

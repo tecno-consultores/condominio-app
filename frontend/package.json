@@ -1,0 +1,49 @@
+{
+  "name": "condominio-app-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Frontend Mobile-First Vue 3 + Pinia + Vue Router para Condominio App (Estándar QA Nivel 11X)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "type-check": "vue-tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,vue}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,vue}\"",
+    "lint": "eslint src --ext .vue,.ts --max-warnings 0",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "mutate": "stryker run",
+    "audit:deps": "pnpm audit --audit-level=high",
+    "test:e2e": "playwright test",
+    "test:perf": "lhci autorun"
+  },
+  "dependencies": {
+    "pinia": "^2.2.6",
+    "vue": "^3.5.12",
+    "vue-router": "^4.4.5"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@lhci/cli": "^0.14.0",
+    "@playwright/test": "^1.48.2",
+    "@stryker-mutator/core": "^8.6.0",
+    "@stryker-mutator/vitest-runner": "^8.6.0",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "@vitejs/plugin-vue": "^5.1.4",
+    "@vitest/coverage-v8": "^2.1.4",
+    "@vue/test-utils": "^2.4.6",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-sonarjs": "^0.25.1",
+    "eslint-plugin-vue": "^9.30.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4",
+    "vue-eslint-parser": "^9.4.3",
+    "vue-tsc": "^2.1.8"
+  }
+}

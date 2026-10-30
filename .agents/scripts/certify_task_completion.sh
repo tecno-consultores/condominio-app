@@ -65,7 +65,7 @@ if [ -n "${CODE_CHANGES}" ]; then
     done <<< "${TEST_CHANGES}"
   fi
 
-  DOC_CHANGES=$(git diff --name-only HEAD 2>/dev/null | grep -E '^(docs/|CHANGELOG\.md|ROADMAP\.md|README\.md|TESTING\.md|backend/TESTING\.md)' || true)
+  DOC_CHANGES=$(git diff --name-only HEAD 2>/dev/null | grep -E '^(docs/|CHANGELOG\.md|ROADMAP\.md|README\.md|TESTING\.md|backend/TESTING\.md|frontend/TESTING\.md)' || true)
   if [ -z "${DOC_CHANGES}" ]; then
     echo "⚠️ ADVERTENCIA: Se modificó código pero NO se han actualizado docs/, CHANGELOG.md, ROADMAP.md o TESTING.md."
   else

@@ -22,13 +22,20 @@ Construida con una arquitectura modular **Mobile-First**, resuelve los problemas
 condominio-app/
 ├── .agents/                # Gobernanza IA Nivel 11X (rules, skills y scripts de certificación)
 ├── backend/                # API FastAPI + Seguridad 11X (Fase 1)
-│   ├── src/                # Código fuente (models, schemas, routers, finanzas, security, redis_client)
+│   ├── src/                # Código fuente (models, schemas, routers, finanzas, security, redis_client, worker)
 │   ├── tests/              # Suites unitarias aisladas (test_*.unit.py, cobertura >= 95%)
 │   ├── test/               # Escenarios BDD Gherkin (Karate Labs: api_test.feature)
 │   ├── alembic/            # Migraciones verificadas contra PostgreSQL 17 real
 │   ├── Makefile            # Orquestación de gates QA efímeros en Docker
 │   ├── docker-compose.qa.yml
 │   └── TESTING.md          # Bitácora detallada de pruebas del backend
+├── frontend/               # GUI Vue 3 Mobile-First + Seguridad Cliente 11X (Fase 2)
+│   ├── src/                # Componentes Anti-JSDOM, vistas, stores Pinia no destructivos, router RBAC y apiClient
+│   ├── test/               # Escenarios BDD UI Gherkin (Karate Labs: ui_business_flow.feature)
+│   ├── e2e/                # Auditoría E2E y accesibilidad WCAG 2.1 AA (Playwright + axe-core)
+│   ├── Makefile            # Orquestación de gates QA frontend en Docker efímero
+│   ├── docker-compose.qa.yml
+│   └── TESTING.md          # Bitácora detallada de pruebas del frontend
 ├── docs/
 │   ├── specs/              # Especificaciones técnicas de Dominio, Seguridad 11X y GUI Vue 3
 │   ├── qa/                 # Manuales maestros de Arquitectura, Buenas Prácticas, QA y Seguridad 11X
@@ -61,6 +68,13 @@ make -C backend qa-bdd          # Escenarios BDD en Gherkin (Karate Labs)
 make -C backend qa-contracts    # Fuzzing de contratos OpenAPI (Schemathesis)
 make -C backend qa-dast         # Seguridad dinámica (OWASP ZAP)
 make -C backend qa-chaos        # Resiliencia y caos (Pumba + Locust + Prometheus)
+
+# Gates del Frontend Vue 3 Mobile-First (desde la raíz o frontend/)
+make -C frontend qa-orphans     # Paridad 100% de componentes Vue sin huérfanos (0 orphans)
+make -C frontend qa-lint        # Prettier + vue-tsc --noEmit + ESLint + SonarJS (complejidad <= 15)
+make -C frontend qa-unit        # Vitest + Cobertura V8 (>= 95%) + Compilación Vite de producción
+make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs)
+make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-core/playwright)
 
 # Gate Integral de Certificación de Cierre (.agents)
 ./.agents/scripts/certify_task_completion.sh

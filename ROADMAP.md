@@ -8,7 +8,7 @@
 ## 📊 Estado General del Proyecto
 
 - **Fase 1 (Backend FastAPI & Seguridad 11X):** **`[100% COMPLETADA]`** — Hitos 1, 2, 3, 3.5 y 4 completados y certificados.
-- **Fase 2 (Frontend Vue 3 Mobile-First):** Lista para iniciar con el Backend 100% operativo (`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`) — Hitos 5, 6 y 7 pendientes.
+- **Fase 2 (Frontend Vue 3 Mobile-First):** En curso — **Hito 5 `[COMPLETADO]`**; Hitos 6 y 7 pendientes.
 - **Fase 3 (Integración E2E, Accesibilidad y Caos Nivel 11X):** Parcial — Hito 9 **`[COMPLETADO]`**; Hito 8 pendiente tras Fase 2.
 - **Leyenda:**
   - `[COMPLETADO]` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
@@ -70,14 +70,14 @@
 
 > **Regla Rectora para Fase 2:** Toda la implementación de la GUI debe seguir estrictamente [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) y [`.agents/rules/frontend_parity_and_closure.md`](./.agents/rules/frontend_parity_and_closure.md). Queda prohibido dejar componentes `.vue` huérfanos (`make qa-orphans`), destruir estado en Pinia ante errores HTTP o solapar `BottomNavBar`, FAB y `AppFooter`.
 
-### Hito 5: Base Arquitectónica Frontend, Seguridad Cliente y Flujos de Identidad `[PENDIENTE]`
+### Hito 5: Base Arquitectónica Frontend, Seguridad Cliente y Flujos de Identidad `[COMPLETADO]`
 - **Especificación:** [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Secciones 1, 2, 3, 5, 6 y 8)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 5.1 (Scaffolding Efímero y Orquestación QA):** Inicializar `frontend/` con Vue 3 (`<script setup lang="ts">`), Vite, Tailwind CSS, Pinia y Vue Router. Configurar `frontend/Makefile` y `frontend/docker-compose.qa.yml` utilizando `sinfallas/base-node-ionic:26` y `sinfallas/qa-frontend:26` con los gates `qa-lint`, `qa-unit`, `qa-orphans`, `qa-e2e`, `qa-ui-bdd` y `qa-lighthouse`.
-  - [ ] **Sub-tarea 5.2 (Seguridad Cliente y Cliente HTTP Resiliente):** Implementar `frontend/src/utils/security.ts` (`generateIdempotencyKey`, `isSafeRedirectUrl`, `sanitizeUntrustedText`, `validateProofFileUpload`) y `frontend/src/services/api.ts` con `credentials: 'include'`, inyección automática de `X-CSRF-Token` y gestión del ciclo de vida del `Idempotency-Key` (reutilización en reintentos de red vs regeneración tras 4xx).
-  - [ ] **Sub-tarea 5.3 (Layout Mobile-First Anti-JSDOM):** Implementar `AppShell.vue`, `BottomNavBar.vue` (`h-16`, máx. 4 ítems por rol con área táctil $\ge 48 \times 48\text{ px}$), `DesktopSidebar.vue` y `AppFooter.vue` (en flujo normal del documento, nunca `position: fixed`), aplicando `pb-24` en `<main>` para evitar solapamientos.
-  - [ ] **Sub-tarea 5.4 (Store de Autenticación y Vistas de Identidad):** Implementar `useAuthStore` con manejo de errores no destructivo, Navigation Guards en `router/index.ts` (validando `redirect` con `isSafeRedirectUrl`) y vistas `LoginView.vue` (`/login`), `RegistroView.vue` (`/registro`) y `EsperaAprobacionView.vue` (`/espera-aprobacion` para Usuarios Fantasma).
-  - [ ] **Sub-tarea 5.5 (Certificación QA 11X del Hito 5):** Cobertura `>= 95%` en Vitest (`security.unit.ts`, `auth.store.unit.ts`), 0 componentes huérfanos (`make qa-orphans`), complejidad cognitiva SonarJS $\le 15$ y escenarios iniciales en `frontend/test/ui_business_flow.feature`.
+  - [x] **Sub-tarea 5.1 (Scaffolding Efímero y Orquestación QA):** Inicializado `frontend/` con Vue 3 (`<script setup lang="ts">`), Vite, Pinia, Vue Router y TypeScript Strict. Configurados `frontend/Makefile`, `frontend/docker-compose.qa.yml` (`sinfallas/base-node-ionic:26`), `pnpm-workspace.yaml` (política Zero-Trust `allowBuilds`), `vitest.config.ts`, `playwright.config.ts`, `stryker.conf.json` y `lighthouserc.js`.
+  - [x] **Sub-tarea 5.2 (Seguridad Cliente y Cliente HTTP Resiliente):** Implementados `frontend/src/utils/security.ts` (`escapeHtml`, `sanitizeUntrustedText`, `sanitizeObject`, `isSafeRedirectUrl`, `validateProofFileUpload`, `generateIdempotencyKey`), `frontend/src/composables/useIdempotency.ts` y `frontend/src/services/apiClient.ts` (`credentials: 'include'`, `X-CSRF-Token`, `Idempotency-Key` y `ApiError`).
+  - [x] **Sub-tarea 5.3 (Layout Mobile-First Anti-JSDOM):** Implementados `AppShellLayout.vue`, `BottomNavBar.vue` (`4rem`, máx. 4 ítems por rol con área táctil $\ge 48 \times 48\text{ px}$), `SidebarNav.vue`, `AppFooter.vue` (en flujo normal con `margin-top: auto`) y `StaleDataBanner.vue`.
+  - [x] **Sub-tarea 5.4 (Store de Autenticación y Vistas de Identidad):** Implementado `useAuthStore` con manejo de errores no destructivo (`isStale = true` conservando `data` ante caídas de red), guardias de navegación en `frontend/src/router/index.ts` y vistas `LoginView.vue` (`/login`), `RegisterView.vue` (`/register`), `PendingApprovalView.vue` (`/espera-aprobacion`) y `DashboardView.vue` (`/dashboard`).
+  - [x] **Sub-tarea 5.5 (Certificación QA 11X del Hito 5):** 15 suites unitarias en Vitest con **100% de cobertura de líneas/sentencias** (`> 95%` en ramas y funciones), **0 componentes huérfanos** (`make qa-orphans`: 10/10 componentes `.vue`), 0 errores en `vue-tsc` / `eslint` (SonarJS CC $\le 15$) y escenarios BDD/E2E en `frontend/test/ui_business_flow.feature` y `frontend/e2e/accessibility.e2e.ts`.
 
 ### Hito 6: Vistas Financieras, Wizard de Pagos y Mesa de Tesorería `[PENDIENTE]`
 - **Especificación:** [`docs/specs/03_DOMINIO_FINANZAS_COBRANZAS_Y_CANDADO.md`](./docs/specs/03_DOMINIO_FINANZAS_COBRANZAS_Y_CANDADO.md), [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Secciones 4, 6 y 7)

@@ -1,6 +1,6 @@
 # 🎨 Especificación 05: Arquitectura GUI Vue 3 Mobile-First y Ergonomía Nivel 11X
 
-**Estado:** Especificación Canónica para el Inicio de la Fase 2 (Hitos 5, 6, 7 y 8)  
+**Estado:** Hito 5 Completado en `frontend/` (Layout Anti-JSDOM, Seguridad Cliente, `useAuthStore`, Router RBAC y Vistas Auth) / Hitos 6, 7 y 8 en curso  
 **Ecosistema:** Vue 3 (Composition API `<script setup lang="ts">`) + Vite + Pinia + Vue Router + TypeScript Strict
 
 ---

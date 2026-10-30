@@ -15,7 +15,7 @@ docker run --rm \
   aquasec/trivy:latest config . \
   --severity HIGH,CRITICAL \
   --exit-code 1 \
-  --skip-dirs backend/.venv
+  --skip-dirs backend/.venv,frontend/node_modules
 
 # Si el comando anterior no arroja Exit Code 1, pasamos a escanear vulnerabilidades (CVEs)
 # en los manifiestos de dependencias expuestos en el file system.
@@ -27,7 +27,7 @@ docker run --rm \
   aquasec/trivy:latest fs . \
   --severity CRITICAL \
   --exit-code 1 \
-  --skip-dirs backend/.venv
+  --skip-dirs backend/.venv,frontend/node_modules
 
 echo "✅ Auditoría de Infraestructura superada. Entorno seguro."
 exit 0

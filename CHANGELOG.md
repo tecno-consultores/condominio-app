@@ -7,6 +7,14 @@ Todos los cambios notables en este proyecto son documentados en este archivo sig
 ## [Unreleased]
 
 ### Added
+- **Hito 5 — Base Arquitectónica Frontend Vue 3 Mobile-First, Seguridad Cliente y Flujos de Identidad (`frontend/`):**
+  - Inicializado `frontend/` con Vue 3 (`<script setup lang="ts">`), Pinia, Vue Router y TypeScript Strict bajo orquestación 100% Docker efímera (`frontend/docker-compose.qa.yml` y `frontend/Makefile`).
+  - Implementadas utilidades de seguridad cliente en `frontend/src/utils/security.ts` (`escapeHtml`, `sanitizeUntrustedText`, `sanitizeObject` contra Prototype Pollution, `isSafeRedirectUrl` contra Open Redirect, `validateProofFileUpload` con cuota de 2 MB y `generateIdempotencyKey`).
+  - Implementado composable `frontend/src/composables/useIdempotency.ts` y cliente HTTP `frontend/src/services/apiClient.ts` (`credentials: 'include'`, `X-CSRF-Token` e `Idempotency-Key`).
+  - Implementado Layout Mobile-First Anti-JSDOM (`AppShellLayout.vue`, `BottomNavBar.vue`, `SidebarNav.vue`, `AppFooter.vue` en flujo normal y `StaleDataBanner.vue`).
+  - Implementado store `useAuthStore` (`frontend/src/stores/authStore.ts`) con manejo de errores no destructivo (`isStale = true` preservando `data` ante fallos de red) y guardias RBAC en `frontend/src/router/index.ts`.
+  - Implementadas vistas de identidad y contención fantasma (`LoginView.vue`, `RegisterView.vue`, `PendingApprovalView.vue` y `DashboardView.vue`) aplicando las guías modernas de formularios (`autofill-sign-in-form`, `autofill-sign-up-form`, `validate-input-after-interaction`).
+  - Añadidas 15 suites unitarias en Vitest (`100%` cobertura de líneas/sentencias, `0` componentes `.vue` huérfanos), escenarios BDD Karate UI (`frontend/test/ui_business_flow.feature`) y suite Playwright + Axe WCAG 2.1 AA (`frontend/e2e/accessibility.e2e.ts`).
 - **Hito 4 — Módulos Operativos, Estructura, Incidencias y Worker Asíncrono (`backend/src/`):**
   - Modeladas 7 nuevas entidades ORM en `backend/src/models.py` (`Incidencia`, `IncidenciaAdhesion`, `PlantillaTarea`, `TareaDiaria`, `FotoVocero`, `BitacoraActa`, `Comunicado`) y su migración versionada `backend/alembic/versions/0002_hito4_operaciones.py` verificada en PostgreSQL 17 real (17 tablas totales en paridad 1:1).
   - Implementado `backend/src/routers/administracion.py`: generación idempotente de estructuras y unidades (`POST /api/estructura/generar`), listado de unidades (`GET /api/estructura/unidades`), listado de Usuarios Fantasma (`GET /api/usuarios/pendientes`), activación/asignación de unidad (`PUT /api/usuarios/{id}/asignar`) y designación de cargos de Junta (`PUT /api/junta/cargos` validando contrato activo de `PROPIETARIO`).

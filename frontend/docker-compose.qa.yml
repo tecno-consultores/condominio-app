@@ -1,0 +1,82 @@
+services:
+  ui-prod:
+    image: nginx:alpine
+    container_name: condominio_ui_prod
+    hostname: ui-prod
+    pull_policy: if_not_present
+    environment:
+      TZ: 'America/Caracas'
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - nginx-logs:/var/log/nginx
+    ports:
+      - "8080:80"
+
+  qa-vue3:
+    image: sinfallas/base-node-ionic:26
+    container_name: condominio_qa_frontend
+    hostname: qa-vue3
+    pull_policy: if_not_present
+    environment:
+      TZ: 'America/Caracas'
+      PNPM_HOME: /pnpm
+    volumes:
+      - .:/app
+      - pnpm-store:/pnpm
+    working_dir: /app
+    command: bash -c "echo 'Contenedor QA Vue 3 listo para Lint, Type-Check, Unit y Mutación'; sleep infinity"
+
+  ui-e2e:
+    image: mcr.microsoft.com/playwright:v1.48.2-jammy
+    container_name: condominio_ui_e2e
+    hostname: ui-e2e
+    pull_policy: if_not_present
+    environment:
+      TZ: 'America/Caracas'
+      PNPM_HOME: /pnpm
+    volumes:
+      - .:/app
+      - pnpm-store:/pnpm
+    working_dir: /app
+    command: bash -c "echo 'Contenedor E2E listo'; sleep infinity"
+
+  karatelabs:
+    image: sinfallas/karatelabs:latest
+    container_name: condominio_ui_karate
+    hostname: karatelabs
+    pull_policy: if_not_present
+    depends_on:
+      - ui-prod
+    environment:
+      - UI_BASE_URL=http://ui-prod:80
+    volumes:
+      - ./test:/app/src/test/java/examples/test
+    command: bash -c "echo 'Contenedor Karate UI listo'; sleep infinity"
+
+  graphify:
+    image: sinfallas/remote-graphify:latest
+    container_name: condominio_frontend_graphify
+    hostname: graphify
+    profiles:
+      - graphify
+    restart: always
+    command: graphify-mcp /app/graphify-out/graph.json --transport http --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - GRAPHIFY_OLLAMA_KEEP_ALIVE=10
+    volumes:
+      - .:/app
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  pnpm-store:
+    name: condominio_frontend_pnpm_store
+  nginx-logs:
+    name: condominio_frontend_nginx_logs

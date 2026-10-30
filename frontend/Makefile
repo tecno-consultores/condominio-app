@@ -1,0 +1,51 @@
+.PHONY: qa-lint qa-unit qa-orphans qa-mutation qa-perf qa-e2e qa-bdd qa-obs qa-all build-ui clean-cache
+
+# ==============================================================================
+# MAKEFILE QA VUE 3 — CONDOMINIO APP (ESTÁNDAR CORPORATIVO 11X)
+# ==============================================================================
+
+COMPOSE_FILE = docker-compose.qa.yml
+SERVICE_NAME = qa-vue3
+E2E_SERVICE = ui-e2e
+
+build-ui:
+	@echo "🏗️ Compilando aplicación Vue 3 / Vite para entorno E2E/Producción..."
+	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "pnpm install && pnpm run build"
+	docker compose -f $(COMPOSE_FILE) up -d ui-prod
+
+qa-lint:
+	@echo "🔍 [11X] Ejecutando Auditoría de CVEs, Type-Check, Prettier y ESLint (SonarJS)..."
+	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "pnpm install && pnpm run audit:deps && pnpm run type-check && pnpm run format:check && pnpm run lint"
+
+qa-unit:
+	@echo "🧪 [11X] Ejecutando Pruebas Unitarias Aisladas (Vitest >= 95%)..."
+	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "pnpm install && pnpm run test:coverage"
+
+qa-orphans:
+	@echo "🧩 [11X] Verificando Invariante de Cero Componentes UI Huérfanos..."
+	python3 ../.agents/scripts/verify_zero_orphan_vue_components.py
+
+qa-mutation:
+	@echo "👽 [11X] Ejecutando Pruebas de Mutación Frontend (Stryker)..."
+	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "pnpm install && pnpm run mutate"
+
+qa-perf: build-ui
+	@echo "⚡ [11X] Ejecutando Auditoría de Rendimiento (Lighthouse CI)..."
+	docker compose -f $(COMPOSE_FILE) run --rm $(E2E_SERVICE) bash -c "pnpm install && pnpm run test:perf"
+
+qa-e2e: build-ui
+	@echo "🎭 [11X] Ejecutando Regresión Visual, Geometría Anti-JSDOM y Accesibilidad WCAG 2.1 AA..."
+	docker compose -f $(COMPOSE_FILE) run --rm $(E2E_SERVICE) bash -c "pnpm install && pnpm exec playwright test"
+
+qa-bdd: build-ui
+	@echo "📚 [11X] Ejecutando Pruebas de Aceptación BDD (Karate UI en Chrome Headless)..."
+	docker compose -f $(COMPOSE_FILE) run --rm karatelabs mvn clean test
+
+qa-all: qa-lint qa-orphans qa-unit qa-mutation qa-perf qa-e2e qa-bdd
+	@echo "✅ Pipeline QA Frontend (Vue 3 11X) completado exitosamente."
+
+clean-cache:
+	@echo "🧹 Limpiando volúmenes de caché de pnpm y apagando redes..."
+	docker compose -f $(COMPOSE_FILE) down -v
+	docker compose -f $(COMPOSE_FILE) --profile observability down -v
+	docker compose -f $(COMPOSE_FILE) --profile graphify down -v

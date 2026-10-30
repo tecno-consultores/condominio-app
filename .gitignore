@@ -42,9 +42,15 @@ test/target/
 # Logs
 *.log
 
-# Node (hooks / commitlint)
+# Node / Frontend (hooks / commitlint / Vite / Vitest / Playwright / Stryker)
 node_modules/
 package-lock.json
+coverage/
+.pnpm-store/
+playwright-report/
+test-results/
+.lighthouseci/
+.stryker-tmp/
 
 # Editores
 .vscode/

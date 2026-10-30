@@ -56,5 +56,9 @@ Apply these non-negotiable security directives before writing any code:
    - Sanitize objects against `__proto__`, `constructor`, `prototype`, and instantiate safe records via `Object.create(null)`.
 10. **Concurrency Grace Period in Refresh Tokens:**
     - Provide 5s leeway (`rotate_refresh_token_with_grace_period`) on token rotations in KeyDB/Redis to prevent accidental session revocation across multi-tab requests.
-11. **Shift-Left Lockfile Governance:**
+11. **Shift-Left Lockfile & Supply-Chain Governance (pnpm v12):**
     - Manage dependencies with strict lockfiles (`uv.lock`, `pnpm-lock.yaml`). Audit with `./auditar-infra.sh` and `make -C backend qa-deps`.
+    - In `frontend/`, enforce `dangerously-allow-all-builds=false` in `.npmrc` and explicitly allowlist required native build scripts (`esbuild`, `vue-demi`) inside `pnpm-workspace.yaml` under `allowBuilds` to prevent supply-chain script execution attacks while maintaining compatibility with `pnpm` v12 (`sinfallas/base-node-ionic:26`).
+12. **Modern Web Form Ergonomics & Post-Interaction Validation:**
+    - Use `autocomplete="username"` on email login inputs, `autocomplete="current-password"` on sign-in passwords, and `autocomplete="new-password"` on sign-up passwords.
+    - Place format and password rules/hints **above** the `<input>` element (`aria-describedby`) so mobile virtual keyboards never obscure them, and style validation states with `:user-invalid` and `:user-valid` after user interaction (`blur`).
