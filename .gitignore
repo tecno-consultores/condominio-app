@@ -34,6 +34,7 @@ chaos-report.json
 profile.speedscope.json
 graphify-out/*.html
 graphify-out/cache/
+graphify-out/20*/
 backend/graphify-out/
 frontend/graphify-out/
 prometheus_data/
