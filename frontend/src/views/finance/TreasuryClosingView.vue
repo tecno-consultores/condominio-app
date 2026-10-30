@@ -279,14 +279,19 @@ dialog::backdrop {
 
 .treasury-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
   gap: 1.25rem;
+  align-items: start;
 }
 
 .panel-card {
-  padding: 1.25rem;
+  padding: clamp(1rem, 2.5cqi, 1.5rem);
   border-radius: 0.75rem;
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
+  box-shadow:
+    0 1px 3px 0 rgba(15, 23, 42, 0.06),
+    0 1px 2px -1px rgba(15, 23, 42, 0.06);
 }
 
 .panel-card--warning {
@@ -297,11 +302,14 @@ dialog::backdrop {
 .panel-card__title {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;
+  text-wrap: balance;
   color: #0f172a;
 }
 
 .panel-card__desc {
   margin: 0 0 0.75rem;
+  max-inline-size: 65ch;
+  text-wrap: pretty;
   font-size: 0.85rem;
   color: #78350f;
 }
@@ -319,27 +327,33 @@ dialog::backdrop {
 }
 
 .field-input {
-  min-height: 44px;
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
   border: 1px solid #cbd5e1;
   font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (pointer: coarse) {
+  .field-input {
+    min-block-size: 2.75rem;
+  }
 }
 
 .inline-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
 }
 
 .inline-col {
-  flex: 1;
+  flex: 1 1 8rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
 
 .btn-primary {
-  min-height: 44px;
   margin-top: 0.5rem;
   padding: 0.625rem 1rem;
   border-radius: 0.5rem;
@@ -351,7 +365,6 @@ dialog::backdrop {
 }
 
 .btn-danger {
-  min-height: 44px;
   margin-top: 0.5rem;
   padding: 0.625rem 1rem;
   border-radius: 0.5rem;
@@ -363,7 +376,6 @@ dialog::backdrop {
 }
 
 .btn-secondary {
-  min-height: 44px;
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
   border: 1px solid #cbd5e1;
@@ -373,29 +385,46 @@ dialog::backdrop {
   cursor: pointer;
 }
 
+@media (pointer: coarse) {
+  .btn-primary,
+  .btn-danger,
+  .btn-secondary {
+    min-block-size: 2.75rem;
+  }
+}
+
 .closing-dialog[open] {
   display: block;
-  width: min(100% - 2rem, 460px);
+  inline-size: min(100% - 1.5rem, 28.75rem);
+  max-block-size: min(85dvh, 38rem);
+  overflow-y: auto;
   border: 1px solid #cbd5e1;
   border-radius: 0.75rem;
-  padding: 1.25rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
   background-color: #ffffff;
   color: #0f172a;
+  box-shadow:
+    0 20px 25px -5px rgba(15, 23, 42, 0.18),
+    0 8px 10px -6px rgba(15, 23, 42, 0.1);
 }
 
 .closing-dialog__title {
   margin: 0 0 0.5rem;
-  font-size: 1.1rem;
+  font-size: clamp(1rem, 2.5vw, 1.15rem);
+  text-wrap: balance;
 }
 
 .closing-dialog__text {
   margin: 0 0 1rem;
+  max-inline-size: 65ch;
+  text-wrap: pretty;
   font-size: 0.9rem;
   color: #334155;
 }
 
 .closing-dialog__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.75rem;
 }

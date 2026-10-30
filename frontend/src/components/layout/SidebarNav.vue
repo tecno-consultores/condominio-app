@@ -58,7 +58,7 @@ const links = [
 <style scoped>
 .sidebar {
   display: none;
-  width: 260px;
+  width: 16rem;
   flex-shrink: 0;
   background-color: #0f172a;
   color: #f8fafc;
@@ -69,8 +69,9 @@ const links = [
 
 .sidebar__brand {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 

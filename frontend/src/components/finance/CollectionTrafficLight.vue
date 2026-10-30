@@ -84,17 +84,21 @@ function formatVes(saldoUsd: string): string {
 .table-wrapper {
   overflow: auto;
   max-inline-size: 100%;
-  max-block-size: min(500px, 80vh);
+  max-block-size: min(32rem, 75dvh);
   container-type: inline-size;
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 0.75rem;
+  box-shadow:
+    0 1px 3px 0 rgba(15, 23, 42, 0.06),
+    0 1px 2px -1px rgba(15, 23, 42, 0.06);
 }
 
 .collection-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  font-variant-numeric: tabular-nums;
   --label-2: 'Periodo';
   --label-3: 'Estado';
   --label-4: 'Saldo (USD / VES)';

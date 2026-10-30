@@ -184,17 +184,25 @@ Todos los componentes nuevos deben cumplir el invariante **Cero Componentes Hué
 
 ---
 
-## 6. Sistema Universal de Ayuda Contextual en Cada Pantalla y Manuales Editables en Markdown (Hito 14)
+## 6. Sistema Universal de Ayuda Contextual Responsiva (`refactoring-ui` + `modern-web-guidance`) y Manuales en Markdown (Hito 14)
 
-### 6.1. Opción de Ayuda Contextual Interactiva en Cada Pantalla (`ContextualHelpModal.vue`)
-Para facilitar el aprendizaje y uso diario tanto a **Propietarios/Inquilinos/Conserjes** como a los miembros de la **Junta de Condominio (Presidente, Tesorero, Secretario, Voceros)**:
-1. **Ubicación e Invocación Universal:**
-   - El layout maestro `AppShellLayout.vue` (y las pantallas públicas `/login`, `/register`, `/espera-aprobacion`) incluye un botón táctil siempre accesible en la barra superior: `#btn-contextual-help` (`? Ayuda`), con área mínima de $48 \times 48\text{ px}$ y atributo `aria-label="Abrir ayuda de esta pantalla"`.
-2. **Contenido Dinámico Sensible a la Ruta y al Rol (`frontend/src/utils/screenHelpCatalog.ts`):**
-   - Al pulsarse `#btn-contextual-help`, se abre un `<dialog>` nativo accesible (`#dialog-contextual-help`, `ContextualHelpModal.vue`) que detecta la ruta activa (`useRoute().path`) y el rol del usuario (`authStore.user?.rol`) y presenta:
-     - **Propósito de la Pantalla:** Explicación breve y sin tecnicismos de qué se hace en esa vista.
-     - **Guía Paso a Paso (1, 2, 3):** Instrucciones accionables (ej. en `/finanzas/reportar-pago` explica cómo elegir moneda USD/VES, cuándo es obligatorio el número de referencia y cómo verificar si es Pago Total o Abono Parcial; en `/tesoreria/cierre` advierte que el **Candado Contable** es irreversible; en `/tesoreria/facturacion` explica cuándo elegir `CUOTA_FIJA`, `ALICUOTA` o `PARTES_IGUALES`).
-     - **Consejos y Errores Frecuentes:** Respuestas rápidas a las dudas más habituales de esa pantalla.
+### 6.1. Reglas de Diseño Responsivo y Jerarquía Visual (`refactoring-ui` + `modern-web-guidance`)
+Ningún componente, botón de ayuda ni diálogo modal utiliza dimensiones fijas rígidas. Toda la interfaz aplica las siguientes reglas del sistema de diseño:
+1. **Escalado Fluido Basado en Contenedor (`container-type: inline-size` + `clamp()`):**
+   - `AppShellLayout.vue` declara `container-type: inline-size; container-name: main-canvas;` y limita el ancho máximo del lienzo de trabajo a `max-inline-size: 76rem; margin-inline: auto;` (*"Give an element the width it needs: a 1400px canvas is not a 1400px requirement"*).
+   - El relleno (*padding*) y los tamaños tipográficos escalan suavemente con `clamp()` y unidades de contenedor (`cqi`) o viewport dinámico (`dvh`), garantizando que el máximo nunca supere $2.5\times$ el mínimo para respetar el zoom de accesibilidad WCAG 2.1 AA.
+2. **Adaptación por Dispositivo de Entrada (`@media (pointer: coarse)` vs `pointer: fine`):**
+   - En lugar de imponer tamaños fijos, los botones de acción y el disparador `#btn-contextual-help` emplean un diseño compacto y proporcionado en cursores de escritorio (`padding: 0.375rem 0.75rem`) y expanden automáticamente su área interactiva en pantallas táctiles mediante `@media (pointer: coarse)` (`min-block-size: 2.75rem; padding: 0.5rem 0.875rem`).
+3. **Diálogo de Ayuda Contextual Fluido (`ContextualHelpModal.vue`):**
+   - Usa el elemento nativo `<dialog>` con `overscroll-behavior: contain` tanto en `dialog:modal` como en `dialog::backdrop` (`overflow: hidden`).
+   - En móviles estrechos se adapta fluidamente (`inline-size: min(100% - 1.5rem, 36rem); max-block-size: min(85dvh, 42rem); padding: clamp(1rem, 3cqi, 1.75rem)`), y la longitud de línea de las explicaciones se restringe a `max-inline-size: 65ch` con `text-wrap: pretty` en párrafos y `text-wrap: balance` en títulos para lectura óptima (45–75 caracteres por línea).
+4. **Alineación Tabular en Cifras Financieras (`tabular-nums`):**
+   - Todo monto en USD, VES, tasa BCV o porcentaje de alícuota aplica `font-variant-numeric: tabular-nums` y alineación derecha en tablas de escritorio para que los decimales coincidan verticalmente.
+5. **Contenido Dinámico Sensible a la Ruta y al Rol (`frontend/src/utils/screenHelpCatalog.ts`):**
+   - Al pulsarse `#btn-contextual-help`, `ContextualHelpModal.vue` detecta la ruta activa (`useRoute().path`) y el rol del usuario (`authStore.user?.rol`) y muestra:
+     - **Propósito de la Pantalla** (jerarquía primaria/secundaria clara).
+     - **Guía Paso a Paso (1, 2, 3)** adaptada al rol (Propietario/Inquilino/Conserje vs Presidente/Tesorero/Secretario/Vocero).
+     - **Consejos y Errores Frecuentes.**
 
 ### 6.2. Manuales Maestros en Markdown Editables y Exportables a PDF (`docs/`)
 El repositorio mantiene dos manuales independientes en formato Markdown puro (`.md`) con estructura limpia de capítulos, tablas y listas numeradas para que cualquier administrador pueda editarlos fácilmente y exportarlos a **PDF** (`pandoc`, VS Code Markdown PDF o impresión desde visor Markdown) para enviarlos por WhatsApp o correo electrónico:

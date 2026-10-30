@@ -76,31 +76,38 @@ const items = computed<NavItem[]>(() => {
   display: flex;
   justify-content: space-around;
   align-items: center;
-  height: 4rem;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  min-block-size: 3.75rem;
+  padding: 0.25rem 0.5rem calc(0.25rem + env(safe-area-inset-bottom, 0px));
   background-color: #0f172a;
   border-top: 1px solid #1e293b;
 }
 
 .bottom-nav__btn {
+  flex: 1;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 48px;
-  min-height: 48px;
-  padding: 0.25rem 0.5rem;
-  color: #cbd5e1;
+  padding: 0.375rem 0.5rem;
+  color: #94a3b8;
   background: transparent;
   border: none;
   border-radius: 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: clamp(0.7rem, 2.2vw, 0.8rem);
+  font-weight: 500;
   cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  .bottom-nav__btn {
+    min-block-size: 2.75rem;
+    padding: 0.5rem;
+  }
 }
 
 .bottom-nav__btn--active {
   color: #38bdf8;
+  font-weight: 700;
   background-color: rgba(56, 189, 248, 0.12);
 }
 

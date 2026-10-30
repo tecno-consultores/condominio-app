@@ -24,7 +24,7 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
 - `src/router/index.unit.ts`:
   - Guardias de navegación para rutas públicas (`/login`, `/register`), ruta de contención fantasma (`/espera-aprobacion`) y rutas protegidas por rol (`meta.roles`).
 - `src/components/layout/*.unit.ts`:
-  - `AppShellLayout.unit.ts`, `BottomNavBar.unit.ts`, `SidebarNav.unit.ts`, `AppFooter.unit.ts` y `StaleDataBanner.unit.ts`.
+  - `AppShellLayout.unit.ts` (contenedor fluido `container-type: inline-size` y `max-inline-size: 76rem`), `BottomNavBar.unit.ts` (adaptación `@media (pointer: coarse)`), `SidebarNav.unit.ts`, `AppFooter.unit.ts` y `StaleDataBanner.unit.ts`.
 - `src/stores/financeStore.unit.ts` y `src/components/finance/*.unit.ts` (Hito 6):
   - `financeStore.unit.ts` (conversión USD/VES, cobertura de abono parcial vs pago total, catch no destructivo en resumen y pagos en revisión, y Candado Contable).
   - `ClosingBanner.unit.ts`, `AnnouncementsCarousel.unit.ts`, `CollectionTrafficLight.unit.ts`, `ExpensesDonutChart.unit.ts` y `RejectPaymentModal.unit.ts`.

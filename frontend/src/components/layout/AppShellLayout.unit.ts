@@ -36,6 +36,7 @@ describe('AppShellLayout.vue (Anti-JSDOM Geometry & Navigation)', () => {
     });
 
     expect(wrapper.find('#app-main-content').exists()).toBe(true);
+    expect(wrapper.find('.app-main__body').exists()).toBe(true);
     expect(wrapper.find('#slot-content').text()).toBe('Contenido Principal');
     expect(wrapper.find('#app-inflow-footer').exists()).toBe(true);
     expect(wrapper.find('#mobile-bottom-nav').exists()).toBe(true);

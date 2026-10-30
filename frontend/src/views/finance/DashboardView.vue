@@ -104,7 +104,8 @@ async function goToReportPayment(): Promise<void> {
 }
 
 .dashboard-header__title {
-  font-size: 1.35rem;
+  font-size: clamp(1.2rem, 1rem + 1vw, 1.5rem);
+  text-wrap: balance;
   margin: 0;
   color: #0f172a;
 }
@@ -122,6 +123,7 @@ async function goToReportPayment(): Promise<void> {
   color: #38bdf8;
   font-weight: 700;
   font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .dashboard-summary {
@@ -129,10 +131,13 @@ async function goToReportPayment(): Promise<void> {
 }
 
 .summary-card {
-  padding: 1.25rem;
+  padding: clamp(1rem, 2.5cqi, 1.5rem);
   border-radius: 0.75rem;
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
+  box-shadow:
+    0 1px 3px 0 rgba(15, 23, 42, 0.06),
+    0 1px 2px -1px rgba(15, 23, 42, 0.06);
 }
 
 .summary-card__title {
@@ -142,8 +147,9 @@ async function goToReportPayment(): Promise<void> {
 }
 
 .summary-card__value {
-  font-size: 1.25rem;
+  font-size: clamp(1.25rem, 1.1rem + 0.75vw, 1.5rem);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: #0f172a;
   margin: 0;
 }
@@ -151,17 +157,18 @@ async function goToReportPayment(): Promise<void> {
 .summary-card__sub {
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
   color: #475569;
 }
 
 .dashboard-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
 
 .tab-btn {
-  min-height: 44px;
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
   border: 1px solid #cbd5e1;
@@ -169,6 +176,12 @@ async function goToReportPayment(): Promise<void> {
   color: #334155;
   font-weight: 600;
   cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  .tab-btn {
+    min-block-size: 2.75rem;
+  }
 }
 
 .tab-btn--active {
@@ -179,10 +192,9 @@ async function goToReportPayment(): Promise<void> {
 
 .fab-button {
   position: fixed;
-  bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
-  right: 1rem;
+  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  right: clamp(1rem, 3vw, 2rem);
   z-index: 30;
-  min-height: 48px;
   padding: 0.75rem 1.25rem;
   border-radius: 9999px;
   border: none;
@@ -191,5 +203,17 @@ async function goToReportPayment(): Promise<void> {
   font-weight: 700;
   box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
   cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  .fab-button {
+    min-block-size: 3rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .fab-button {
+    bottom: clamp(1.5rem, 3vw, 2.5rem);
+  }
 }
 </style>

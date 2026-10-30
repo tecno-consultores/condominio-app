@@ -110,17 +110,23 @@ dialog::backdrop {
 
 .reject-dialog[open] {
   display: block;
-  width: min(100% - 2rem, 460px);
+  inline-size: min(100% - 1.5rem, 28.75rem);
+  max-block-size: min(85dvh, 38rem);
+  overflow-y: auto;
   border: 1px solid #cbd5e1;
   border-radius: 0.75rem;
-  padding: 1.25rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
   background-color: #ffffff;
   color: #0f172a;
+  box-shadow:
+    0 20px 25px -5px rgba(15, 23, 42, 0.18),
+    0 8px 10px -6px rgba(15, 23, 42, 0.1);
 }
 
 .reject-dialog__title {
   margin: 0 0 0.875rem;
-  font-size: 1.1rem;
+  font-size: clamp(1rem, 2.5vw, 1.15rem);
+  text-wrap: balance;
   color: #0f172a;
 }
 
@@ -138,6 +144,8 @@ dialog::backdrop {
 
 .field-hint {
   margin: 0;
+  max-inline-size: 65ch;
+  text-wrap: pretty;
   font-size: 0.775rem;
   color: #475569;
 }
