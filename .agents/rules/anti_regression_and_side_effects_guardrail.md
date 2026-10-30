@@ -24,8 +24,8 @@ Before altering any shared code, service definition, or configuration:
      ```
    - **CLI-First Execution Rule:** Shell-capable agents (Google Antigravity, local terminal agents) MUST execute the inspector and query tools directly via CLI. They MUST NOT spawn background Docker MCP containers or occupy port 8080, which are reserved exclusively for external non-shell clients (Claude Desktop, Hermes Agent).
    - For any symbol assessed as `MODERATE` or `HIGH/CRITICAL` risk, the agent's implementation plan must explicitly list all affected caller files and guarantee that their contracts and parameters remain intact.
-3. **Deterministic Session Continuity (`ACTIVE_TASK.md`):**
-   - Maintain `ACTIVE_TASK.md` in the repository root with granular `CP-X.Y` checkpoints during multi-step tasks so that any interrupted session can resume deterministically from the exact checkpoint.
+3. **Deterministic Session Continuity (`.agents/ACTIVE_TASK.md`):**
+   - Maintain `.agents/ACTIVE_TASK.md` (ignored by Git via `.gitignore`) with granular `CP-X.Y` checkpoints during multi-step tasks so that any interrupted session can resume deterministically from the exact checkpoint.
 
 ---
 

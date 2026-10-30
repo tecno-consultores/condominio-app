@@ -1,7 +1,9 @@
-# Entorno
+# Entorno y Diario Local de Agentes
 .env
 .env.*
 !.env.example
+.agents/ACTIVE_TASK.md
+ACTIVE_TASK.md
 
 # Python / uv
 venv/

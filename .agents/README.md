@@ -11,6 +11,7 @@ Este directorio implementa el estándar corporativo **Nivel 11X** derivado de `q
 ```text
 .agents/
 ├── README.md                                         # Este documento explicativo
+├── ACTIVE_TASK.md                                    # Diario local de sesión activa (ignorado en .gitignore)
 ├── rules/                                            # Reglas y directivas de comportamiento forzadas
 │   ├── mandatory_qa_pyramid_and_doc_sync.md          # Pirámide de pruebas multi-capa y sync documental
 │   ├── secure_development_and_testing_guidelines.md  # Anti-Mocks ciegos, SSRF, CSRF, extra=forbid y geometría visual
