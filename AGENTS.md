@@ -77,3 +77,25 @@ Welcome to the **Condominio App** repository. All AI coding assistants (Google A
 > 2. **Mandatory Test Execution & Anti-Regression Verification:** Execute the complete test suite in ephemeral Docker containers (`Rule Zero`), certifying `>= 95%` coverage, 100% passed assertions, Karate Labs BDD validation, and 0 typing/linting errors. Regenerate and verify the AST Knowledge Graph (`graphify-out/graph.json`) using `sinfallas/remote-graphify:latest` and `.agents/scripts/verify_topological_health.py`.
 > 3. **Mandatory Documentation & Checkpoint Synchronization:** Unconditionally update all affected files across `docs/`, `docs/specs/`, `CHANGELOG.md` (section `## [Unreleased]`), `ROADMAP.md`, `TESTING.md`, `frontend/TESTING.md`, `.agents/ACTIVE_TASK.md` (local session journal), and `README.md`.
 > 4. **Secret Scanning, Local Dependency Audit & ORM Parity:** Run `./scripts/verificar-secretos.sh`, execute `./auditar-infra.sh`, and run `./.agents/scripts/certify_task_completion.sh`.
+
+---
+
+<!-- QA_11X_MCP_CONNECTOR_START -->
+## 🤖 Central QA 11X Skill & MCP Server Connector (`@sinfallas/mcp-qa-11x`)
+
+> **OUTPUT LANGUAGE CONSTRAINT:**
+> Always interact with the user, provide status updates, explain reasoning, and write commit messages / user-facing documentation strictly in Spanish.
+
+This project (`condominio-app`) enforces the **Level-11X Quality & DevSecOps Standard** via the centralized MCP Server and Global Skills. Before modifying code, running tests, or closing any task, you **MUST**:
+
+1. **Activate Global Skills:** Load `qa-11x-architect` (for all backend, testing, Docker, and DevSecOps tasks) and `refactoring-ui` (for any Vue 3 / React / CSS / UI task).
+2. **Enforce Rule Zero & Active Task Resilience:**
+   - **Rule Zero:** NEVER run `pytest`, `vitest`, `npm`, `pnpm`, `uv`, migrations, or linters directly on the host OS. Execute everything inside ephemeral Docker containers (`docker-compose.qa.yml` / `Makefile`).
+   - **Active Task Invariant:** Track progress in real time inside `.agents/ACTIVE_TASK.md` (`IN_PROGRESS` -> `COMPLETED (100%)`).
+3. **Execute Mandatory MCP Tools (`@sinfallas/mcp-qa-11x`):**
+   - `inspect_project_config` & `audit_test_pyramid_gaps`: Diagnose active stacks (`bash-scripts`) and missing test layers across the 13-layer pyramid.
+   - `inspect_ast_blast_radius`: Audit incoming dependency edges before modifying shared modules.
+   - `audit_security_stig_owasp`: Certify 0 `CRITICAL`/`HIGH` findings against the 22 DISA ASD STIG V6R5 & OWASP v4.2 patterns.
+   - `run_ephemeral_qa`: Run linters (`--max-warnings 0`), unit tests (`>= 95%` coverage), and Karate Labs BDD scenarios in ephemeral Docker.
+   - `certify_11x_gate` & `clean_workspace_11x`: Certify all closure checks and sanitize root-owned container files before `git commit` and `git push`.
+<!-- QA_11X_MCP_CONNECTOR_END -->
