@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import ContextualHelpModal from '../../components/layout/ContextualHelpModal.vue';
 import { useAuthStore } from '../../stores/authStore';
 import { isSafeRedirectUrl } from '../../utils/security';
 
@@ -12,6 +13,7 @@ const correo = ref('');
 const password = ref('');
 const showPassword = ref(false);
 const errorBanner = ref<string | null>(null);
+const isHelpOpen = ref(false);
 
 function syncAriaInvalid(event: Event): void {
   const el = event.target as HTMLInputElement;
@@ -49,7 +51,18 @@ async function onSubmit(): Promise<void> {
 <template>
   <main class="auth-page">
     <section class="auth-card" aria-labelledby="login-heading">
-      <h1 id="login-heading" class="auth-card__title">Iniciar Sesión — Condominio App</h1>
+      <div class="auth-card__header-row">
+        <h1 id="login-heading" class="auth-card__title">Iniciar Sesión — Condominio App</h1>
+        <button
+          id="btn-contextual-help"
+          type="button"
+          class="auth-card__help-btn"
+          aria-label="Abrir ayuda de inicio de sesión"
+          @click="isHelpOpen = true"
+        >
+          ?
+        </button>
+      </div>
       <p class="auth-card__subtitle">
         Acceda al estado de cobranza, reporte de pagos e incidencias de su comunidad.
       </p>
@@ -123,6 +136,8 @@ async function onSubmit(): Promise<void> {
         </router-link>
       </p>
     </section>
+
+    <ContextualHelpModal :open="isHelpOpen" path="/login" @close="isHelpOpen = false" />
   </main>
 </template>
 
@@ -255,5 +270,42 @@ async function onSubmit(): Promise<void> {
 .auth-card__link {
   color: #38bdf8;
   font-weight: 600;
+}
+
+.auth-card__header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.auth-card__help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border-radius: 50%;
+  border: 1px solid #334155;
+  background-color: #1e293b;
+  color: #38bdf8;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.auth-card__help-btn:hover {
+  background-color: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+}
+
+@media (pointer: coarse) {
+  .auth-card__help-btn {
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+  }
 }
 </style>

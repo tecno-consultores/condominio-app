@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useIdempotency } from '../../composables/useIdempotency';
+import ContextualHelpModal from '../../components/layout/ContextualHelpModal.vue';
 import { apiRequest } from '../../services/apiClient';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -24,6 +25,7 @@ const unidadId = ref<number>(1);
 const tipoOcupante = ref<'PROPIETARIO' | 'INQUILINO'>('PROPIETARIO');
 const unidades = ref<UnidadItem[]>([{ id: 1, identificador: 'A-101', estructura_id: 1 }]);
 const errorBanner = ref<string | null>(null);
+const isHelpOpen = ref(false);
 
 onMounted(async () => {
   try {
@@ -72,7 +74,18 @@ async function onSubmit(): Promise<void> {
 <template>
   <main class="auth-page">
     <section class="auth-card" aria-labelledby="register-heading">
-      <h1 id="register-heading" class="auth-card__title">Registro de Residente</h1>
+      <div class="auth-card__header-row">
+        <h1 id="register-heading" class="auth-card__title">Registro de Residente</h1>
+        <button
+          id="btn-contextual-help"
+          type="button"
+          class="auth-card__help-btn"
+          aria-label="Abrir ayuda de registro"
+          @click="isHelpOpen = true"
+        >
+          ?
+        </button>
+      </div>
       <p class="auth-card__subtitle">
         Cree su cuenta. Quedará en espera hasta que el Presidente valide su unidad.
       </p>
@@ -190,6 +203,8 @@ async function onSubmit(): Promise<void> {
         </button>
       </form>
     </section>
+
+    <ContextualHelpModal :open="isHelpOpen" path="/register" @close="isHelpOpen = false" />
   </main>
 </template>
 
@@ -292,5 +307,42 @@ async function onSubmit(): Promise<void> {
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
+}
+
+.auth-card__header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.auth-card__help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border-radius: 50%;
+  border: 1px solid #334155;
+  background-color: #1e293b;
+  color: #38bdf8;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.auth-card__help-btn:hover {
+  background-color: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+}
+
+@media (pointer: coarse) {
+  .auth-card__help-btn {
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+  }
 }
 </style>

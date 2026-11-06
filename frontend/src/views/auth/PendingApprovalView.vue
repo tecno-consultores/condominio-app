@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
+import ContextualHelpModal from '../../components/layout/ContextualHelpModal.vue';
 import { useAuthStore } from '../../stores/authStore';
 
 const authStore = useAuthStore();
 const router = useRouter();
 const statusMessage = ref<string | null>(null);
+const isHelpOpen = ref(false);
 
 async function checkApprovalStatus(): Promise<void> {
   statusMessage.value = null;
@@ -27,7 +29,18 @@ async function handleLogout(): Promise<void> {
 <template>
   <main class="lock-page">
     <section id="ghost-lock-screen" class="lock-card" aria-labelledby="ghost-lock-heading">
-      <span class="lock-card__badge">Cuenta en Validación</span>
+      <div class="lock-card__top-bar">
+        <span class="lock-card__badge">Cuenta en Validación</span>
+        <button
+          id="btn-contextual-help"
+          type="button"
+          class="auth-help-btn"
+          aria-label="Abrir ayuda de cuenta en validación"
+          @click="isHelpOpen = true"
+        >
+          ?
+        </button>
+      </div>
       <h1 id="ghost-lock-heading" class="lock-card__title">
         Registro completado. Esperando validación de la Junta
       </h1>
@@ -56,6 +69,8 @@ async function handleLogout(): Promise<void> {
         </button>
       </div>
     </section>
+
+    <ContextualHelpModal :open="isHelpOpen" path="/espera-aprobacion" @close="isHelpOpen = false" />
   </main>
 </template>
 
@@ -140,5 +155,41 @@ async function handleLogout(): Promise<void> {
   color: #e2e8f0;
   font-weight: 600;
   cursor: pointer;
+}
+
+.lock-card__top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.auth-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border-radius: 50%;
+  border: 1px solid #334155;
+  background-color: #0f172a;
+  color: #38bdf8;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-help-btn:hover {
+  background-color: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+}
+
+@media (pointer: coarse) {
+  .auth-help-btn {
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+  }
 }
 </style>

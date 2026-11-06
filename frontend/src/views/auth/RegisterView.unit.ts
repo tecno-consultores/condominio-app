@@ -9,6 +9,7 @@ const pushMock = vi.fn();
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: pushMock }),
+  useRoute: () => ({ path: '/register' }),
 }));
 
 describe('RegisterView.vue', () => {
@@ -16,6 +17,8 @@ describe('RegisterView.vue', () => {
     setActivePinia(createPinia());
     pushMock.mockReset();
     vi.restoreAllMocks();
+    HTMLDialogElement.prototype.showModal = vi.fn();
+    HTMLDialogElement.prototype.close = vi.fn();
   });
 
   it('carga unidades al montar, valida campos obligatorios y envía registro idempotente hacia /espera-aprobacion', async () => {
@@ -76,5 +79,21 @@ describe('RegisterView.vue', () => {
     await flushPromises();
 
     expect(wrapper.find('.banner--error').text()).toContain('ya están registrados');
+  });
+
+  it('abre y cierra el diálogo de ayuda contextual en el registro', async () => {
+    const wrapper = mount(RegisterView);
+    await flushPromises();
+
+    const btnHelp = wrapper.find('#btn-contextual-help');
+    expect(btnHelp.exists()).toBe(true);
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(false);
+
+    await btnHelp.trigger('click');
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(true);
+    expect(wrapper.find('#help-screen-title').text()).toBe('Registro de Nuevo Residente');
+
+    await wrapper.find('#btn-close-help').trigger('click');
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(false);
   });
 });

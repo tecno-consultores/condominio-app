@@ -98,6 +98,13 @@ make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-c
 
 ---
 
+## 📖 Manuales de Operación y Soporte Comunitario (`docs/`)
+
+- 📘 **[`docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md`](./docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md)** — Manual Maestro para la Junta de Condominio, Administrador y Personal Técnico: Despliegue con Docker Compose, variables de entorno, seguridad TLS/SSL, respaldos automáticos de PostgreSQL 17/MinIO, configuración de torres, alícuotas y cuotas fijas LPH, activación de usuarios, tesorería trimodal, candado contable inmutable, cartas consulta, garita QR, paquetería, amenidades y comandos de exportación a PDF.
+- 🏡 **[`docs/MANUAL_USUARIO_RESIDENTE.md`](./docs/MANUAL_USUARIO_RESIDENTE.md)** — Guía Práctica en lenguaje claro para Propietarios, Inquilinos y Conserjes: Registro y activación, lectura del panel "Tu Hogar Hoy", asistente de pagos en Bs/USD en 3 pasos (con acreditación automática de saldos a favor), incidencias colaborativas con el botón "¡Me sumo!", votación en cartas consulta con recibo criptográfico, pases QR para visitas, recepción de encomiendas, reservas de áreas comunes y certificado digital de solvencia, listo para exportar a PDF y compartir por WhatsApp.
+
+---
+
 ## 📄 Licencia
 
 Distribuido bajo licencia **MIT**. Ver [`LICENSE`](./LICENSE) para más detalles.

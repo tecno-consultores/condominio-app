@@ -39,8 +39,11 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
 - `src/stores/accessAmenitiesStore.unit.ts` y `src/views/operations/{VisitorPassesView,GatehouseScannerView,ParcelsTrackerView,AmenitiesReservationView}.unit.ts` (Hitos 12 y 13):
   - `accessAmenitiesStore.unit.ts` (emisión, listado, revocación y verificación en garita de Pases de Visita QR `HMAC-SHA256`, registro y confirmación de entrega de paquetería en garita, configuración de áreas sociales, solicitud de reserva con solvencia, inspección post-evento y catch no destructivo `isStale = true`).
   - `VisitorPassesView.unit.ts` (`/accesos/pases`), `GatehouseScannerView.unit.ts` (`/operaciones/garita-qr`), `ParcelsTrackerView.unit.ts` (`/operaciones/paqueteria`) y `AmenitiesReservationView.unit.ts` (`/reservas/areas`).
+- `src/utils/screenHelpCatalog.unit.ts` y `src/components/layout/ContextualHelpModal.unit.ts` (Hito 14):
+  - `screenHelpCatalog.unit.ts` (cobertura total de rutas públicas, financieras, operativas, gobernanza, administrativas, alias y variantes adaptadas por rol).
+  - `ContextualHelpModal.unit.ts` (modal accesible `<dialog id="dialog-contextual-help">`, selectores canónicos, renderizado reactivo según ruta y rol, interacción y cierre por backdrop).
 - `src/App.unit.ts`: Montaje del contenedor raíz.
-- **Total Certificado (Hitos 5, 6, 7, 10, 11, 12 y 13):** **37 componentes `.vue` auditados (0 huérfanos)**, **46 suites `.unit.ts` (94/94 tests aprobados)** con **99.38% líneas, 99.12% sentencias, 97.54% funciones y 95.52% ramas**.
+- **Total Certificado (Hitos 5 al 14):** **38 componentes `.vue` auditados (0 huérfanos)**, **48 suites `.unit.ts` (108/108 tests aprobados)** con **99.48% líneas, 99.41% sentencias, 97.63% funciones y 95.88% ramas**.
 
 ---
 

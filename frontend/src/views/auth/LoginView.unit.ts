@@ -17,6 +17,8 @@ describe('LoginView.vue', () => {
     setActivePinia(createPinia());
     pushMock.mockReset();
     currentQuery = {};
+    HTMLDialogElement.prototype.showModal = vi.fn();
+    HTMLDialogElement.prototype.close = vi.fn();
   });
 
   it('valida campos vacíos, alterna visibilidad de contraseña y sincroniza aria-invalid en blur/input', async () => {
@@ -103,5 +105,24 @@ describe('LoginView.vue', () => {
     await wrapper.find('#login-form').trigger('submit.prevent');
     await flushPromises();
     expect(wrapper.find('.banner--error').text()).toContain('Credenciales inválidas');
+  });
+
+  it('abre y cierra el diálogo de ayuda contextual mediante #btn-contextual-help', async () => {
+    const wrapper = mount(LoginView, {
+      global: {
+        stubs: { 'router-link': { template: '<a><slot /></a>' } },
+      },
+    });
+
+    const btnHelp = wrapper.find('#btn-contextual-help');
+    expect(btnHelp.exists()).toBe(true);
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(false);
+
+    await btnHelp.trigger('click');
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(true);
+    expect(wrapper.find('#help-screen-title').text()).toBe('Inicio de Sesión');
+
+    await wrapper.find('#btn-close-help').trigger('click');
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(false);
   });
 });

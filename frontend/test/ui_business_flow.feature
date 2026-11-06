@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
 
-Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH, Gobernanza Digital, Accesos QR / Paquetería y Reservas de Áreas Sociales (Hitos 5, 6, 7, 10, 11, 12 y 13)
+Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH, Gobernanza Digital, Accesos QR / Paquetería, Reservas de Áreas Sociales y Ayuda Contextual (Hitos 5 al 14)
 
   Background:
     * configure driver = { type: 'chrome', headless: true, addOptions: ['--no-sandbox', '--disable-dev-shm-usage'] }
@@ -80,4 +80,16 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
   Scenario: 8. Redirección automática de la vista de Reserva de Áreas Sociales de Hito 13 (/reservas/areas) hacia /login sin sesión autenticada
     Given driver baseUrl + '/reservas/areas'
     Then waitFor('#login-form')
+
+  Scenario: 9. El usuario interactúa con la Ayuda Contextual Universal de Hito 14 en /login (#btn-contextual-help), verifica el contenido (#dialog-contextual-help) y su cierre
+    Given driver baseUrl + '/login'
+    And waitFor('#btn-contextual-help')
+    When click('#btn-contextual-help')
+    Then waitFor('#dialog-contextual-help')
+    And match text('#help-screen-title') contains 'Inicio de Sesión'
+    And waitFor('#help-steps-list')
+    And waitFor('#btn-close-help')
+    When click('#btn-close-help')
+    Then waitUntil("!document.querySelector('#dialog-contextual-help')")
+
 

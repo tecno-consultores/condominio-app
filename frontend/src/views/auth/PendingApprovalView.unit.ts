@@ -8,12 +8,15 @@ const pushMock = vi.fn();
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: pushMock }),
+  useRoute: () => ({ path: '/espera-aprobacion' }),
 }));
 
 describe('PendingApprovalView.vue (Pantalla de Contención Fantasma)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     pushMock.mockReset();
+    HTMLDialogElement.prototype.showModal = vi.fn();
+    HTMLDialogElement.prototype.close = vi.fn();
   });
 
   it('muestra aviso cuando continúa fantasma, redirige a /dashboard al ser activado y permite cerrar sesión', async () => {
@@ -55,5 +58,20 @@ describe('PendingApprovalView.vue (Pantalla de Contención Fantasma)', () => {
     await wrapper.find('#btn-logout').trigger('click');
     expect(store.isAuthenticated).toBe(false);
     expect(pushMock).toHaveBeenCalledWith('/login');
+  });
+
+  it('abre y cierra el diálogo de ayuda contextual en espera de aprobación', async () => {
+    const wrapper = mount(PendingApprovalView);
+
+    const btnHelp = wrapper.find('#btn-contextual-help');
+    expect(btnHelp.exists()).toBe(true);
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(false);
+
+    await btnHelp.trigger('click');
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(true);
+    expect(wrapper.find('#help-screen-title').text()).toBe('Cuenta Pendiente de Aprobación');
+
+    await wrapper.find('#btn-close-help').trigger('click');
+    expect(wrapper.find('#dialog-contextual-help').exists()).toBe(false);
   });
 });
