@@ -105,6 +105,8 @@ make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-c
 
 ---
 
-## 📄 Licencia
+## 📄 Licencia y Autoría
 
-Distribuido bajo licencia **MIT**. Ver [`LICENSE`](./LICENSE) para más detalles.
+**Copyright (C) 2026 Jesus Palencia `<sinfallas@gmail.com>` (Creado en Tecno Consultores)**
+
+Este proyecto es Software Libre distribuido bajo los términos de la licencia **MIT**. Ver [`LICENSE`](./LICENSE) para más detalles.
