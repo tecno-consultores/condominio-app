@@ -125,4 +125,52 @@ describe('Store useAuthStore (No Destructivo & Trimodal)', () => {
       ),
     ).rejects.toThrow('Error en el registro');
   });
+
+  it('invoca /api/auth/logout al cerrar sesión y redirige a /login en handleUnauthorizedError (Hito 17.2)', async () => {
+    const mockPush = vi.fn().mockResolvedValue(undefined);
+    const { registerAuthRouter } = await import('./authStore');
+    const mockRouter = {
+      currentRoute: { value: { path: '/dashboard' } },
+      push: mockPush,
+    } as unknown as Parameters<typeof registerAuthRouter>[0];
+    registerAuthRouter(mockRouter);
+
+    const store = useAuthStore();
+    store.setProfileForTesting({ ...PERFIL_ACTIVO, unidad_activa_id: 42 });
+    const reqSpy = vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce({ message: 'ok' });
+
+    await store.logout();
+    expect(reqSpy).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
+    expect(store.data).toBeNull();
+    expect(store.sessionHydrated).toBe(true);
+
+    // 401 en ruta protegida redirige a /login y limpia sesión
+    store.setProfileForTesting(PERFIL_ACTIVO);
+    const handled = await store.handleUnauthorizedError(new apiClient.ApiError(401, 'Expirada'));
+    expect(handled).toBe(true);
+    expect(store.isAuthenticated).toBe(false);
+    expect(mockPush).toHaveBeenCalledWith('/login');
+
+    // 401 cuando ya se encuentra en /login limpia sesión sin navegar de nuevo
+    store.setProfileForTesting(PERFIL_ACTIVO);
+    mockPush.mockClear();
+    (mockRouter.currentRoute as { value: { path: string } }).value.path = '/login';
+    expect(await store.handleUnauthorizedError(new apiClient.ApiError(401, 'Expirada'))).toBe(true);
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // Error no-401 retorna false sin limpiar sesión
+    store.setProfileForTesting(PERFIL_ACTIVO);
+    expect(await store.handleUnauthorizedError(new apiClient.ApiError(500, 'Server'))).toBe(false);
+    expect(store.isAuthenticated).toBe(true);
+
+    // Si /api/auth/logout falla en red, limpia la sesión local de forma segura
+    vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new Error('Offline'));
+    await store.logout();
+    expect(store.isAuthenticated).toBe(false);
+
+    store.setRbacNotice('Sin permisos');
+    expect(store.rbacNotice).toBe('Sin permisos');
+    store.setRbacNotice(null);
+    expect(store.rbacNotice).toBeNull();
+  });
 });

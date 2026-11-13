@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { apiClient, ApiError } from '../services/apiClient';
-import type { RolUsuario, UsuarioPerfil } from './authStore';
+import { useAuthStore, type RolUsuario, type UsuarioPerfil } from './authStore';
 
 export type TipoEstructura = 'TORRE' | 'BLOQUE' | 'MANZANA' | 'CALLE' | 'EDIFICIO';
 export type TipoOcupante = 'PROPIETARIO' | 'INQUILINO';
@@ -152,6 +152,23 @@ export const useOperationsStore = defineStore('operations', () => {
   );
   const isPhotoQuotaExhausted = computed(() => remainingPhotosThisMonth.value === 0);
 
+  async function handleStoreError(
+    error: unknown,
+    fallbackMessage: string,
+    markStaleOnFailure = false,
+  ): Promise<void> {
+    if (error instanceof ApiError && error.status === 401) {
+      isStale.value = false;
+      errorMessage.value = error.detail;
+      await useAuthStore().handleUnauthorizedError(error);
+      return;
+    }
+    if (markStaleOnFailure) {
+      isStale.value = true;
+    }
+    errorMessage.value = error instanceof ApiError ? error.detail : fallbackMessage;
+  }
+
   async function fetchAdminData(): Promise<void> {
     isLoading.value = true;
     errorMessage.value = null;
@@ -169,11 +186,11 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
     } catch (error) {
       // Anti-Destructive Catch
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo sincronizar el listado administrativo. Mostrando datos en caché.';
+      await handleStoreError(
+        error,
+        'No se pudo sincronizar el listado administrativo. Mostrando datos en caché.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -198,8 +215,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo generar la estructura física.';
+      await handleStoreError(error, 'No se pudo generar la estructura física.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -224,8 +240,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return activated;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo activar al usuario fantasma.';
+      await handleStoreError(error, 'No se pudo activar al usuario fantasma.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -240,10 +255,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return updated;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo asignar el cargo en la Junta de Condominio.';
+      await handleStoreError(error, 'No se pudo asignar el cargo en la Junta de Condominio.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -262,11 +274,11 @@ export const useOperationsStore = defineStore('operations', () => {
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo actualizar el embudo de incidencias. Mostrando caché local.';
+      await handleStoreError(
+        error,
+        'No se pudo actualizar el embudo de incidencias. Mostrando caché local.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -289,8 +301,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo crear el reporte de incidencia.';
+      await handleStoreError(error, 'No se pudo crear el reporte de incidencia.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -314,8 +325,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return updated;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No fue posible sumarse a la incidencia.';
+      await handleStoreError(error, 'No fue posible sumarse a la incidencia.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -334,11 +344,11 @@ export const useOperationsStore = defineStore('operations', () => {
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo actualizar el checklist del conserje. Mostrando lista en caché.';
+      await handleStoreError(
+        error,
+        'No se pudo actualizar el checklist del conserje. Mostrando lista en caché.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -361,8 +371,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return completed;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo marcar la tarea como completada.';
+      await handleStoreError(error, 'No se pudo marcar la tarea como completada.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -384,11 +393,11 @@ export const useOperationsStore = defineStore('operations', () => {
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo sincronizar la galería de voceros. Mostrando fotos en caché.';
+      await handleStoreError(
+        error,
+        'No se pudo sincronizar la galería de voceros. Mostrando fotos en caché.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -410,8 +419,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo subir la fotografía de inspección.';
+      await handleStoreError(error, 'No se pudo subir la fotografía de inspección.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -430,11 +438,11 @@ export const useOperationsStore = defineStore('operations', () => {
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo cargar el historial de la bitácora. Mostrando actas en caché.';
+      await handleStoreError(
+        error,
+        'No se pudo cargar el historial de la bitácora. Mostrando actas en caché.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -452,8 +460,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo registrar el acta en la bitácora.';
+      await handleStoreError(error, 'No se pudo registrar el acta en la bitácora.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -480,10 +487,7 @@ export const useOperationsStore = defineStore('operations', () => {
       lastUpdatedAt.value = Date.now();
       return updated;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo actualizar la alícuota o cuota fija de la unidad.';
+      await handleStoreError(error, 'No se pudo actualizar la alícuota o cuota fija de la unidad.');
       throw error;
     } finally {
       isLoading.value = false;

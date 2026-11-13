@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2026 Condominio App Contributors -->
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../stores/authStore';
 import { getScreenHelp, type ScreenHelpData } from '../../utils/screenHelpCatalog';
@@ -34,6 +34,19 @@ const activeRole = computed(() => props.role ?? authStore?.userRole ?? 'PROPIETA
 
 const helpData = computed<ScreenHelpData>(() => getScreenHelp(activePath.value, activeRole.value));
 
+function openModalElement(): void {
+  const el = dialogRef.value;
+  if (el && typeof el.showModal === 'function' && !el.open) {
+    el.showModal();
+  }
+}
+
+onMounted(() => {
+  if (props.open) {
+    openModalElement();
+  }
+});
+
 watch(
   () => props.open,
   async (isOpen) => {
@@ -44,29 +57,55 @@ watch(
       return;
     }
     await nextTick();
-    const el = dialogRef.value;
-    if (el && typeof el.showModal === 'function' && !el.open) {
-      el.showModal();
-    }
+    openModalElement();
   },
-  { immediate: true },
 );
+
+let pressedOutside: boolean | null = null;
+
+function hasNativeClosedBy(): boolean {
+  return typeof HTMLDialogElement !== 'undefined' && 'closedBy' in HTMLDialogElement.prototype;
+}
+
+function isOutsideDialog(
+  event: { clientX: number; clientY: number },
+  dialog: HTMLDialogElement,
+): boolean {
+  const rect = dialog.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  return (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  );
+}
+
+function handlePointerDown(event: PointerEvent): void {
+  const dialog = dialogRef.value;
+  if (!dialog || hasNativeClosedBy()) return;
+  pressedOutside = isOutsideDialog(event, dialog);
+}
+
+function handlePointerUp(event: PointerEvent): void {
+  const dialog = dialogRef.value;
+  if (!dialog || hasNativeClosedBy()) return;
+  if (pressedOutside === true && isOutsideDialog(event, dialog)) {
+    pressedOutside = null;
+    emit('close');
+  }
+}
 
 function handleBackdropClick(event: MouseEvent): void {
   const dialog = dialogRef.value;
-  if (!dialog || event.target !== dialog) return;
-
-  const rect = dialog.getBoundingClientRect();
-  const isDialogContent =
-    rect.height > 0 &&
-    rect.width > 0 &&
-    rect.top <= event.clientY &&
-    event.clientY <= rect.top + rect.height &&
-    rect.left <= event.clientX &&
-    event.clientX <= rect.left + rect.width;
-
-  if (isDialogContent) return;
-  emit('close');
+  if (!dialog || hasNativeClosedBy()) return;
+  if (pressedOutside !== null) {
+    pressedOutside = null;
+    return;
+  }
+  if (event.target === dialog && isOutsideDialog(event, dialog)) {
+    emit('close');
+  }
 }
 
 function handleClose(): void {
@@ -79,11 +118,13 @@ function handleClose(): void {
     v-if="open"
     id="dialog-contextual-help"
     ref="dialogRef"
-    open
+    v-bind="{ closedby: 'any' }"
     class="help-dialog"
     aria-labelledby="help-screen-title"
     aria-describedby="help-screen-purpose"
     @close="handleClose"
+    @pointerdown="handlePointerDown"
+    @pointerup="handlePointerUp"
     @click="handleBackdropClick"
   >
     <div class="help-dialog__card">
@@ -105,7 +146,11 @@ function handleClose(): void {
         </button>
       </header>
 
-      <section class="help-dialog__body">
+      <section
+        class="help-dialog__body"
+        tabindex="0"
+        :aria-label="`Detalles y pasos de ${helpData.title}`"
+      >
         <div class="help-dialog__purpose-card">
           <p id="help-screen-purpose" class="help-dialog__purpose">
             {{ helpData.purpose }}
@@ -149,7 +194,7 @@ function handleClose(): void {
       </section>
 
       <footer class="help-dialog__footer">
-        <button type="button" class="help-dialog__action-btn" @click="handleClose">
+        <button type="button" autofocus class="help-dialog__action-btn" @click="handleClose">
           Entendido
         </button>
       </footer>
@@ -158,7 +203,11 @@ function handleClose(): void {
 </template>
 
 <style scoped>
-.help-dialog {
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.help-dialog[open] {
   border: none;
   border-radius: 1rem;
   padding: 0;
@@ -172,6 +221,7 @@ function handleClose(): void {
 }
 
 .help-dialog::backdrop {
+  overflow: hidden;
   background-color: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(4px);
   overscroll-behavior: contain;
@@ -258,7 +308,7 @@ function handleClose(): void {
 
 .help-dialog__purpose-card {
   background-color: #f8fafc;
-  border-left: 4px solid #0284c7;
+  border-left: 4px solid #0369a1;
   padding: 0.875rem 1rem;
   border-radius: 0 0.5rem 0.5rem 0;
 }
@@ -322,7 +372,7 @@ function handleClose(): void {
   inline-size: 1.625rem;
   block-size: 1.625rem;
   border-radius: 50%;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   font-size: 0.8125rem;
   font-weight: 700;
@@ -390,14 +440,14 @@ function handleClose(): void {
   font-weight: 600;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .help-dialog__action-btn:hover {
-  background-color: #0369a1;
+  background-color: #075985;
 }
 
 @media (pointer: coarse) {

@@ -19,6 +19,13 @@ const deudaTotalUsd = computed(() => financeStore.data.resumen?.deuda_total_usd 
 const deudaTotalVes = computed(() =>
   convertUsdToVes(deudaTotalUsd.value, financeStore.activeRateValue),
 );
+const activePeriod = computed(
+  () =>
+    financeStore.data.ultimoCierre?.periodo ??
+    financeStore.data.tasaActiva?.fecha?.slice(0, 7) ??
+    new Date().toISOString().slice(0, 7),
+);
+const ownUnitId = computed(() => authStore.data?.unidad_activa_id ?? null);
 
 onMounted(async () => {
   await financeStore.fetchDashboardData();
@@ -41,7 +48,7 @@ async function goToReportPayment(): Promise<void> {
       </div>
     </header>
 
-    <ClosingBanner :is-closed="financeStore.isPeriodClosed" periodo="2026-10" />
+    <ClosingBanner :is-closed="financeStore.isPeriodClosed" :periodo="activePeriod" />
 
     <section class="dashboard-summary" aria-label="Resumen rápido">
       <article id="deuda-card" class="summary-card">
@@ -80,6 +87,7 @@ async function goToReportPayment(): Promise<void> {
       v-if="activeTab === 'cobranza'"
       :items="financeStore.data.resumen?.estado_cobranza ?? []"
       :rate-usd-ves="financeStore.activeRateValue"
+      :own-unit-id="ownUnitId"
     />
     <ExpensesDonutChart
       v-else
@@ -198,7 +206,7 @@ async function goToReportPayment(): Promise<void> {
   padding: 0.75rem 1.25rem;
   border-radius: 9999px;
   border: none;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   font-weight: 700;
   box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);

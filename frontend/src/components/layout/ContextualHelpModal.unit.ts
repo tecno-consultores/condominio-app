@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Condominio App Contributors
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ContextualHelpModal from './ContextualHelpModal.vue';
 import { useAuthStore } from '../../stores/authStore';
@@ -50,6 +50,10 @@ describe('ContextualHelpModal.vue (Universal Screen Help Dialog)', () => {
     });
 
     expect(wrapper.find('#dialog-contextual-help').exists()).toBe(true);
+    expect(wrapper.find('#dialog-contextual-help').attributes('open')).toBeUndefined();
+    expect(wrapper.find('#dialog-contextual-help').attributes('closedby')).toBe('any');
+    expect(wrapper.find('.help-dialog__action-btn').attributes('autofocus')).toBeDefined();
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
     expect(wrapper.find('#help-screen-title').text()).toBe('Asistente de Reporte de Pagos');
     expect(wrapper.find('#help-screen-purpose').exists()).toBe(true);
     expect(wrapper.find('#help-steps-list').exists()).toBe(true);
@@ -101,9 +105,34 @@ describe('ContextualHelpModal.vue (Universal Screen Help Dialog)', () => {
     await dialog.trigger('click', { clientX: 50, clientY: 50 });
     expect(wrapper.emitted('close')).toBeFalsy();
 
+    // Arrastre que inicia dentro y termina fuera NO debe cerrar
+    await dialog.trigger('pointerdown', { clientX: 50, clientY: 50 });
+    await dialog.trigger('pointerup', { clientX: 200, clientY: 200 });
+    await dialog.trigger('click', { clientX: 200, clientY: 200 });
+    expect(wrapper.emitted('close')).toBeFalsy();
+
+    // Presión y liberación fuera SÍ debe cerrar
+    await dialog.trigger('pointerdown', { clientX: 200, clientY: 200 });
+    await dialog.trigger('pointerup', { clientX: 200, clientY: 200 });
+    expect(wrapper.emitted('close')).toHaveLength(1);
+
     // Click fuera del modal (emite close)
     await dialog.trigger('click', { clientX: 200, clientY: 200 });
-    expect(wrapper.emitted('close')).toBeTruthy();
+    expect(wrapper.emitted('close')).toHaveLength(2);
+
+    // Rama nativa closedBy
+    Object.defineProperty(HTMLDialogElement.prototype, 'closedBy', {
+      configurable: true,
+      value: 'any',
+    });
+    try {
+      await dialog.trigger('pointerdown', { clientX: 200, clientY: 200 });
+      await dialog.trigger('pointerup', { clientX: 200, clientY: 200 });
+      await dialog.trigger('click', { clientX: 200, clientY: 200 });
+      expect(wrapper.emitted('close')).toHaveLength(2);
+    } finally {
+      delete (HTMLDialogElement.prototype as unknown as Record<string, unknown>).closedBy;
+    }
   });
 
   it('cambia el contenido de la ayuda al actualizar la prop path y role', async () => {
@@ -125,5 +154,24 @@ describe('ContextualHelpModal.vue (Universal Screen Help Dialog)', () => {
     expect(wrapper.find('#help-screen-title').text()).toBe(
       'Control de Acceso en Garita (Lector QR)',
     );
+  });
+
+  it('abre vía watch al cambiar open de false a true y cierra dialog nativo si open pasa a false', async () => {
+    const wrapper = mount(ContextualHelpModal, {
+      props: { open: false, path: '/dashboard' },
+    });
+    expect(HTMLDialogElement.prototype.showModal).not.toHaveBeenCalled();
+
+    await wrapper.setProps({ open: true });
+    await flushPromises();
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
+
+    const dialogEl = wrapper.find('#dialog-contextual-help').element as HTMLDialogElement;
+    await wrapper.find('#dialog-contextual-help').trigger('close');
+    expect(wrapper.emitted('close')).toHaveLength(1);
+
+    Object.defineProperty(dialogEl, 'open', { configurable: true, value: true });
+    await wrapper.setProps({ open: false });
+    expect(HTMLDialogElement.prototype.close).toHaveBeenCalled();
   });
 });

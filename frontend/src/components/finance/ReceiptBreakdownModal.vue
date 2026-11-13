@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue';
 import type { ReciboDesgloseDTO } from '../../stores/financeStore';
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   desglose: ReciboDesgloseDTO | null;
 }>();
@@ -9,15 +10,88 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
+
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+watch(
+  () => Boolean(props.open && props.desglose),
+  async (isOpen) => {
+    if (!isOpen) {
+      const el = dialogRef.value;
+      if (el?.open && typeof el.close === 'function') {
+        el.close();
+      }
+      return;
+    }
+    await nextTick();
+    const el = dialogRef.value;
+    if (el && typeof el.showModal === 'function' && !el.open) {
+      el.showModal();
+    }
+  },
+  { immediate: true },
+);
+
+let pressedOutside: boolean | null = null;
+
+function hasNativeClosedBy(): boolean {
+  return typeof HTMLDialogElement !== 'undefined' && 'closedBy' in HTMLDialogElement.prototype;
+}
+
+function isOutsideDialog(
+  event: { clientX: number; clientY: number },
+  dialog: HTMLDialogElement,
+): boolean {
+  const rect = dialog.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  return (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  );
+}
+
+function handlePointerDown(event: PointerEvent): void {
+  const dialog = dialogRef.value;
+  if (!dialog || hasNativeClosedBy()) return;
+  pressedOutside = isOutsideDialog(event, dialog);
+}
+
+function handlePointerUp(event: PointerEvent): void {
+  const dialog = dialogRef.value;
+  if (!dialog || hasNativeClosedBy()) return;
+  if (pressedOutside === true && isOutsideDialog(event, dialog)) {
+    pressedOutside = null;
+    emit('close');
+  }
+}
+
+function handleBackdropClick(event: MouseEvent): void {
+  const dialog = dialogRef.value;
+  if (!dialog || hasNativeClosedBy()) return;
+  if (pressedOutside !== null) {
+    pressedOutside = null;
+    return;
+  }
+  if (event.target === dialog && isOutsideDialog(event, dialog)) {
+    emit('close');
+  }
+}
 </script>
 
 <template>
   <dialog
     v-if="open && desglose"
     id="modal-recibo-desglose"
-    open
+    ref="dialogRef"
+    v-bind="{ closedby: 'any' }"
     class="breakdown-modal"
     aria-labelledby="breakdown-modal-title"
+    @close="emit('close')"
+    @pointerdown="handlePointerDown"
+    @pointerup="handlePointerUp"
+    @click="handleBackdropClick"
   >
     <div class="breakdown-modal__card">
       <header class="breakdown-modal__header">
@@ -69,6 +143,7 @@ const emit = defineEmits<{
         <button
           id="btn-close-desglose"
           type="button"
+          autofocus
           class="breakdown-modal__close"
           @click="emit('close')"
         >
@@ -80,28 +155,28 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-.breakdown-modal {
-  position: fixed;
-  inset: 0;
-  inline-size: 100%;
-  block-size: 100%;
-  background-color: rgba(15, 23, 42, 0.65);
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.breakdown-modal[open] {
+  margin: auto;
+  padding: 0;
   border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem;
-  z-index: 60;
+  background: transparent;
+  inline-size: min(100% - 1.5rem, 34rem);
+  max-block-size: min(85dvh, 40rem);
   overscroll-behavior: contain;
 }
 
 .breakdown-modal::backdrop {
+  overflow: hidden;
   background-color: rgba(15, 23, 42, 0.65);
   overscroll-behavior: contain;
 }
 
 .breakdown-modal__card {
-  inline-size: min(100% - 1rem, 34rem);
+  inline-size: 100%;
   max-block-size: min(85dvh, 40rem);
   overflow-y: auto;
   overscroll-behavior: contain;

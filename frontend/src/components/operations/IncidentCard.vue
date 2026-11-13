@@ -109,7 +109,7 @@ const emit = defineEmits<{
 
 .avif-badge {
   font-size: 0.75rem;
-  color: #0284c7;
+  color: #0369a1;
   font-weight: 600;
 }
 
@@ -118,7 +118,7 @@ const emit = defineEmits<{
   margin-left: auto;
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
-  border: 1px solid #0284c7;
+  border: 1px solid #0369a1;
   background-color: #f0f9ff;
   color: #0369a1;
   font-weight: 700;

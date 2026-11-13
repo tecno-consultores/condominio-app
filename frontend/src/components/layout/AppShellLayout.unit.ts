@@ -2,10 +2,12 @@
 // Copyright (C) 2026 Condominio App Contributors
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import AppShellLayout from './AppShellLayout.vue';
 import { useAuthStore } from '../../stores/authStore';
+import { useFinanceStore } from '../../stores/financeStore';
+import { useGovernanceStore } from '../../stores/governanceStore';
 
 const pushMock = vi.fn();
 
@@ -67,7 +69,35 @@ describe('AppShellLayout.vue (Anti-JSDOM Geometry & Navigation)', () => {
 
     // Logout
     await wrapper.find('#btn-sidebar-logout').trigger('click');
+    await flushPromises();
     expect(authStore.isAuthenticated).toBe(false);
     expect(pushMock).toHaveBeenCalledWith('/login');
+  });
+
+  it('refleja isStale de stores de dominio en StaleDataBanner y permite descartar rbacNotice (Hito 17.2)', async () => {
+    const authStore = useAuthStore();
+    const financeStore = useFinanceStore();
+    const governanceStore = useGovernanceStore();
+
+    authStore.setRbacNotice('No posee permisos para acceder a la sección solicitada.');
+    financeStore.isStale = true;
+    financeStore.errorMessage = 'Finanzas en caché local.';
+
+    const wrapper = mount(AppShellLayout, {
+      slots: { default: '<div>Ok</div>' },
+    });
+
+    expect(wrapper.find('#rbac-notice-banner').text()).toContain('No posee permisos');
+    expect(wrapper.find('#stale-data-banner').exists()).toBe(true);
+    expect(wrapper.find('#stale-data-banner').text()).toContain('Finanzas en caché local.');
+
+    await wrapper.find('#btn-dismiss-rbac-notice').trigger('click');
+    expect(wrapper.find('#rbac-notice-banner').exists()).toBe(false);
+
+    financeStore.isStale = false;
+    governanceStore.isStale = true;
+    governanceStore.error = 'Consultas offline';
+    await flushPromises();
+    expect(wrapper.find('#stale-data-banner').text()).toContain('Consultas offline');
   });
 });

@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { buildAppRouter, evaluateNavigationGuard } from './index';
+import * as apiClient from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 
 describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
@@ -125,5 +126,33 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     expect(router.currentRoute.value.path).toBe('/admin/usuarios');
     await router.push('/admin/junta');
     expect(router.currentRoute.value.path).toBe('/admin/junta');
+  });
+
+  it('hidrata sesión vía /api/auth/me en carga inicial y fija rbacNotice al denegar rol (Hito 17.2)', async () => {
+    const authStore = useAuthStore();
+    expect(authStore.sessionHydrated).toBe(false);
+
+    const fetchSpy = vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce({
+      id: 21,
+      nombre: 'Residente Hidratado',
+      cedula: 'V-21',
+      correo: 'h@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PROPIETARIO',
+      unidad_activa_id: 7,
+    });
+
+    const router = buildAppRouter(true);
+    await router.push('/admin/junta');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(authStore.sessionHydrated).toBe(true);
+    expect(router.currentRoute.value.path).toBe('/dashboard');
+    expect(authStore.rbacNotice).toContain('No posee permisos');
+
+    // Segunda navegación no vuelve a invocar fetchProfile innecesariamente
+    await router.push('/incidencias');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(router.currentRoute.value.path).toBe('/incidencias');
   });
 });

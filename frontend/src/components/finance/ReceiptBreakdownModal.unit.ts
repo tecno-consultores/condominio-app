@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReceiptBreakdownModal from './ReceiptBreakdownModal.vue';
 import type { ReciboDesgloseDTO } from '../../stores/financeStore';
 
@@ -34,6 +34,11 @@ const sampleDesglose: ReciboDesgloseDTO = {
 };
 
 describe('ReceiptBreakdownModal.vue', () => {
+  beforeEach(() => {
+    HTMLDialogElement.prototype.showModal = vi.fn();
+    HTMLDialogElement.prototype.close = vi.fn();
+  });
+
   it('renderiza las líneas del recibo, alícuota y emite close al pulsar #btn-close-desglose', async () => {
     const wrapper = mount(ReceiptBreakdownModal, {
       props: {
@@ -41,15 +46,66 @@ describe('ReceiptBreakdownModal.vue', () => {
         desglose: sampleDesglose,
       },
     });
+    await flushPromises();
 
-    expect(wrapper.find('#modal-recibo-desglose').exists()).toBe(true);
+    const dialog = wrapper.find('#modal-recibo-desglose');
+    expect(dialog.exists()).toBe(true);
+    expect(dialog.attributes('open')).toBeUndefined();
+    expect(dialog.attributes('closedby')).toBe('any');
+    expect(wrapper.find('#btn-close-desglose').attributes('autofocus')).toBeDefined();
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
     expect(wrapper.text()).toContain('Apto 1-A');
     expect(wrapper.text()).toContain('33.3333%');
     expect(wrapper.findAll('.breakdown-modal__item')).toHaveLength(2);
     expect(wrapper.find('#breakdown-saldo-pendiente').text()).toContain('$35.00 USD');
 
-    await wrapper.find('#btn-close-desglose').trigger('click');
+    const dialogEl = dialog.element as HTMLDialogElement;
+    vi.spyOn(dialogEl, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      left: 100,
+      width: 200,
+      height: 200,
+      bottom: 300,
+      right: 300,
+      x: 100,
+      y: 100,
+      toJSON: () => ({}),
+    });
+    await dialog.trigger('click', { clientX: 150, clientY: 150 });
+    expect(wrapper.emitted('close')).toBeUndefined();
+
+    // Arrastre que empieza dentro y suelta fuera NO debe cerrar
+    await dialog.trigger('pointerdown', { clientX: 150, clientY: 150 });
+    await dialog.trigger('pointerup', { clientX: 5, clientY: 5 });
+    await dialog.trigger('click', { clientX: 5, clientY: 5 });
+    expect(wrapper.emitted('close')).toBeUndefined();
+
+    // Presión y liberación fuera SÍ debe cerrar
+    await dialog.trigger('pointerdown', { clientX: 5, clientY: 5 });
+    await dialog.trigger('pointerup', { clientX: 5, clientY: 5 });
     expect(wrapper.emitted('close')).toHaveLength(1);
+
+    await dialog.trigger('click', { clientX: 10, clientY: 10 });
+    expect(wrapper.emitted('close')).toHaveLength(2);
+
+    await wrapper.find('#btn-close-desglose').trigger('click');
+    expect(wrapper.emitted('close')).toHaveLength(3);
+
+    // Rama nativa closedBy y evento en elemento hijo
+    Object.defineProperty(HTMLDialogElement.prototype, 'closedBy', {
+      configurable: true,
+      value: 'any',
+    });
+    try {
+      await dialog.trigger('pointerdown', { clientX: 0, clientY: 0 });
+      await dialog.trigger('pointerup', { clientX: 0, clientY: 0 });
+      await dialog.trigger('click', { clientX: 0, clientY: 0 });
+      expect(wrapper.emitted('close')).toHaveLength(3);
+    } finally {
+      delete (HTMLDialogElement.prototype as unknown as Record<string, unknown>).closedBy;
+    }
+    await wrapper.find('.breakdown-modal__card').trigger('click', { clientX: 0, clientY: 0 });
+    expect(wrapper.emitted('close')).toHaveLength(3);
 
     await wrapper.setProps({ open: false });
     expect(wrapper.find('#modal-recibo-desglose').exists()).toBe(false);

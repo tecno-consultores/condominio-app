@@ -48,7 +48,7 @@ async def listar_incidencias_abiertas(
 )
 async def crear_incidencia(
     datos: IncidenciaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),

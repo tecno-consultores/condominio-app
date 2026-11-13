@@ -81,11 +81,12 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     Given driver baseUrl + '/reservas/areas'
     Then waitFor('#login-form')
 
-  Scenario: 9. El usuario interactúa con la Ayuda Contextual Universal de Hito 14 en /login (#btn-contextual-help), verifica el contenido (#dialog-contextual-help) y su cierre
+  Scenario: 9. El usuario interactúa con la Ayuda Contextual Universal de Hito 14 en /login (#btn-contextual-help), verifica Top Layer (#dialog-contextual-help) y su cierre
     Given driver baseUrl + '/login'
     And waitFor('#btn-contextual-help')
     When click('#btn-contextual-help')
     Then waitFor('#dialog-contextual-help')
+    And waitUntil("document.querySelector('#dialog-contextual-help')?.matches(':modal') === true")
     And match text('#help-screen-title') contains 'Inicio de Sesión'
     And waitFor('#help-steps-list')
     And waitFor('#btn-close-help')

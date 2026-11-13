@@ -13,7 +13,7 @@ const props = defineProps<{
   totalExpensesUsd: string;
 }>();
 
-const PALETTE = ['#0284c7', '#0d9488', '#6366f1', '#f59e0b', '#ec4899'];
+const PALETTE = ['#0369a1', '#0d9488', '#6366f1', '#f59e0b', '#ec4899'];
 
 const slices = computed<CategorySlice[]>(() => {
   const entries = Object.entries(props.expensesByCategory);
@@ -104,7 +104,7 @@ const slices = computed<CategorySlice[]>(() => {
 
 .expenses-card__total {
   font-size: 0.9rem;
-  color: #0284c7;
+  color: #0369a1;
 }
 
 .expenses-card__grid {

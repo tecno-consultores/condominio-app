@@ -139,16 +139,14 @@ def _serializar_reserva(
 )
 async def crear_area_social(
     datos: AreaSocialCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> AreaSocial:
     """Registra una nueva área común reservable con políticas de aforo, depósito y solvencia."""
     verificar_roles(usuario, _ROLES_GESTION_AREAS)
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"crear_area:{usuario.id}"
-    )
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"crear_area:{usuario.id}")
     if not es_unica:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -241,16 +239,14 @@ async def listar_reservas_areas(
 )
 async def solicitar_reserva_area_social(
     datos: ReservaAreaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> ReservaAreaResponse:
     """Solicita la reserva exclusiva de un área social verificando solvencia ($0.00 USD) y agenda tarea de conserje."""
     verificar_usuario_activo(usuario)
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"reservar:{datos.unidad_id}"
-    )
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"reservar:{datos.unidad_id}")
     if not es_unica:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

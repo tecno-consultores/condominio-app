@@ -19,6 +19,7 @@ DEFAULT_INSECURE_SECRET_KEY = _FALLBACK_DEV_SENTINEL
 SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_INSECURE_SECRET_KEY)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 PBKDF2_ITERATIONS = 100_000
 MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB (Patrón 6 Anti-DoS / OOM)
 UPLOAD_CHUNK_SIZE = 64 * 1024  # 64 KB
@@ -27,6 +28,21 @@ UPLOAD_CHUNK_SIZE = 64 * 1024  # 64 KB
 def _get_secret_key() -> str:
     """Resuelve dinámicamente la clave HMAC/JWT vigente."""
     return os.getenv("SECRET_KEY") or SECRET_KEY
+
+
+def should_use_secure_cookie() -> bool:
+    """Determina si las cookies de sesión deben marcarse con Secure=True."""
+    explicit = os.getenv("COOKIE_SECURE")
+    if explicit is not None:
+        return explicit.strip().lower() == "true"
+    return os.getenv("APP_ENV", "development").strip().lower() == "production"
+
+
+def is_csrf_enforced() -> bool:
+    """Indica si se exige validación real de X-CSRF-Token para mutaciones con cookie."""
+    is_prod = os.getenv("APP_ENV", "development").strip().lower() == "production"
+    explicit = os.getenv("CSRF_ENFORCE", "false").strip().lower() == "true"
+    return is_prod or explicit
 
 
 def validate_production_security_settings() -> None:
@@ -81,6 +97,10 @@ def get_password_hash(password: str) -> str:
     return f"pbkdf2_sha256${salt}${digest}"
 
 
+# Hash ficticio calculado al importar para mitigar enumeración temporal en /login
+DUMMY_PASSWORD_HASH = get_password_hash(secrets.token_hex(16))
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica la contraseña PBKDF2-HMAC-SHA256 en tiempo constante (hmac.compare_digest)."""
     if hashed_password.startswith("pbkdf2_sha256$"):
@@ -95,6 +115,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
+    """Emite un JWT de acceso con expiración configurable."""
     to_encode = data.copy()
     delta = expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = datetime.now(UTC) + delta
@@ -107,6 +128,43 @@ def decode_access_token(token: str) -> dict[str, Any]:
     """Decodifica y valida la firma y expiración del token JWT."""
     payload: dict[str, Any] = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
     return payload
+
+
+def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
+    """Emite un JWT de renovación (typ=refresh) con JTI único y vigencia extendida."""
+    to_encode = data.copy()
+    delta = expires_delta if expires_delta is not None else timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(UTC) + delta
+    to_encode.update(
+        {
+            "typ": "refresh",
+            "jti": str(to_encode.get("jti") or secrets.token_urlsafe(16)),
+            "exp": int(expire.timestamp()),
+        }
+    )
+    return str(jwt.encode(to_encode, _get_secret_key(), algorithm=ALGORITHM))
+
+
+def decode_refresh_token(token: str) -> dict[str, Any]:
+    """Decodifica y valida firma, expiración y tipo explícito del refresh token."""
+    payload: dict[str, Any] = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
+    if payload.get("typ") != "refresh":
+        raise jwt.InvalidTokenError("Tipo de token inválido para renovación.")
+    return payload
+
+
+def decode_token_unverified_exp(token: str) -> dict[str, Any] | None:
+    """Verifica firma HMAC del JWT ignorando exp; útil para leer sid/id al refrescar o cerrar sesión."""
+    try:
+        payload: dict[str, Any] = jwt.decode(
+            token,
+            _get_secret_key(),
+            algorithms=[ALGORITHM],
+            options={"verify_exp": False},
+        )
+        return payload
+    except jwt.InvalidTokenError:
+        return None
 
 
 def generate_csrf_token(session_id: str) -> str:

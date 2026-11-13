@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import { useAuthStore } from './authStore';
 import { useGovernanceStore } from './governanceStore';
 import * as apiClient from '../services/apiClient';
 
-vi.mock('../services/apiClient', () => ({
-  apiRequest: vi.fn(),
-}));
+vi.mock('../services/apiClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/apiClient')>();
+  return {
+    ...actual,
+    apiRequest: vi.fn(),
+  };
+});
 
 describe('useGovernanceStore (Cartas Consulta Art. 23 LPH y Catch No Destructivo)', () => {
   beforeEach(() => {
@@ -197,5 +202,21 @@ describe('useGovernanceStore (Cartas Consulta Art. 23 LPH y Catch No Destructivo
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('err-close');
     await expect(store.cerrarConsulta(1)).rejects.toBe('err-close');
+
+    // HTTP 401 no debe activar isStale=true sino delegar a authStore.handleUnauthorizedError
+    const authStore = useAuthStore();
+    authStore.setProfileForTesting({
+      id: 1,
+      nombre: 'Votante',
+      cedula: 'V-1',
+      correo: 'v@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PROPIETARIO',
+    });
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new apiClient.ApiError(401, 'Expirada'));
+    await store.fetchConsultas();
+    expect(store.isStale).toBe(false);
+    expect(authStore.isAuthenticated).toBe(false);
   });
 });

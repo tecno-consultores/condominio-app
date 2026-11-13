@@ -10,7 +10,7 @@
 La suite unitaria actual cubre de forma completamente aislada (sin red ni base de datos real):
 
 - `tests/test_main.unit.py`:
-  - Healthcheck HTTP `/health` respondiendo con estado 200 y JSON `{"status": "healthy"}`, `OPTIONS` devolviendo `405` con cabecera `Allow`, `Cache-Control: no-store` en todas las respuestas y arranque *Fail-Fast* en `lifespan` bajo `APP_ENV=production`.
+  - Healthcheck HTTP `/health` respondiendo con estado 200 y JSON `{"status": "healthy"}`, `OPTIONS` devolviendo `405` con cabecera `Allow`, `Cache-Control: no-store`, cabeceras Modern Web Guidance (`Content-Security-Policy` con `frame-ancestors 'none'`, `Cross-Origin-Opener-Policy: same-origin-allow-popups`, `Cross-Origin-Resource-Policy: same-origin`, `Permissions-Policy`, `Vary` fusionado sin duplicados y `Strict-Transport-Security` condicional), aislamiento Fetch Metadata pre-auth (`403` ante `cross-site`) y arranque *Fail-Fast* en `lifespan` bajo `APP_ENV=production`.
 - `tests/test_security_11x.unit.py`:
   - Hashing `PBKDF2-HMAC-SHA256` con sal criptográfica de 16 bytes, verificación en tiempo constante (`hmac.compare_digest`), rechazo estricto de hashes legacy SHA-256 sin sal con cómputo ficticio PBKDF2 en tiempo constante y validación `validate_production_security_settings()` *Fail-Fast* en `APP_ENV=production`.
   - Generación y validación de tokens CSRF `HMAC-SHA256` (`generate_csrf_token`, `validate_csrf_token`).
@@ -36,7 +36,8 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
   - Manejo y rollback ante fallos inesperados de base de datos (código 500).
   - Inicio de sesión (`POST /api/auth/login`) con verificación de credenciales y creación de cookie `HttpOnly` `access_token`.
   - Rechazo de inicio de sesión con credenciales inválidas (código 401).
-  - Endpoint `/api/auth/me`: rechazo sin credenciales (401), validación de firma y expiración de token JWT (401 en caso de token expirado o inválido) y retorno exitoso de perfil autenticado por Cookie o Bearer.
+  - Endpoint `/api/auth/me`, `/api/auth/refresh`, `/api/auth/logout`, `/api/auth/login` y seguridad `17.2`: rechazo sin credenciales (`401`), validación de firma y expiración JWT (`401`), DTO `/me` con `cedula`, `telefono` y `unidad_activa_id`, rotación de tokens + CSRF real (`X-CSRF-Token` `403`), bloqueo progresivo `/login` (`5/15m` -> `429` + anti-timing), fail-closed en KeyDB (`503`), cierre de sesión con revocación JTI + `Clear-Site-Data` e `Idempotency-Key` (`8..128` caracteres, TTL `86400s`).
+  - Suite ampliada Hito 17.2 + Modern Web Guidance: **229/229 pruebas unitarias aprobadas (`99.16%` cobertura global)**, `uv audit` limpio (**0 vulnerabilidades** en 117 paquetes tras actualizar `dnspython>=2.9.2`) en contenedor Docker efímero (`make qa-unit`, `make qa-lint` con `ruff` + `mypy --strict` + `bandit` + `radon`, y empaquetado `--no-dev`).
 - `tests/test_dependencies.unit.py`:
   - Dependencia `get_current_user`: rechazo sin cookie ni Bearer (401), token expirado, token adulterado y token sin `sub` (401), usuario inexistente (401) y continuación exitosa hacia el endpoint protegido.
 - `tests/test_finanzas_core.unit.py` (núcleo matemático, fronteras súper estrictas para mutmut):
@@ -76,7 +77,7 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
 
 ## 2. Pruebas BDD, Paridad PostgreSQL 17, Caos y Resiliencia
 
-- `test/api_test.feature`: 19 escenarios funcionales en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`).
+- `test/api_test.feature`: **21 escenarios funcionales** en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`, **21/21 pass en 2 ejecuciones consecutivas**): incluye cabeceras `CSP`/`COOP`/`CORP`/`Permissions-Policy`/`Vary` en Escenario 1, el **Escenario 20** de ciclo completo de sesión Hito 17.2 (`/me` con `cedula`/`telefono`/`unidad_activa_id`, rechazo `403` sin `X-CSRF-Token`, `/refresh`, `/logout` con `Clear-Site-Data` y revocación tras logout, `Idempotency-Key` inválido y bloqueo `429` tras 5 intentos fallidos) y el **Escenario 21** de rechazo temprano Fetch Metadata (`403` pre-auth ante `cross-site` + `cors` y aceptación `200` en `same-origin`).
 - `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 27 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
 - `tests/locustfile.py`: Perfil de carga concurrente y saturación para inyección de caos y estrés con Pumba + Locust + Prometheus.
 

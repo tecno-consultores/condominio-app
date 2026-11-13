@@ -147,16 +147,14 @@ def _serializar_pase(pase: PaseVisita, identificador_unidad: str, ahora: datetim
 )
 async def crear_pase_visita(
     datos: PaseVisitaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> PaseVisitaResponse:
     """Emite un PaseVisita firmado con HMAC-SHA256 y JTI único para verificación en garita."""
     verificar_usuario_activo(usuario)
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"crear_pase:{usuario.id}"
-    )
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"crear_pase:{usuario.id}")
     if not es_unica:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -300,16 +298,14 @@ async def _validar_estado_y_vigencia_pase(
 )
 async def verificar_pase_qr_en_garita(
     datos: VerificarPaseQRRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> VerificarPaseQRResponse:
     """Verifica firma HMAC-SHA256, vigencia temporal y unicidad Anti-Replay en KeyDB de un pase QR."""
     verificar_roles(usuario, _ROLES_GARITA)
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"scan_qr:{usuario.id}"
-    )
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"scan_qr:{usuario.id}")
     if not es_unica:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -421,16 +417,14 @@ def _serializar_paquete(paquete: PaqueteRecibido, identificador_unidad: str) -> 
 )
 async def registrar_paquete_en_garita(
     datos: PaqueteCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> PaqueteResponse:
     """Registra la recepción de una encomienda en garita y encola notificación a la unidad destinataria."""
     verificar_roles(usuario, _ROLES_PAQUETERIA)
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"paquete:{usuario.id}"
-    )
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"paquete:{usuario.id}")
     if not es_unica:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

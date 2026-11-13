@@ -2,9 +2,13 @@
 <!-- Copyright (C) 2026 Condominio App Contributors -->
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useAccessAmenitiesStore } from '../../stores/accessAmenitiesStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useFinanceStore } from '../../stores/financeStore';
+import { useGovernanceStore } from '../../stores/governanceStore';
+import { useOperationsStore } from '../../stores/operationsStore';
 import AppFooter from './AppFooter.vue';
 import BottomNavBar from './BottomNavBar.vue';
 import ContextualHelpModal from './ContextualHelpModal.vue';
@@ -12,17 +16,41 @@ import SidebarNav from './SidebarNav.vue';
 import StaleDataBanner from './StaleDataBanner.vue';
 
 const authStore = useAuthStore();
+const financeStore = useFinanceStore();
+const operationsStore = useOperationsStore();
+const governanceStore = useGovernanceStore();
+const accessAmenitiesStore = useAccessAmenitiesStore();
 const route = useRoute();
 const router = useRouter();
 
 const isHelpOpen = ref(false);
 
+const anyStoreStale = computed(
+  () =>
+    authStore.isStale ||
+    financeStore.isStale ||
+    operationsStore.isStale ||
+    governanceStore.isStale ||
+    accessAmenitiesStore.isStale,
+);
+
+const staleBannerMessage = computed(
+  () =>
+    (authStore.isStale ? authStore.errorMessage : null) ??
+    (financeStore.isStale ? financeStore.errorMessage : null) ??
+    (operationsStore.isStale ? operationsStore.errorMessage : null) ??
+    (governanceStore.isStale ? governanceStore.error : null) ??
+    (accessAmenitiesStore.isStale ? accessAmenitiesStore.error : null) ??
+    authStore.errorMessage,
+);
+
 async function handleNavigate(to: string): Promise<void> {
+  authStore.setRbacNotice(null);
   await router.push(to);
 }
 
 async function handleLogout(): Promise<void> {
-  authStore.logout();
+  await authStore.logout();
   await router.push('/login');
 }
 </script>
@@ -53,7 +81,26 @@ async function handleLogout(): Promise<void> {
           </button>
         </header>
 
-        <StaleDataBanner :is-stale="authStore.isStale" :message="authStore.errorMessage" />
+        <div
+          v-if="authStore.rbacNotice"
+          id="rbac-notice-banner"
+          class="rbac-notice-banner"
+          role="status"
+          aria-live="polite"
+        >
+          <span class="rbac-notice-banner__text">{{ authStore.rbacNotice }}</span>
+          <button
+            id="btn-dismiss-rbac-notice"
+            type="button"
+            class="rbac-notice-banner__close"
+            aria-label="Cerrar aviso de permisos"
+            @click="authStore.setRbacNotice(null)"
+          >
+            Entendido
+          </button>
+        </div>
+
+        <StaleDataBanner :is-stale="anyStoreStale" :message="staleBannerMessage" />
         <slot />
       </div>
       <AppFooter version="1.0.0" />
@@ -131,12 +178,40 @@ async function handleLogout(): Promise<void> {
 .contextual-help-trigger:hover {
   background-color: #f0f9ff;
   border-color: #7dd3fc;
-  color: #0284c7;
+  color: #0369a1;
 }
 
 .contextual-help-trigger:focus-visible {
-  outline: 2px solid #0284c7;
+  outline: 2px solid #0369a1;
   outline-offset: 2px;
+}
+
+.rbac-notice-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  background-color: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #78350f;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.rbac-notice-banner__close {
+  padding: 0.375rem 0.75rem;
+  min-block-size: 2.25rem;
+  border-radius: 0.375rem;
+  border: 1px solid #d97706;
+  background-color: #ffffff;
+  color: #78350f;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .contextual-help-trigger__icon {
@@ -147,7 +222,7 @@ async function handleLogout(): Promise<void> {
   block-size: 1.125rem;
   border-radius: 50%;
   background-color: #e0f2fe;
-  color: #0284c7;
+  color: #0369a1;
   font-size: 0.75rem;
   font-weight: 800;
 }

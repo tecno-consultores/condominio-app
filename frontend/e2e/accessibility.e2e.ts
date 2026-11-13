@@ -58,4 +58,30 @@ test.describe('Hitos 5, 6, 10 y 11 — Accesibilidad WCAG 2.1 AA y Geometría Vi
     );
     expect(criticalOrSerious).toEqual([]);
   });
+
+  test('Diálogo contextual #dialog-contextual-help abre en Top Layer (:modal) con closedby="any" y 0 violaciones WCAG 2.1 AA', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await expect(page.locator('#btn-contextual-help')).toBeVisible();
+    await page.click('#btn-contextual-help');
+
+    const dialog = page.locator('#dialog-contextual-help');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAttribute('closedby', 'any');
+    const isModal = await dialog.evaluate((el) => el.matches(':modal'));
+    expect(isModal).toBe(true);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+
+    const criticalOrSerious = results.violations.filter(
+      (v) => v.impact === 'critical' || v.impact === 'serious',
+    );
+    expect(criticalOrSerious).toEqual([]);
+
+    await page.click('#btn-close-help');
+    await expect(dialog).toHaveCount(0);
+  });
 });

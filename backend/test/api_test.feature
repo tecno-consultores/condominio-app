@@ -19,6 +19,11 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match header Cache-Control == 'no-store'
     And match header X-Content-Type-Options == 'nosniff'
     And match header X-Frame-Options == 'DENY'
+    And match header Content-Security-Policy contains "frame-ancestors 'none'"
+    And match header Cross-Origin-Opener-Policy == 'same-origin-allow-popups'
+    And match header Cross-Origin-Resource-Policy == 'same-origin'
+    And match header Permissions-Policy contains 'camera=()'
+    And match header Vary contains 'Sec-Fetch-Site'
 
   Scenario: 2. Métricas del sistema expuestas en formato Prometheus (/metrics)
     Given path '/metrics'
@@ -64,8 +69,9 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 422
 
   Scenario: 6. Login con credenciales inválidas devuelve 401
+    * def badEmail = 'inexistente.' + java.util.UUID.randomUUID() + '@test.com'
     Given path '/api/auth/login'
-    And request { correo: "inexistente@test.com", password: "PasswordErroneo123!" }
+    And request { correo: "#(badEmail)", password: "PasswordErroneo123!" }
     When method post
     Then status 401
     And match response.detail == 'Credenciales inválidas'
@@ -399,4 +405,111 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And request { estado: "FINALIZADA_SIN_DANOS", observaciones_inspeccion: "Inspección BDD" }
     When method put
     Then status 403
+
+  Scenario: 20. Ciclo completo de sesión Hito 17.2 (DTO /me, rotación /refresh, /logout Clear-Site-Data, Idempotency-Key < 8 y Lockout 429)
+    * def uid = java.util.UUID.randomUUID() + ''
+    * def shortUid = uid.substring(0, 8)
+    * def cedula = 'V-20' + shortUid
+    * def email = 'bdd20_' + uid + '@condominio.com'
+
+    # Idempotency-Key menor a 8 caracteres es rechazada con 422
+    Given path '/api/auth/register'
+    And header Idempotency-Key = 'abc'
+    And request { nombre: "Corto BDD", cedula: "#(cedula)", correo: "#(email)", telefono: "+584145550020", password: "Password123!", unidad_solicitada_id: 1, tipo_ocupante_solicitado: "PROPIETARIO" }
+    When method post
+    Then status 422
+
+    # Registro con Idempotency-Key válida
+    Given path '/api/auth/register'
+    And header Idempotency-Key = uid
+    And request
+      """
+      {
+        "nombre": "Usuario BDD Hito 17.2",
+        "cedula": "#(cedula)",
+        "correo": "#(email)",
+        "telefono": "+584145550020",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "#(email)", password: "Password123!" }
+    When method post
+    Then status 200
+    And match response.csrf_token == '#string'
+    * def csrfTok = response.csrf_token
+
+    Given path '/api/auth/me'
+    When method get
+    Then status 200
+    And match response contains { id: '#number', nombre: 'Usuario BDD Hito 17.2', cedula: '#(cedula)', correo: '#(email)', telefono: '+584145550020', es_activo: false, rol: 'FANTASMA', unidad_activa_id: null }
+    * def meCsrf = karate.response.header('X-CSRF-Token')
+    And match meCsrf == '#string'
+
+    Given path '/api/auth/refresh'
+    And header X-CSRF-Token = csrfTok
+    When method post
+    Then status 200
+    And match response.csrf_token == '#string'
+
+    Given path '/api/auth/logout'
+    And header X-CSRF-Token = response.csrf_token
+    When method post
+    Then status 200
+    And match response.message == 'Sesión cerrada exitosamente'
+    * def clearSite = karate.response.header('Clear-Site-Data')
+    And match clearSite == '"cookies", "storage", "cache"'
+
+    # Tras logout la sesión queda revocada en KeyDB/cookie purgada -> 401
+    Given path '/api/auth/me'
+    When method get
+    Then status 401
+
+    # Lockout por fuerza bruta en login: 5 fallos (401) -> 6to intento bloqueado (429)
+    * def lockEmail = 'lock_' + uid + '@condominio.com'
+    Given path '/api/auth/login'
+    And request { correo: "#(lockEmail)", password: "WrongPassword1!" }
+    When method post
+    Then status 401
+    Given path '/api/auth/login'
+    And request { correo: "#(lockEmail)", password: "WrongPassword1!" }
+    When method post
+    Then status 401
+    Given path '/api/auth/login'
+    And request { correo: "#(lockEmail)", password: "WrongPassword1!" }
+    When method post
+    Then status 401
+    Given path '/api/auth/login'
+    And request { correo: "#(lockEmail)", password: "WrongPassword1!" }
+    When method post
+    Then status 401
+    Given path '/api/auth/login'
+    And request { correo: "#(lockEmail)", password: "WrongPassword1!" }
+    When method post
+    Then status 401
+    Given path '/api/auth/login'
+    And request { correo: "#(lockEmail)", password: "WrongPassword1!" }
+    When method post
+    Then status 429
+
+  Scenario: 21. Rechazo temprano Fetch Metadata para solicitudes cross-site no navegables antes de autenticación y aceptación same-origin
+    Given path '/api/auth/me'
+    And header Sec-Fetch-Site = 'cross-site'
+    And header Sec-Fetch-Mode = 'cors'
+    When method get
+    Then status 403
+    And match header X-Frame-Options == 'DENY'
+    And match header Vary contains 'Sec-Fetch-Site'
+
+    Given path '/health'
+    And header Sec-Fetch-Site = 'same-origin'
+    And header Sec-Fetch-Mode = 'cors'
+    When method get
+    Then status 200
+    And match header Content-Security-Policy contains "frame-ancestors 'none'"
 

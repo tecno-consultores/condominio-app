@@ -248,7 +248,7 @@ async function onSubmit(): Promise<void> {
   padding: 0.75rem 1rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   font-size: 1rem;
   font-weight: 700;
@@ -297,9 +297,9 @@ async function onSubmit(): Promise<void> {
 }
 
 .auth-card__help-btn:hover {
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
-  border-color: #0284c7;
+  border-color: #0369a1;
 }
 
 @media (pointer: coarse) {

@@ -40,11 +40,14 @@ describe('DashboardView.vue', () => {
       telefono: '04141234567',
       rol: 'PROPIETARIO',
       es_activo: true,
+      unidad_activa_id: 1,
     };
 
     const wrapper = mount(DashboardView);
     expect(wrapper.text()).toContain('Hola, Ana Pérez');
     expect(wrapper.find('#daily-rate-badge').text()).toContain('36.50 VES/USD');
+    expect(wrapper.findComponent({ name: 'ClosingBanner' }).props('periodo')).toBe('2026-10');
+    expect(wrapper.findComponent({ name: 'CollectionTrafficLight' }).props('ownUnitId')).toBe(1);
 
     await wrapper.find('#tab-gastos').trigger('click');
     expect(wrapper.find('#expenses-donut-chart').exists()).toBe(true);

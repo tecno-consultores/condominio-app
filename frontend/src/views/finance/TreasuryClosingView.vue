@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { nextTick, ref, watch } from 'vue';
 import AppShellLayout from '../../components/layout/AppShellLayout.vue';
 import { useFinanceStore, type MonedaPago } from '../../stores/financeStore';
 
@@ -45,12 +45,33 @@ async function saveEgreso(): Promise<void> {
   }
 }
 
+watch(confirmModalOpen, async (isOpen) => {
+  if (isOpen) {
+    await nextTick();
+    const el = dialogRef.value;
+    if (el && typeof el.showModal === 'function' && !el.open) {
+      el.showModal();
+    }
+    return;
+  }
+  const el = dialogRef.value;
+  if (el?.open && typeof el.close === 'function') {
+    el.close();
+  }
+});
+
 function openClosingModal(): void {
   confirmModalOpen.value = true;
 }
 
 function closeClosingModal(): void {
   confirmModalOpen.value = false;
+}
+
+function handleNativeClose(): void {
+  if (confirmModalOpen.value) {
+    confirmModalOpen.value = false;
+  }
 }
 
 async function confirmMonthlyClosing(): Promise<void> {
@@ -195,10 +216,9 @@ async function confirmMonthlyClosing(): Promise<void> {
     <dialog
       id="modal-confirm-closing"
       ref="dialogRef"
-      :open="confirmModalOpen ? true : undefined"
       aria-labelledby="closing-modal-title"
       class="closing-dialog"
-      @close="closeClosingModal"
+      @close="handleNativeClose"
     >
       <h2 id="closing-modal-title" class="closing-dialog__title">
         ¿Confirmar Candado Contable para {{ cierrePeriodo }}?
@@ -358,7 +378,7 @@ dialog::backdrop {
   padding: 0.625rem 1rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;

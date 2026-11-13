@@ -54,7 +54,7 @@ const emit = defineEmits<{
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
   color-scheme: light dark;
-  accent-color: #0284c7;
+  accent-color: #0369a1;
 }
 
 .task-item--done {
@@ -75,7 +75,7 @@ const emit = defineEmits<{
 .task-item__checkbox {
   width: 22px;
   height: 22px;
-  accent-color: #0284c7;
+  accent-color: #0369a1;
   cursor: pointer;
 }
 
@@ -111,7 +111,7 @@ const emit = defineEmits<{
   font-weight: 700;
 }
 
-@supports not (accent-color: #0284c7) {
+@supports not (accent-color: #0369a1) {
   .task-item__checkbox.visually-hidden {
     position: absolute !important;
     clip-path: inset(50%) !important;
@@ -144,8 +144,8 @@ const emit = defineEmits<{
   }
 
   .task-item__checkbox:checked + span::before {
-    background-color: #0284c7;
-    border-color: #0284c7;
+    background-color: #0369a1;
+    border-color: #0369a1;
   }
 }
 </style>

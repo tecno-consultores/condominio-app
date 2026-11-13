@@ -364,7 +364,7 @@ async function handleInspeccionar(
   flex-direction: column;
   gap: 0.25rem;
   background: #f0f9ff;
-  border: 1px solid #0284c7;
+  border: 1px solid #0369a1;
   color: #0c4a6e;
   border-radius: 0.75rem;
   padding: 0.9rem 1.1rem;

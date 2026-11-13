@@ -424,4 +424,24 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
     await expect(store.emitirCertificadoSolvencia(1, 'k5')).rejects.toThrow();
     await expect(store.emitirCertificadoSolvencia(1, 'k6')).rejects.toThrow();
   });
+
+  it('mantiene isStale=false y limpia sesión ante ApiError 401 (Hito 17.2)', async () => {
+    const { useAuthStore } = await import('./authStore');
+    const authStore = useAuthStore();
+    authStore.setProfileForTesting({
+      id: 4,
+      nombre: 'Tesorero',
+      cedula: 'V-4',
+      correo: 't@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'TESORERO',
+    });
+
+    const store = useFinanceStore();
+    vi.spyOn(apiClient, 'get').mockRejectedValue(new ApiError(401, 'Sesión revocada'));
+    await store.fetchDashboardData();
+    expect(store.isStale).toBe(false);
+    expect(authStore.isAuthenticated).toBe(false);
+  });
 });

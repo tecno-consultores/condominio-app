@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { apiClient, ApiError } from '../services/apiClient';
+import { useAuthStore } from './authStore';
 
 export type MonedaPago = 'USD' | 'VES';
 export type MetodoPago = 'PAGO_MOVIL' | 'TRANSFERENCIA' | 'ZELLE' | 'EFECTIVO';
@@ -232,6 +233,23 @@ export const useFinanceStore = defineStore('finance', () => {
   const activeRateValue = computed(() => data.value.tasaActiva?.tasa_usd_ves ?? '36.50');
   const isPeriodClosed = computed(() => data.value.ultimoCierre?.estado === 'CERRADO');
 
+  async function handleStoreError(
+    error: unknown,
+    fallbackMessage: string,
+    markStaleOnFailure = false,
+  ): Promise<void> {
+    if (error instanceof ApiError && error.status === 401) {
+      isStale.value = false;
+      errorMessage.value = error.detail;
+      await useAuthStore().handleUnauthorizedError(error);
+      return;
+    }
+    if (markStaleOnFailure) {
+      isStale.value = true;
+    }
+    errorMessage.value = error instanceof ApiError ? error.detail : fallbackMessage;
+  }
+
   async function fetchDashboardData(): Promise<void> {
     isLoading.value = true;
     errorMessage.value = null;
@@ -248,12 +266,12 @@ export const useFinanceStore = defineStore('finance', () => {
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
     } catch (error) {
-      // Anti-Destructive Catch: preserva data.value intacto y marca isStale = true
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo sincronizar el resumen financiero. Mostrando últimos datos conocidos.';
+      // Anti-Destructive Catch: preserva data.value intacto y marca isStale = true si no es 401
+      await handleStoreError(
+        error,
+        'No se pudo sincronizar el resumen financiero. Mostrando últimos datos conocidos.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -271,11 +289,11 @@ export const useFinanceStore = defineStore('finance', () => {
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'Error al consultar pagos en revisión. Mostrando lista en caché.';
+      await handleStoreError(
+        error,
+        'Error al consultar pagos en revisión. Mostrando lista en caché.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -295,8 +313,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return nuevaTasa;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo registrar la tasa BCV del día.';
+      await handleStoreError(error, 'No se pudo registrar la tasa BCV del día.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -316,8 +333,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return result;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo registrar el egreso.';
+      await handleStoreError(error, 'No se pudo registrar el egreso.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -338,8 +354,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo reportar el pago.';
+      await handleStoreError(error, 'No se pudo reportar el pago.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -358,8 +373,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return updated;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo aprobar el pago seleccionado.';
+      await handleStoreError(error, 'No se pudo aprobar el pago seleccionado.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -387,8 +401,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return updated;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo rechazar el pago seleccionado.';
+      await handleStoreError(error, 'No se pudo rechazar el pago seleccionado.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -409,10 +422,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return cierre;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo ejecutar el cierre mensual (Candado Contable).';
+      await handleStoreError(error, 'No se pudo ejecutar el cierre mensual (Candado Contable).');
       throw error;
     } finally {
       isLoading.value = false;
@@ -431,11 +441,11 @@ export const useFinanceStore = defineStore('finance', () => {
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudieron sincronizar los fondos patrimoniales. Mostrando datos en caché.';
+      await handleStoreError(
+        error,
+        'No se pudieron sincronizar los fondos patrimoniales. Mostrando datos en caché.',
+        true,
+      );
     } finally {
       isLoading.value = false;
     }
@@ -458,8 +468,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError ? error.detail : 'No se pudo crear el fondo patrimonial.';
+      await handleStoreError(error, 'No se pudo crear el fondo patrimonial.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -485,10 +494,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return res;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo emitir la facturación del periodo seleccionado.';
+      await handleStoreError(error, 'No se pudo emitir la facturación del periodo seleccionado.');
       throw error;
     } finally {
       isLoading.value = false;
@@ -510,11 +516,11 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return desglose;
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo consultar el desglose del recibo seleccionado.';
+      await handleStoreError(
+        error,
+        'No se pudo consultar el desglose del recibo seleccionado.',
+        true,
+      );
       throw error;
     } finally {
       isLoading.value = false;
@@ -540,10 +546,10 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return cert;
     } catch (error) {
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo emitir el Certificado de Solvencia para la unidad indicada.';
+      await handleStoreError(
+        error,
+        'No se pudo emitir el Certificado de Solvencia para la unidad indicada.',
+      );
       throw error;
     } finally {
       isLoading.value = false;
@@ -567,11 +573,7 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return res;
     } catch (error) {
-      isStale.value = true;
-      errorMessage.value =
-        error instanceof ApiError
-          ? error.detail
-          : 'No se pudo verificar el Certificado de Solvencia.';
+      await handleStoreError(error, 'No se pudo verificar el Certificado de Solvencia.', true);
       throw error;
     } finally {
       isLoading.value = false;

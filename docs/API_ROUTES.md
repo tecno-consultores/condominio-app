@@ -17,9 +17,11 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * Selectores: Buscador de Unidad (Ej. "A-42") y un selector de estatus inicial ("Soy Propietario" / "Soy Inquilino").
   * **Pantalla de Bloqueo:** Al completar el registro, el usuario es redirigido a `/espera-aprobacion` con un mensaje fijo: *"Registro completado. Esperando validación de la Junta"*.
 * **Endpoints FastAPI:**
-  * `POST /api/auth/login`: Devuelve JWT en Cookie `HttpOnly`.
-  * `POST /api/auth/register`: Crea usuario "Fantasma". *[Header: Idempotency-Key]* -> Dispara notificación por correo.
-  * `GET /api/auth/me`: Verifica rol y estado de activación del usuario.
+  * `POST /api/auth/login`: Autentica con lockout anti-fuerza bruta (`5` fallos / `15m` -> `429`), mitigación anti-timing (`DUMMY_PASSWORD_HASH`) y entrega JWT (`access_token` + `refresh_token`) en cookies `HttpOnly` junto con `csrf_token` (`X-CSRF-Token`).
+  * `POST /api/auth/register`: Crea usuario "Fantasma". *[Header: `Idempotency-Key` `8..128` caracteres, TTL `86400s`]* -> Dispara notificación por correo.
+  * `POST /api/auth/refresh`: Rota el par `access_token` / `refresh_token` con periodo de gracia concurrente de `5s`, revoca el `sid` completo ante reuso tardío (`401`) y rota `X-CSRF-Token`.
+  * `POST /api/auth/logout`: Revoca la sesión activa (`sid` y `jti`) en KeyDB, purga cookies y emite `Clear-Site-Data: "cookies", "storage", "cache"`.
+  * `GET /api/auth/me`: Retorna perfil DTO completo (`id`, `nombre`, `cedula`, `correo`, `telefono`, `es_activo`, `rol`, `unidad_activa_id`) y rehidrata la cookie/cabecera `X-CSRF-Token`.
 
 ---
 

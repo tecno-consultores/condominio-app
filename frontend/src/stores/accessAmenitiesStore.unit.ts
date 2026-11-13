@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAccessAmenitiesStore } from './accessAmenitiesStore';
+import { useAuthStore } from './authStore';
 import * as apiClient from '../services/apiClient';
 
-vi.mock('../services/apiClient', () => ({
-  apiRequest: vi.fn(),
-}));
+vi.mock('../services/apiClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/apiClient')>();
+  return {
+    ...actual,
+    apiRequest: vi.fn(),
+  };
+});
 
 describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paquetería)', () => {
   beforeEach(() => {
@@ -374,5 +379,20 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter�
         observaciones_inspeccion: 'Daño',
       }),
     ).rejects.toBe('raw-inspeccion');
+
+    const authStore = useAuthStore();
+    authStore.setProfileForTesting({
+      id: 2,
+      nombre: 'Residente QR',
+      cedula: 'V-2',
+      correo: 'qr@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PROPIETARIO',
+    });
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new apiClient.ApiError(401, 'Expirada'));
+    await store.fetchMisPases();
+    expect(store.isStale).toBe(false);
+    expect(authStore.isAuthenticated).toBe(false);
   });
 });

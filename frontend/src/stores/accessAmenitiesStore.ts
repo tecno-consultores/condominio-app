@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { apiRequest } from '../services/apiClient';
+import { ApiError, apiRequest } from '../services/apiClient';
 import { generateIdempotencyKey, sanitizeUntrustedText } from '../utils/security';
+import { useAuthStore } from './authStore';
 
 export type ModalidadPaseQR = 'UNICO_USO' | 'VENTANA_TEMPORAL';
 export type EstadoPaseQR = 'ACTIVO' | 'USADO' | 'REVOCADO' | 'EXPIRADO';
@@ -169,6 +170,17 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
   const isStale = ref(false);
   const error = ref<string | null>(null);
 
+  async function handleStoreError(err: unknown, fallbackMessage: string): Promise<void> {
+    if (err instanceof ApiError && err.status === 401) {
+      isStale.value = false;
+      error.value = err.detail;
+      await useAuthStore().handleUnauthorizedError(err);
+      return;
+    }
+    isStale.value = true;
+    error.value = err instanceof Error ? err.message : fallbackMessage;
+  }
+
   async function fetchMisPases(): Promise<PaseVisitaDTO[]> {
     isLoading.value = true;
     error.value = null;
@@ -179,8 +191,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpios;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al cargar los pases de visita QR';
+      await handleStoreError(err, 'Error al cargar los pases de visita QR');
       return pases.value;
     } finally {
       isLoading.value = false;
@@ -202,8 +213,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpio;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al emitir el pase de visita QR';
+      await handleStoreError(err, 'Error al emitir el pase de visita QR');
       throw err;
     } finally {
       isLoading.value = false;
@@ -225,8 +235,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpio;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al revocar el pase de visita';
+      await handleStoreError(err, 'Error al revocar el pase de visita');
       throw err;
     } finally {
       isLoading.value = false;
@@ -254,8 +263,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpio;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al verificar el código QR';
+      await handleStoreError(err, 'Error al verificar el código QR');
       throw err;
     } finally {
       isLoading.value = false;
@@ -272,8 +280,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpios;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al cargar la paquetería en garita';
+      await handleStoreError(err, 'Error al cargar la paquetería en garita');
       return paquetes.value;
     } finally {
       isLoading.value = false;
@@ -294,9 +301,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpio;
     } catch (err) {
-      isStale.value = true;
-      error.value =
-        err instanceof Error ? err.message : 'Error al registrar la encomienda en garita';
+      await handleStoreError(err, 'Error al registrar la encomienda en garita');
       throw err;
     } finally {
       isLoading.value = false;
@@ -315,9 +320,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpio;
     } catch (err) {
-      isStale.value = true;
-      error.value =
-        err instanceof Error ? err.message : 'Error al confirmar la entrega del paquete';
+      await handleStoreError(err, 'Error al confirmar la entrega del paquete');
       throw err;
     } finally {
       isLoading.value = false;
@@ -334,8 +337,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpias;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al cargar las áreas sociales';
+      await handleStoreError(err, 'Error al cargar las áreas sociales');
       return areasSociales.value;
     } finally {
       isLoading.value = false;
@@ -356,8 +358,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpia;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al crear el área social';
+      await handleStoreError(err, 'Error al crear el área social');
       throw err;
     } finally {
       isLoading.value = false;
@@ -374,9 +375,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpias;
     } catch (err) {
-      isStale.value = true;
-      error.value =
-        err instanceof Error ? err.message : 'Error al cargar el calendario de reservas';
+      await handleStoreError(err, 'Error al cargar el calendario de reservas');
       return reservas.value;
     } finally {
       isLoading.value = false;
@@ -397,9 +396,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpia;
     } catch (err) {
-      isStale.value = true;
-      error.value =
-        err instanceof Error ? err.message : 'Error al solicitar la reserva del área social';
+      await handleStoreError(err, 'Error al solicitar la reserva del área social');
       throw err;
     } finally {
       isLoading.value = false;
@@ -422,11 +419,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpia;
     } catch (err) {
-      isStale.value = true;
-      error.value =
-        err instanceof Error
-          ? err.message
-          : 'Error al registrar la inspección post-evento del área social';
+      await handleStoreError(err, 'Error al registrar la inspección post-evento del área social');
       throw err;
     } finally {
       isLoading.value = false;

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import type { RolUsuario } from '../../stores/authStore';
+import { computed } from 'vue';
+import { getActivePinia } from 'pinia';
+import { useAuthStore, type RolUsuario } from '../../stores/authStore';
 
-defineProps<{
+const props = defineProps<{
   userName: string;
   role: RolUsuario | null;
   currentPath: string;
@@ -12,37 +14,96 @@ const emit = defineEmits<{
   (e: 'logout'): void;
 }>();
 
-const links = [
+interface SidebarLinkItem {
+  id: string;
+  label: string;
+  to: string;
+  roles?: RolUsuario[];
+}
+
+const links: SidebarLinkItem[] = [
   { id: 'side-dashboard', label: 'Resumen Financiero', to: '/dashboard' },
   { id: 'side-pagar', label: 'Reportar Pago', to: '/finanzas/reportar-pago' },
   { id: 'side-solvencia', label: 'Certificado de Solvencia', to: '/finanzas/solvencia' },
-  { id: 'side-facturacion', label: 'Facturación Mensual LPH', to: '/tesoreria/facturacion' },
+  {
+    id: 'side-revision-pagos',
+    label: 'Aprobación de Pagos',
+    to: '/tesoreria/pagos',
+    roles: ['TESORERO', 'PRESIDENTE'],
+  },
+  {
+    id: 'side-cierre-mensual',
+    label: 'Cierre Mensual Contable',
+    to: '/tesoreria/cierre',
+    roles: ['TESORERO', 'PRESIDENTE'],
+  },
+  {
+    id: 'side-facturacion',
+    label: 'Facturación Mensual LPH',
+    to: '/tesoreria/facturacion',
+    roles: ['TESORERO', 'PRESIDENTE'],
+  },
   { id: 'side-incidencias', label: 'Embudo de Incidencias', to: '/incidencias' },
   { id: 'side-tareas', label: 'Tareas de Conserjería', to: '/operaciones/tareas' },
   { id: 'side-voceros', label: 'Galería de Voceros', to: '/voceros/galeria' },
   { id: 'side-bitacora', label: 'Bitácora de Actas', to: '/secretaria/bitacora' },
   { id: 'side-consultas', label: 'Cartas Consulta (Art. 23)', to: '/consultas' },
   { id: 'side-pases-qr', label: 'Pases de Visita QR', to: '/accesos/pases' },
-  { id: 'side-garita-qr', label: 'Escáner Garita QR', to: '/operaciones/garita-qr' },
+  {
+    id: 'side-garita-qr',
+    label: 'Escáner Garita QR',
+    to: '/operaciones/garita-qr',
+    roles: ['CONSERJE', 'PRESIDENTE', 'VOCERO'],
+  },
   { id: 'side-paqueteria', label: 'Paquetería en Garita', to: '/operaciones/paqueteria' },
   { id: 'side-reservas', label: 'Reserva de Áreas Sociales', to: '/reservas/areas' },
-  { id: 'side-estructura', label: 'Estructura Física', to: '/admin/estructura' },
-  { id: 'side-usuarios', label: 'Usuarios Fantasma', to: '/admin/usuarios' },
-  { id: 'side-junta', label: 'Junta de Condominio', to: '/admin/junta' },
+  {
+    id: 'side-estructura',
+    label: 'Estructura Física',
+    to: '/admin/estructura',
+    roles: ['PRESIDENTE', 'VICEPRESIDENTE'],
+  },
+  {
+    id: 'side-usuarios',
+    label: 'Usuarios Fantasma',
+    to: '/admin/usuarios',
+    roles: ['PRESIDENTE', 'VICEPRESIDENTE'],
+  },
+  {
+    id: 'side-junta',
+    label: 'Junta de Condominio',
+    to: '/admin/junta',
+    roles: ['PRESIDENTE'],
+  },
 ];
+
+const effectiveRole = computed<RolUsuario | null>(() => {
+  if (props.role) {
+    return props.role;
+  }
+  const pinia = getActivePinia();
+  return pinia ? useAuthStore(pinia).userRole : null;
+});
+
+const visibleLinks = computed<SidebarLinkItem[]>(() =>
+  links.filter(
+    (link) =>
+      !link.roles || (effectiveRole.value !== null && link.roles.includes(effectiveRole.value)),
+  ),
+);
 </script>
 
 <template>
   <aside id="desktop-sidebar" class="sidebar" aria-label="Menú lateral de escritorio">
     <div class="sidebar__brand">
       <strong class="sidebar__title">Condominio App</strong>
-      <span class="sidebar__role-badge">{{ role || 'RESIDENTE' }}</span>
+      <span class="sidebar__role-badge">{{ effectiveRole || 'RESIDENTE' }}</span>
     </div>
 
     <p class="sidebar__user">{{ userName }}</p>
 
     <ul class="sidebar__list">
-      <li v-for="link in links" :key="link.to">
+      <li v-for="link in visibleLinks" :key="link.to">
         <button
           :id="link.id"
           type="button"

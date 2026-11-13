@@ -13,13 +13,14 @@
 | **Secret Scanning** | `./scripts/verificar-secretos.sh` | 0 secretos expuestos | ✅ **0 hallazgos** |
 | **Lint, Tipado & SAST (Backend)** | `make -C backend qa-lint` (`ruff`, `mypy --strict`, `bandit`) | 0 errores / 0 advertencias | ✅ **100% Limpio** |
 | **Complejidad Ciclomática & MI** | `make -C backend qa-complexity` (`radon_gates.py`) | CC $\le$ Grado B, MI $\ge$ Grado B | ✅ **Grado A/B (CC <= 10, MI >= B)** |
-| **Auditoría de Dependencias** | `make -C backend qa-deps` (`uv audit`) | 0 CVEs conocidos | ✅ **0 vulnerabilidades** |
-| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.85% cobertura (217/217 pass)** |
+| **Auditoría de Dependencias** | `make -C backend qa-deps` (`uv audit`) | 0 CVEs conocidos | ✅ **0 vulnerabilidades (`dnspython>=2.9.2`)** |
+| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.16% cobertura (229/229 pass)** |
 | **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (27 tablas)** |
-| **Lint, Tipado & SonarJS (Frontend)** | `make -C frontend qa-lint` (`vue-tsc`, `prettier`, `eslint`) | 0 errores / CC $\le 15$ | ✅ **100% Limpio** |
+| **Lint, Tipado & SonarJS (Frontend)** | `make -C frontend qa-lint` (`vue-tsc`, `prettier`, `eslint`) | 0 errores / CC $\le 15$ | ✅ **100% Limpio (+ `0` hallazgos `modern-web-guidance legacy-scan`)** |
 | **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **38/38 componentes cubiertos** |
-| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.36% líneas / 99.12% sentencias / 97.66% funciones / 95.52% ramas (108/108 pass)** |
-| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **2.292 nodos, 5.373 relaciones, 134 comunidades (0 violaciones en 3 grafos: 4.036 nodos, 9.741 relaciones)** |
+| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.52% líneas / 99.25% sentencias / 97.9% funciones / 95.5% ramas (116/116 pass)** |
+| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **2.418 nodos, 5.752 relaciones, 137 comunidades (0 violaciones en 3 grafos: 4.288 nodos, 10.499 relaciones)** |
+| **E2E Chromium & WCAG 2.1 AA (Frontend)** | `ui-e2e` Playwright (`frontend/e2e/accessibility.e2e.ts`) contra `ui-prod` | 0 violaciones críticas/serias Axe + geometría viewport | ✅ **8/8 pass (`mobile-chromium` + `desktop-chromium`)** |
 | **Contratos OpenAPI & Fuzzing** | `make -C backend qa-contracts` (`schemathesis`) | 0 fallos 5xx / contrato | ✅ **626/626 casos aprobados** |
 | **Seguridad Dinámica (DAST)** | `make -C backend qa-dast` (`zaproxy/zap-stable`) | `FAIL-NEW: 0` | ✅ **0 fallos (66 reglas PASS)** |
 | **Ingeniería del Caos & Carga** | `make -C backend qa-chaos` (`Pumba` + `Locust` + `Prometheus`) | 0 errores bajo `netem 500ms` | ✅ **2.786 peticiones, 0 fallos** |
@@ -29,7 +30,7 @@
 
 ## 2. Suites Unitarias del Backend (`backend/tests/*.unit.py`)
 
-- `tests/test_main.unit.py`: Healthcheck `/health`, cabeceras de seguridad HTTP (`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`), sanitización de errores `422` en producción, ocultamiento de `/docs` y arranque *Fail-Fast* en `lifespan` bajo `APP_ENV=production`.
+- `tests/test_main.unit.py`: Healthcheck `/health`, cabeceras de seguridad HTTP (`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Content-Security-Policy` con `frame-ancestors 'none'`, `Cross-Origin-Opener-Policy: same-origin-allow-popups`, `Cross-Origin-Resource-Policy: same-origin`, `Permissions-Policy`, `Vary` sin duplicados y `Strict-Transport-Security` condicional), aislamiento pre-auth Fetch Metadata (`403` ante `cross-site`), sanitización de errores `422` en producción, ocultamiento de `/docs` y arranque *Fail-Fast* en `lifespan` bajo `APP_ENV=production`.
 - `tests/test_security_11x.unit.py`:
   - Hashing `PBKDF2-HMAC-SHA256` con sal aleatoria, verificación en tiempo constante, rechazo estricto de hashes legacy SHA-256 sin sal y validación *Fail-Fast* (`validate_production_security_settings`) en `APP_ENV=production`.
   - Generación y validación de tokens CSRF `HMAC-SHA256` (expiración, firma inválida, formato malformado).
@@ -48,7 +49,7 @@
 
 ## 3. Escenarios BDD Karate Labs (`backend/test/api_test.feature`)
 
-1. **Healthcheck y Cabeceras de Seguridad:** Verifica estado 200 y presencia de `X-Content-Type-Options: nosniff` y `X-Frame-Options: DENY`.
+1. **Healthcheck y Cabeceras de Seguridad:** Verifica estado 200 y presencia de `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy` (`frame-ancestors 'none'`), `Cross-Origin-Opener-Policy: same-origin-allow-popups`, `Cross-Origin-Resource-Policy: same-origin`, `Permissions-Policy` y `Vary` (`Sec-Fetch-Site`).
 2. **Registro Idempotente de Usuario Fantasma:** Verifica alta con `es_activo: false` y rechazo `409 Conflict` al repetir `Idempotency-Key`.
 3. **Rechazo de Mass Assignment (`extra="forbid"`):** Verifica que enviar `"es_activo": true` o `"rol": "PRESIDENTE"` en el registro devuelve `422 Unprocessable Entity`.
 4. **Exigencia de `Idempotency-Key`:** Verifica retorno `422` cuando se omite la cabecera en mutaciones críticas.
@@ -67,6 +68,10 @@
 17. **Contención RBAC de Usuario Fantasma en Accesos QR y Paquetería (Hito 12):** Verifica que un Usuario Fantasma autenticado recibe `403 Forbidden` al intentar emitir/listar pases QR, verificar en garita o gestionar paquetería.
 18. **Protección 401 de Reserva de Áreas Sociales (Hito 13):** Verifica que `GET /api/reservas/areas` y `GET /api/reservas` sin sesión devuelven `401 Unauthorized`.
 19. **Contención RBAC de Usuario Fantasma en Reserva de Áreas Sociales e Inspección Post-Evento (Hito 13):** Verifica que un Usuario Fantasma autenticado recibe `403 Forbidden` al consultar/crear áreas sociales, solicitar reservas o registrar inspecciones.
+20. **Ciclo de Sesión Completo, CSRF Real, Bloqueo `5/15m` e Idempotencia `8..128` (Hito 17.2):** Verifica `/api/auth/me` con `cedula`/`telefono`/`unidad_activa_id`, rechazo `403` sin `X-CSRF-Token`, rotación en `POST /api/auth/refresh`, cierre `POST /api/auth/logout` con `Clear-Site-Data` y revocación de tokens emitidos, rechazo de `Idempotency-Key` fuera de rango y bloqueo `429` tras 5 intentos fallidos de inicio de sesión.
+21. **Aislamiento Temprano Fetch Metadata (`Sec-Fetch-*`):** Verifica rechazo `403` antes de autenticación ante solicitudes `Sec-Fetch-Site: cross-site` + `Sec-Fetch-Mode: cors` (con `X-Frame-Options: DENY` y `Vary: Sec-Fetch-Site`) y aceptación `200` con `Content-Security-Policy` ante `Sec-Fetch-Site: same-origin` (**21/21 pass en 2 ejecuciones consecutivas**).
+
+> **Nota E2E UI (`frontend/test/ui_business_flow.feature` y Playwright):** El Escenario 9 (sesión, modales nativos `<dialog>` verificando `:modal` en Top Layer y rutas RBAC) quedó incorporado en `frontend/test/ui_business_flow.feature`, pero la imagen `sinfallas/karatelabs:latest` carece de `/usr/bin/google-chrome`, impidiendo ejecutar `karatelabs` UI en ese contenedor. Asimismo, `mcr.microsoft.com/playwright:v1.48.2-jammy` carece de `pnpm` y difiere de `@playwright/test@1.64.1`, por lo que la verificación real en navegador se ejecutó en `ui-e2e` contra `ui-prod` usando `./node_modules/.bin/playwright` con `chromium-headless-shell` en `/tmp/pw-browsers`, aprobando **8/8 pruebas** (`mobile-chromium` + `desktop-chromium`, 0 violaciones críticas o serias WCAG 2.1 AA incluyendo `#dialog-contextual-help` con `closedby="any"`, `autofocus` y `tabindex="0"` en `.help-dialog__body`; `0` hallazgos en `modern-web-guidance@latest legacy-scan src --json`).
 
 ---
 

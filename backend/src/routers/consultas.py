@@ -172,7 +172,7 @@ async def _armar_detalle_consulta(
 )
 async def crear_consulta(
     datos: ConsultaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
@@ -180,9 +180,7 @@ async def crear_consulta(
     """Crea una nueva Carta Consulta (Art. 23 LPH) o convocatoria de Asamblea (Art. 24 LPH)."""
     verificar_roles(usuario, _ROLES_GOBERNANZA)
 
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"crear_consulta:{usuario.id}"
-    )
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"crear_consulta:{usuario.id}")
     if not es_unica:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -333,7 +331,7 @@ async def votar_en_consulta(
     consulta_id: int,
     datos: VotarConsultaRequest,
     request: Request,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
@@ -342,7 +340,7 @@ async def votar_en_consulta(
     verificar_usuario_activo(usuario)
 
     es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"votar:{consulta_id}:{datos.unidad_id}"
+        redis_conn, idempotency_key, scope=f"votar:{consulta_id}:{datos.unidad_id}"
     )
     if not es_unica:
         raise HTTPException(
@@ -483,7 +481,7 @@ def _generar_texto_acta_cierre(
 )
 async def cerrar_consulta(
     consulta_id: int,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
@@ -491,9 +489,7 @@ async def cerrar_consulta(
     """Cierra el escrutinio de la consulta, determina su estado legal y asienta el acta en BitacoraActa."""
     verificar_roles(usuario, _ROLES_GOBERNANZA)
 
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, ttl_seconds=120, scope=f"cerrar_consulta:{consulta_id}"
-    )
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"cerrar_consulta:{consulta_id}")
     if not es_unica:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -51,7 +51,7 @@ async def listar_unidades(db: AsyncSession = Depends(get_db)) -> list[Unidad]:
 )
 async def generar_estructura(
     datos: EstructuraGenerarRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
@@ -241,7 +241,7 @@ async def asignar_cargo_junta(
 async def actualizar_alicuota_unidad(
     unidad_id: int,
     datos: AlicuotaUpdateRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_client: Any = Depends(get_redis_client),
     usuario_actual: Usuario = Depends(get_current_user),

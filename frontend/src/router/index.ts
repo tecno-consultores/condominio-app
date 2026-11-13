@@ -6,7 +6,7 @@ import {
   type Router,
   type RouteRecordRaw,
 } from 'vue-router';
-import { useAuthStore, type RolUsuario } from '../stores/authStore';
+import { registerAuthRouter, useAuthStore, type RolUsuario } from '../stores/authStore';
 import AdminBoardRolesView from '../views/admin/AdminBoardRolesView.vue';
 import AdminGhostUsersView from '../views/admin/AdminGhostUsersView.vue';
 import AdminStructureView from '../views/admin/AdminStructureView.vue';
@@ -231,14 +231,31 @@ export function buildAppRouter(useMemory = false): Router {
     routes,
   });
 
-  router.beforeEach((to) => {
+  registerAuthRouter(router);
+
+  router.beforeEach(async (to) => {
     const authStore = useAuthStore();
-    return evaluateNavigationGuard(to, {
+    if (!authStore.sessionHydrated && !to.meta?.public) {
+      await authStore.fetchProfile();
+    }
+
+    const decision = evaluateNavigationGuard(to, {
       isAuthenticated: authStore.isAuthenticated,
       isGhostUser: authStore.isGhostUser,
       isActiveUser: authStore.isActiveUser,
       userRole: authStore.userRole,
     });
+
+    const allowedRoles = to.meta?.roles as RolUsuario[] | undefined;
+    if (
+      decision === '/dashboard' &&
+      Array.isArray(allowedRoles) &&
+      (!authStore.userRole || !allowedRoles.includes(authStore.userRole))
+    ) {
+      authStore.setRbacNotice('No posee permisos para acceder a la sección solicitada.');
+    }
+
+    return decision;
   });
 
   return router;

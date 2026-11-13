@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 const props = defineProps<{
   open: boolean;
@@ -19,10 +19,20 @@ const isMotivoValid = computed(() => motivo.value.trim().length >= 5);
 
 watch(
   () => props.open,
-  (isOpen) => {
+  async (isOpen) => {
     if (isOpen) {
       motivo.value = '';
       touched.value = false;
+      await nextTick();
+      const el = dialogRef.value;
+      if (el && typeof el.showModal === 'function' && !el.open) {
+        el.showModal();
+      }
+      return;
+    }
+    const el = dialogRef.value;
+    if (el?.open && typeof el.close === 'function') {
+      el.close();
     }
   },
   { immediate: true },
@@ -30,6 +40,12 @@ watch(
 
 function handleCancel(): void {
   emit('close');
+}
+
+function handleNativeClose(): void {
+  if (props.open) {
+    emit('close');
+  }
 }
 
 function handleConfirm(): void {
@@ -49,10 +65,9 @@ function handleConfirm(): void {
   <dialog
     id="modal-reject-reason"
     ref="dialogRef"
-    :open="open ? true : undefined"
     aria-labelledby="reject-modal-title"
     class="reject-dialog"
-    @close="handleCancel"
+    @close="handleNativeClose"
   >
     <h2 id="reject-modal-title" class="reject-dialog__title">
       Rechazar Pago #{{ pagoId ?? '' }} (Auditoría Forense)

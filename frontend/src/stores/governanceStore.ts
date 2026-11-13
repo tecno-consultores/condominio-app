@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { apiRequest } from '../services/apiClient';
+import { ApiError, apiRequest } from '../services/apiClient';
 import { generateIdempotencyKey, sanitizeUntrustedText } from '../utils/security';
+import { useAuthStore } from './authStore';
 
 export type TipoConsulta =
   'CARTA_CONSULTA_1RA' | 'CARTA_CONSULTA_2DA' | 'ASAMBLEA_ORDINARIA' | 'ASAMBLEA_EXTRAORDINARIA';
@@ -137,6 +138,17 @@ export const useGovernanceStore = defineStore('governance', () => {
   const isStale = ref(false);
   const error = ref<string | null>(null);
 
+  async function handleStoreError(err: unknown, fallbackMessage: string): Promise<void> {
+    if (err instanceof ApiError && err.status === 401) {
+      isStale.value = false;
+      error.value = err.detail;
+      await useAuthStore().handleUnauthorizedError(err);
+      return;
+    }
+    isStale.value = true;
+    error.value = err instanceof Error ? err.message : fallbackMessage;
+  }
+
   async function fetchConsultas(): Promise<ConsultaResumenDTO[]> {
     isLoading.value = true;
     error.value = null;
@@ -147,8 +159,7 @@ export const useGovernanceStore = defineStore('governance', () => {
       isStale.value = false;
       return limpias;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al cargar las Cartas Consulta';
+      await handleStoreError(err, 'Error al cargar las Cartas Consulta');
       return consultas.value;
     } finally {
       isLoading.value = false;
@@ -165,9 +176,7 @@ export const useGovernanceStore = defineStore('governance', () => {
       isStale.value = false;
       return limpia;
     } catch (err) {
-      isStale.value = true;
-      error.value =
-        err instanceof Error ? err.message : 'Error al cargar el detalle de la consulta';
+      await handleStoreError(err, 'Error al cargar el detalle de la consulta');
       throw err;
     } finally {
       isLoading.value = false;
@@ -189,8 +198,7 @@ export const useGovernanceStore = defineStore('governance', () => {
       isStale.value = false;
       return limpia;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al convocar la Carta Consulta';
+      await handleStoreError(err, 'Error al convocar la Carta Consulta');
       throw err;
     } finally {
       isLoading.value = false;
@@ -231,8 +239,7 @@ export const useGovernanceStore = defineStore('governance', () => {
       isStale.value = false;
       return recibo;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al registrar el voto';
+      await handleStoreError(err, 'Error al registrar el voto');
       throw err;
     } finally {
       isLoading.value = false;
@@ -273,8 +280,7 @@ export const useGovernanceStore = defineStore('governance', () => {
       isStale.value = false;
       return cierre;
     } catch (err) {
-      isStale.value = true;
-      error.value = err instanceof Error ? err.message : 'Error al cerrar la Carta Consulta';
+      await handleStoreError(err, 'Error al cerrar la Carta Consulta');
       throw err;
     } finally {
       isLoading.value = false;

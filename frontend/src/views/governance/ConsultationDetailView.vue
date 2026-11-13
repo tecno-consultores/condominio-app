@@ -307,7 +307,7 @@ progress.quorum-progress {
   block-size: 0.75rem;
   --progress-bar-radius: 1e5px;
   --progress-bar-track: #e2e8f0;
-  --progress-bar-fill: #0284c7;
+  --progress-bar-fill: #0369a1;
   --progress-bar-indeterminate-size: 30%;
   --progress-bar-indeterminate-animation-duration: 1.5s;
   border-radius: var(--progress-bar-radius);
@@ -400,7 +400,7 @@ progress.quorum-progress::-moz-progress-bar {
 }
 
 .option-radio-card--selected {
-  border-color: #0284c7;
+  border-color: #0369a1;
   background-color: #f0f9ff;
 }
 
@@ -492,7 +492,7 @@ progress.quorum-progress::-moz-progress-bar {
 }
 
 .btn-primary {
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
 }
 

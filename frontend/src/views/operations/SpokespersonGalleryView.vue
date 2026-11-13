@@ -135,7 +135,7 @@ async function handleSubmitPhoto(): Promise<void> {
   gap: 1rem;
   margin-bottom: 1.25rem;
   color-scheme: light dark;
-  accent-color: #0284c7;
+  accent-color: #0369a1;
 }
 
 .page-header__title {
@@ -165,7 +165,7 @@ async function handleSubmitPhoto(): Promise<void> {
 .quota-box__bar {
   width: 100%;
   height: 12px;
-  accent-color: #0284c7;
+  accent-color: #0369a1;
 }
 
 .banner {
@@ -219,7 +219,7 @@ async function handleSubmitPhoto(): Promise<void> {
   padding: 0.625rem 1rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;

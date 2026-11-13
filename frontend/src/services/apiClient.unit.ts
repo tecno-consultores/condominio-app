@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiClient, ApiError, apiRequest, getCsrfToken, setCsrfToken } from './apiClient';
+import {
+  apiClient,
+  ApiError,
+  apiRequest,
+  getCsrfToken,
+  readCsrfCookie,
+  setCsrfToken,
+} from './apiClient';
 
 describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
   afterEach(() => {
@@ -104,5 +111,109 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     await expect(apiClient.put<{ ok: boolean }>('/api/pagos/1/aprobar', {})).resolves.toEqual({
       ok: true,
     });
+  });
+
+  it('sincroniza CSRF desde cookie o cabecera y realiza refresh single-flight ante HTTP 401 concurrente', async () => {
+    document.cookie = 'csrf_token=csrf-cookie-xyz';
+    setCsrfToken('csrf-client-initialized');
+    expect(getCsrfToken()).toBe('csrf-cookie-xyz');
+
+    let protectedCalls = 0;
+    let refreshCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/auth/refresh') {
+        refreshCalls += 1;
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({
+            'content-type': 'application/json',
+            'x-csrf-token': 'csrf-rotado-nuevo',
+          }),
+          json: async () => ({ message: 'Sesión renovada', csrf_token: 'csrf-rotado-nuevo' }),
+        } as Response;
+      }
+      protectedCalls += 1;
+      if (protectedCalls <= 2) {
+        return {
+          ok: false,
+          status: 401,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ detail: 'Token expirado' }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ items: ['ok'] }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [r1, r2] = await Promise.all([
+      apiClient.get<{ items: string[] }>('/api/finanzas/resumen'),
+      apiClient.get<{ items: string[] }>('/api/finanzas/tasa'),
+    ]);
+
+    expect(r1.items).toEqual(['ok']);
+    expect(r2.items).toEqual(['ok']);
+    expect(refreshCalls).toBe(1);
+    expect(getCsrfToken()).toBe('csrf-rotado-nuevo');
+
+    // Si /api/auth/refresh falla, propaga ApiError(401, ..., true) sin loop infinito
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ detail: 'Sesión expirada' }),
+      })),
+    );
+    await expect(apiClient.get('/api/finanzas/resumen')).rejects.toMatchObject({
+      status: 401,
+      refreshAttempted: true,
+    });
+
+    // Sincroniza csrf_token desde cuerpo JSON, rotaciones en document.cookie y fallos de red en /refresh
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/auth/refresh') {
+          throw new Error('ECONNRESET');
+        }
+        if (url === '/api/finanzas/tasa') {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ ok: true, csrf_token: 'csrf-body-rotado' }),
+          } as Response;
+        }
+        return {
+          ok: false,
+          status: 401,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ detail: 'Token vencido' }),
+        } as Response;
+      }),
+    );
+    await expect(apiClient.get('/api/finanzas/tasa')).resolves.toMatchObject({ ok: true });
+    expect(getCsrfToken()).toBe('csrf-body-rotado');
+
+    document.cookie = 'csrf_token=csrf-cookie-nueva';
+    expect(getCsrfToken()).toBe('csrf-cookie-nueva');
+
+    await expect(apiClient.get('/api/pagos/revision')).rejects.toMatchObject({
+      status: 401,
+      refreshAttempted: true,
+    });
+
+    document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'otra_cookie=solo_prueba';
+    expect(readCsrfCookie()).toBeNull();
   });
 });

@@ -140,7 +140,7 @@ async function handleLogout(): Promise<void> {
   padding: 0.75rem 1rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
@@ -181,9 +181,9 @@ async function handleLogout(): Promise<void> {
 }
 
 .auth-help-btn:hover {
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
-  border-color: #0284c7;
+  border-color: #0369a1;
 }
 
 @media (pointer: coarse) {

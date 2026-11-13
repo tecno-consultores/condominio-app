@@ -263,7 +263,7 @@ async def cierre_mensual(
 )
 async def crear_fondo_condominio(
     datos: FondoCondominioCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
@@ -523,7 +523,7 @@ async def _persistir_lote_facturacion(
 )
 async def facturar_periodo(
     datos: FacturarPeriodoRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
@@ -661,7 +661,7 @@ def _fin_de_mes(fecha_base: date) -> date:
 )
 async def emitir_certificado_solvencia(
     unidad_id: int,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),

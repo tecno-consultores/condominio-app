@@ -390,7 +390,7 @@ async function submitPayment(): Promise<void> {
   padding: 0.625rem 1.25rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0284c7;
+  background-color: #0369a1;
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;

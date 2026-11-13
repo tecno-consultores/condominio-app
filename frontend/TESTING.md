@@ -18,11 +18,11 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
 - `src/composables/useIdempotency.unit.ts`:
   - Reutilización de la misma `Idempotency-Key` tras fallos de red/timeout, rotación al completarse con éxito y bloqueo de envíos concurrentes (`isSubmitting`).
 - `src/services/apiClient.unit.ts`:
-  - Envío automático de `credentials: 'include'`, `X-CSRF-Token` en métodos mutantes, `Idempotency-Key` y transformación de errores HTTP (`401`, `422`, `500`) y de red en `ApiError`.
+  - Envío automático de `credentials: 'include'`, `X-CSRF-Token` sincronizado por cookie/cabecera/JSON en métodos mutantes, `Idempotency-Key`, reintento controlado (`single-flight` `401` con `POST /api/auth/refresh` y limpieza uniforme ante sesión expirada) y transformación de errores HTTP (`401`, `422`, `500`) y de red en `ApiError`.
 - `src/stores/authStore.unit.ts`:
-  - Autenticación, registro de Usuarios Fantasma, getters (`isAuthenticated`, `isGhostUser`, `isActiveUser`, `userRole`) y **Manejo de Errores No Destructivo** (`isStale = true` preservando `data` ante caídas de red).
+  - Autenticación, hidratación inicial de sesión (`GET /api/auth/me` incluyendo `cedula`, `telefono`, `unidad_activa_id`), rotación/cierre (`POST /api/auth/refresh`, `POST /api/auth/logout`), registro de Usuarios Fantasma, getters (`isAuthenticated`, `isGhostUser`, `isActiveUser`, `userRole`) y **Manejo de Errores No Destructivo** (`isStale = true` preservando `data` ante caídas de red, unificado mediante `StaleDataBanner` en los 5 stores).
 - `src/router/index.unit.ts`:
-  - Guardias de navegación para rutas públicas (`/login`, `/register`), ruta de contención fantasma (`/espera-aprobacion`) y rutas protegidas por rol (`meta.roles`).
+  - Guardias de navegación con hidratación inicial de sesión antes de redirigir, rutas públicas (`/login`, `/register`), ruta de contención fantasma (`/espera-aprobacion`), apertura nativa `<dialog>` con `showModal()` sin `:open`, `autofocus`, `closedby="any"` y cierre backdrop drag-safe (`pointerdown`/`pointerup`) en los 4 modales (`VoteReceiptModal`, `RejectPaymentModal`, `ReceiptBreakdownModal`, `ContextualHelpModal`), migración total de contraste `#0284c7` → `#0369a1` (`5.93:1`), `@media (forced-colors: active)` en `App.vue`, filtrado RBAC + rutas de tesorería en `SidebarNav.vue`, periodo dinámico + `ownUnitId` en `DashboardView.vue` y rutas protegidas por rol (`meta.roles`).
 - `src/components/layout/*.unit.ts`:
   - `AppShellLayout.unit.ts` (contenedor fluido `container-type: inline-size` y `max-inline-size: 76rem`), `BottomNavBar.unit.ts` (adaptación `@media (pointer: coarse)`), `SidebarNav.unit.ts`, `AppFooter.unit.ts` y `StaleDataBanner.unit.ts`.
 - `src/stores/financeStore.unit.ts` y `src/components/finance/*.unit.ts` (Hitos 6 y 10):
@@ -41,9 +41,9 @@ Cada componente `.vue`, store de Pinia, guardia de enrutamiento y utilidad de se
   - `VisitorPassesView.unit.ts` (`/accesos/pases`), `GatehouseScannerView.unit.ts` (`/operaciones/garita-qr`), `ParcelsTrackerView.unit.ts` (`/operaciones/paqueteria`) y `AmenitiesReservationView.unit.ts` (`/reservas/areas`).
 - `src/utils/screenHelpCatalog.unit.ts` y `src/components/layout/ContextualHelpModal.unit.ts` (Hito 14):
   - `screenHelpCatalog.unit.ts` (cobertura total de rutas públicas, financieras, operativas, gobernanza, administrativas, alias y variantes adaptadas por rol).
-  - `ContextualHelpModal.unit.ts` (modal accesible `<dialog id="dialog-contextual-help">`, selectores canónicos, renderizado reactivo según ruta y rol, interacción y cierre por backdrop).
-- `src/App.unit.ts`: Montaje del contenedor raíz.
-- **Total Certificado (Hitos 5 al 14):** **38 componentes `.vue` auditados (0 huérfanos)**, **48 suites `.unit.ts` (108/108 tests aprobados)** con **99.48% líneas, 99.41% sentencias, 97.63% funciones y 95.88% ramas**.
+  - `ContextualHelpModal.unit.ts` (modal accesible `<dialog id="dialog-contextual-help" closedby="any">`, `autofocus`, región desplazable `tabindex="0"` + `:aria-label`, cierre drag-safe `pointerdown`/`pointerup`, renderizado reactivo según ruta/rol e interacción).
+- `src/App.unit.ts`: Montaje del contenedor raíz y reglas globales `@media (forced-colors: active)`.
+- **Total Certificado (Hitos 5 al 17.2 + Modern Web Guidance):** **38 componentes `.vue` auditados (0 huérfanos)**, **48 suites `.unit.ts` (`116/116` tests aprobados)** con **99.52% líneas, 99.25% sentencias, 97.9% funciones y 95.5% ramas**, `0` ocurrencias restantes de `#0284c7` tras completar la migración `#0369a1` (`5.93:1` WCAG 1.4.3 / 1.4.11) en toda `frontend/src/`, `0` hallazgos en `modern-web-guidance@latest legacy-scan src --json` (`33` guías / `35` reglas), build productivo Vite (`vue-tsc`, `prettier` y `eslint --max-warnings 0` limpios) y **8/8 pruebas E2E Playwright Chromium reales aprobadas** (`mobile-chromium` y `desktop-chromium` sobre `ui-prod`, incluyendo `#dialog-contextual-help` `:modal` + `closedby="any"`; 0 violaciones críticas o serias en `@axe-core/playwright`). *Nota de infraestructura QA:* `sinfallas/karatelabs:latest` carece de `/usr/bin/google-chrome` (impidiendo ejecutar `test/ui_business_flow.feature` — incluido su Escenario 9 `:modal` — en ese contenedor) y `mcr.microsoft.com/playwright:v1.48.2-jammy` carece de `pnpm` y difiere de `@playwright/test@1.64.1`, por lo que `ui-e2e` se ejecutó con `./node_modules/.bin/playwright` y `chromium-headless-shell` en `/tmp/pw-browsers`.
 
 ---
 

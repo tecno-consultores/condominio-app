@@ -15,9 +15,15 @@ const emit = defineEmits<{
 const dialogRef = ref<HTMLDialogElement | null>(null);
 
 watch(
-  () => props.open,
+  () => Boolean(props.open && props.recibo),
   async (isOpen) => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      const el = dialogRef.value;
+      if (el?.open && typeof el.close === 'function') {
+        el.close();
+      }
+      return;
+    }
     await nextTick();
     const el = dialogRef.value;
     if (el && typeof el.showModal === 'function' && !el.open) {
@@ -27,23 +33,51 @@ watch(
   { immediate: true },
 );
 
+let pressedOutside: boolean | null = null;
+
+function hasNativeClosedBy(): boolean {
+  return typeof HTMLDialogElement !== 'undefined' && 'closedBy' in HTMLDialogElement.prototype;
+}
+
+function isOutsideDialog(
+  event: { clientX: number; clientY: number },
+  dialog: HTMLDialogElement,
+): boolean {
+  const rect = dialog.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  return (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  );
+}
+
+function handlePointerDown(event: PointerEvent): void {
+  const dialog = dialogRef.value;
+  if (!dialog || hasNativeClosedBy()) return;
+  pressedOutside = isOutsideDialog(event, dialog);
+}
+
+function handlePointerUp(event: PointerEvent): void {
+  const dialog = dialogRef.value;
+  if (!dialog || hasNativeClosedBy()) return;
+  if (pressedOutside === true && isOutsideDialog(event, dialog)) {
+    pressedOutside = null;
+    emit('close');
+  }
+}
+
 function handleBackdropClick(event: MouseEvent): void {
   const dialog = dialogRef.value;
-  if (!dialog) return;
-  if (typeof HTMLDialogElement !== 'undefined' && 'closedBy' in HTMLDialogElement.prototype) {
+  if (!dialog || hasNativeClosedBy()) return;
+  if (pressedOutside !== null) {
+    pressedOutside = null;
     return;
   }
-  if (event.target !== dialog) return;
-  const rect = dialog.getBoundingClientRect();
-  const isDialogContent =
-    rect.height > 0 &&
-    rect.width > 0 &&
-    rect.top <= event.clientY &&
-    event.clientY <= rect.top + rect.height &&
-    rect.left <= event.clientX &&
-    event.clientX <= rect.left + rect.width;
-  if (isDialogContent) return;
-  emit('close');
+  if (event.target === dialog && isOutsideDialog(event, dialog)) {
+    emit('close');
+  }
 }
 </script>
 
@@ -52,11 +86,12 @@ function handleBackdropClick(event: MouseEvent): void {
     v-if="open && recibo"
     id="modal-vote-receipt"
     ref="dialogRef"
-    open
     v-bind="{ closedby: 'any' }"
     class="vote-receipt-modal"
     aria-labelledby="vote-receipt-title"
     @close="emit('close')"
+    @pointerdown="handlePointerDown"
+    @pointerup="handlePointerUp"
     @click="handleBackdropClick"
   >
     <div class="vote-receipt-modal__card">
@@ -119,6 +154,7 @@ function handleBackdropClick(event: MouseEvent): void {
         <button
           id="btn-close-vote-receipt"
           type="button"
+          autofocus
           class="vote-receipt-modal__close"
           @click="emit('close')"
         >
@@ -130,19 +166,17 @@ function handleBackdropClick(event: MouseEvent): void {
 </template>
 
 <style scoped>
-dialog:modal,
-.vote-receipt-modal {
-  position: fixed;
-  inset: 0;
-  inline-size: 100%;
-  block-size: 100%;
-  background-color: rgba(15, 23, 42, 0.65);
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.vote-receipt-modal[open] {
+  margin: auto;
+  padding: 0;
   border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem;
-  z-index: 60;
+  background: transparent;
+  inline-size: min(100% - 1.5rem, 34rem);
+  max-block-size: min(85dvh, 40rem);
   overscroll-behavior: contain;
 }
 
@@ -155,7 +189,7 @@ dialog::backdrop,
 }
 
 .vote-receipt-modal__card {
-  inline-size: min(100% - 1rem, 34rem);
+  inline-size: 100%;
   max-block-size: min(85dvh, 40rem);
   overflow-y: auto;
   overscroll-behavior: contain;

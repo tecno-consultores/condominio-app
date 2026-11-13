@@ -1,6 +1,13 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+import type { Router } from 'vue-router';
 import { ApiError, apiRequest } from '../services/apiClient';
+
+let boundRouter: Router | null = null;
+
+export function registerAuthRouter(router: Router): void {
+  boundRouter = router;
+}
 
 export type RolUsuario =
   | 'FANTASMA'
@@ -21,6 +28,7 @@ export interface UsuarioPerfil {
   telefono: string;
   es_activo: boolean;
   rol: RolUsuario;
+  unidad_activa_id?: number | null;
 }
 
 export interface RegistroPayload {
@@ -47,6 +55,8 @@ export const useAuthStore = defineStore('auth', () => {
   const isStale = ref<boolean>(false);
   const errorMessage = ref<string | null>(null);
   const lastUpdatedAt = ref<number | null>(null);
+  const sessionHydrated = ref<boolean>(false);
+  const rbacNotice = ref<string | null>(null);
 
   const isAuthenticated = computed<boolean>(() => data.value !== null);
   const isGhostUser = computed<boolean>(
@@ -81,6 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
       return data.value;
     } finally {
+      sessionHydrated.value = true;
       isLoading.value = false;
     }
   }
@@ -93,7 +104,9 @@ export const useAuthStore = defineStore('auth', () => {
         method: 'POST',
         body: { correo, password },
       });
-      return await fetchProfile();
+      const profile = await fetchProfile();
+      sessionHydrated.value = true;
+      return profile;
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : new ApiError(0, 'Error al iniciar sesión');
       errorMessage.value = apiErr.detail;
@@ -118,6 +131,7 @@ export const useAuthStore = defineStore('auth', () => {
       data.value = created;
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
+      sessionHydrated.value = true;
       return created;
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : new ApiError(0, 'Error en el registro');
@@ -128,11 +142,41 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function logout(): void {
+  function setRbacNotice(message: string | null): void {
+    rbacNotice.value = message;
+  }
+
+  function clearSession(): void {
     data.value = null;
     isStale.value = false;
     errorMessage.value = null;
     lastUpdatedAt.value = null;
+    sessionHydrated.value = true;
+  }
+
+  async function logout(): Promise<void> {
+    clearSession();
+    rbacNotice.value = null;
+    try {
+      await apiRequest('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Silenciamos fallos de red al cerrar sesión para garantizar limpieza local inmediata
+    }
+  }
+
+  async function handleUnauthorizedError(err: unknown): Promise<boolean> {
+    if (!(err instanceof ApiError) || err.status !== 401) {
+      return false;
+    }
+    clearSession();
+    errorMessage.value = 'Su sesión ha expirado. Inicie sesión nuevamente.';
+    if (boundRouter) {
+      const currentPath = boundRouter.currentRoute.value.path;
+      if (currentPath !== '/login' && currentPath !== '/registro') {
+        await boundRouter.push('/login');
+      }
+    }
+    return true;
   }
 
   function setProfileForTesting(profile: UsuarioPerfil | null): void {
@@ -140,6 +184,7 @@ export const useAuthStore = defineStore('auth', () => {
     isStale.value = false;
     errorMessage.value = null;
     lastUpdatedAt.value = profile ? Date.now() : null;
+    sessionHydrated.value = true;
   }
 
   return {
@@ -148,6 +193,8 @@ export const useAuthStore = defineStore('auth', () => {
     isStale,
     errorMessage,
     lastUpdatedAt,
+    sessionHydrated,
+    rbacNotice,
     isAuthenticated,
     isGhostUser,
     isActiveUser,
@@ -155,7 +202,10 @@ export const useAuthStore = defineStore('auth', () => {
     fetchProfile,
     login,
     register,
+    setRbacNotice,
+    clearSession,
     logout,
+    handleUnauthorizedError,
     setProfileForTesting,
   };
 });

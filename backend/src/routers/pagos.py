@@ -78,7 +78,7 @@ async def _obtener_recibo(db: AsyncSession, recibo_id: int) -> Recibo:
 )
 async def reportar_pago(
     pago: PagoReportar,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),

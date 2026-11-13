@@ -144,7 +144,7 @@ tbody th {
 .own-badge {
   margin-left: 0.375rem;
   font-size: 0.75rem;
-  color: #0284c7;
+  color: #0369a1;
 }
 
 .status-pill {

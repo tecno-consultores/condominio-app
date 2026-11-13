@@ -2,13 +2,31 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from src.database import get_db
 from src.main import app
-from src.redis_client import get_redis_client
-from src.security import create_access_token, get_password_hash
+from src.models import Usuario
+from src.redis_client import get_redis_client, reset_local_security_state
+from src.security import (
+    create_access_token,
+    create_refresh_token,
+    generate_csrf_token,
+    get_password_hash,
+)
+
+
+@pytest.fixture(autouse=True)
+def _limpiar_estado_auth(client: TestClient) -> Any:
+    """Aísla las cookies del TestClient compartido y el estado local de Redis en memoria."""
+    client.cookies.clear()
+    reset_local_security_state()
+    yield
+    client.cookies.clear()
+    app.dependency_overrides = {}
+    reset_local_security_state()
 
 
 def test_register_user_success(client: TestClient) -> None:
@@ -303,3 +321,174 @@ def test_me_with_invalid_token(client: TestClient) -> None:
     assert "Token inválido" in response.json()["detail"]
 
     client.cookies.clear()
+
+
+def test_logout_revokes_session_and_clears_cookies(client: TestClient) -> None:
+    """POST /api/auth/logout revoca user/sid/jti en KeyDB, purga cookies y emite Clear-Site-Data."""
+    mock_redis = AsyncMock()
+    mock_redis.set.return_value = True
+    app.dependency_overrides[get_redis_client] = lambda: mock_redis
+
+    access = create_access_token({"sub": "logout@test.com", "rol": "PROPIETARIO", "id": 77, "sid": "sid-logout-1"})
+    refresh = create_refresh_token({"sub": "logout@test.com", "id": 77, "sid": "sid-logout-1"})
+    client.cookies.set("access_token", f"Bearer {access}")
+    client.cookies.set("refresh_token", refresh)
+
+    res = client.post("/api/auth/logout")
+    assert res.status_code == 200
+    assert res.json()["message"] == "Sesión cerrada exitosamente"
+    assert res.headers.get("clear-site-data") == '"cookies", "storage", "cache"'
+    assert mock_redis.set.await_count >= 3
+
+
+def test_refresh_token_rotation_grace_period_and_replay(client: TestClient) -> None:
+    """POST /api/auth/refresh rota refresh_token, soporta grace period 5s y revoca en replay tardío."""
+    res_missing = client.post("/api/auth/refresh")
+    assert res_missing.status_code == 401
+
+    expired_refresh = create_refresh_token(
+        {"sub": "ref@test.com", "id": 15, "sid": "sid-ref-1"},
+        expires_delta=timedelta(seconds=-5),
+    )
+    res_exp = client.post("/api/auth/refresh", headers={"Authorization": f"Bearer {expired_refresh}"})
+    assert res_exp.status_code == 401
+    assert "expirado" in res_exp.json()["detail"]
+
+    res_bad = client.post("/api/auth/refresh", headers={"Authorization": "Bearer invalido"})
+    assert res_bad.status_code == 401
+
+    incomplete_refresh = create_refresh_token({"id": 15, "sid": "sid-no-sub"})
+    res_nosub = client.post("/api/auth/refresh", headers={"Authorization": f"Bearer {incomplete_refresh}"})
+    assert res_nosub.status_code == 401
+
+    no_jti_access = create_access_token({"sub": "ref@test.com", "id": 15, "sid": "sid-ref-1"})
+    res_missing_jti = client.post("/api/auth/refresh", headers={"Authorization": f"Bearer {no_jti_access}"})
+    assert res_missing_jti.status_code == 401
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+
+    class FakeRefreshUser:
+        id: int = 15
+        correo: str = "ref@test.com"
+        rol: str = "PROPIETARIO"
+
+    mock_result.scalars().first.return_value = FakeRefreshUser()
+    mock_session.execute.return_value = mock_result
+
+    kv: dict[str, str] = {}
+
+    class _FakeRedis:
+        async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool:
+            _ = ex
+            if nx and key in kv:
+                return False
+            kv[key] = value
+            return True
+
+        async def get(self, key: str) -> str | None:
+            return kv.get(key)
+
+    app.dependency_overrides[get_db] = lambda: mock_session
+    app.dependency_overrides[get_redis_client] = lambda: _FakeRedis()
+
+    valid_refresh = create_refresh_token({"sub": "ref@test.com", "id": 15, "sid": "sid-ref-1"})
+    client.cookies.set("refresh_token", valid_refresh)
+
+    res_ok = client.post("/api/auth/refresh")
+    assert res_ok.status_code == 200
+    assert res_ok.headers.get("x-csrf-token")
+
+    # Segunda pestaña concurrente aún con el token previo dentro del grace period de 5s
+    client.cookies.clear()
+    client.cookies.set("refresh_token", valid_refresh)
+    res_grace = client.post("/api/auth/refresh")
+    assert res_grace.status_code == 200
+    assert res_grace.json()["csrf_token"] == res_ok.json()["csrf_token"]
+
+    # Expirado el grace period -> replay tardío revoca usuario/sid y devuelve 401 con Clear-Site-Data
+    for key in [k for k in kv if k.startswith("grace_period:")]:
+        del kv[key]
+    client.cookies.clear()
+    client.cookies.set("refresh_token", valid_refresh)
+    res_replay = client.post("/api/auth/refresh")
+    assert res_replay.status_code == 401
+    assert "reutilizado" in res_replay.json()["detail"]
+    assert res_replay.headers.get("clear-site-data") == '"cookies", "storage", "cache"'
+    assert kv.get("revoked_user:15") == "1"
+    assert kv.get("revoked_sid:sid-ref-1") == "1"
+
+
+def test_me_real_orm_usuario_and_revoked_sid(client: TestClient) -> None:
+    """GET /api/auth/me resuelve cedula, telefono, unidad_activa_id y rechaza SID revocado o sin sub."""
+    token_no_sub = create_access_token(data={"rol": "PROPIETARIO"})
+    client.cookies.set("access_token", f"Bearer {token_no_sub}")
+    res_no_sub = client.get("/api/auth/me")
+    assert res_no_sub.status_code == 401
+
+    token_revoked = create_access_token(data={"sub": "real@test.com", "id": 22, "sid": "sid-rev-99"})
+    mock_session = AsyncMock()
+    res_user = MagicMock()
+    res_user.scalars().first.return_value = Usuario(
+        id=22,
+        nombre="Real ORM",
+        cedula="V-12345678",
+        correo="real@test.com",
+        telefono="04141234567",
+        password_hash="h",
+        rol="PROPIETARIO",
+        es_activo=True,
+    )
+    res_unidad = MagicMock()
+    res_unidad.scalars().first.return_value = 42
+    mock_session.execute.side_effect = [res_user, res_unidad, res_user]
+
+    app.dependency_overrides[get_db] = lambda: mock_session
+    client.cookies.set("access_token", f"Bearer {token_revoked}")
+    ok_resp = client.get("/api/auth/me")
+    assert ok_resp.status_code == 200
+    body = ok_resp.json()
+    assert body["cedula"] == "V-12345678"
+    assert body["telefono"] == "04141234567"
+    assert body["unidad_activa_id"] == 42
+    assert ok_resp.headers.get("x-csrf-token") == generate_csrf_token("sid-rev-99")
+
+    # Revocamos mediante logout y validamos rechazo 401 por SID revocado
+    mock_session.execute.side_effect = [res_user, res_unidad]
+    client.post("/api/auth/logout")
+    client.cookies.set("access_token", f"Bearer {token_revoked}")
+    revoked_resp = client.get("/api/auth/me")
+    assert revoked_resp.status_code == 401
+
+
+def test_login_lockout_429_and_short_idempotency_key(client: TestClient) -> None:
+    """Lockout 429 tras 5 fallos (ip, correo) y rechazo 422 de Idempotency-Key < 8 caracteres."""
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars().first.return_value = None
+    mock_session.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_session
+
+    hdrs = {"X-Forwarded-For": "203.0.113.55"}
+    for _ in range(5):
+        r = client.post("/api/auth/login", json={"correo": "brute@test.com", "password": "wrong"}, headers=hdrs)
+        assert r.status_code == 401
+
+    blocked = client.post("/api/auth/login", json={"correo": "brute@test.com", "password": "wrong"}, headers=hdrs)
+    assert blocked.status_code == 429
+    assert "Demasiados intentos" in blocked.json()["detail"]
+
+    res_short = client.post(
+        "/api/auth/register",
+        json={
+            "nombre": "Corto",
+            "cedula": "V-9991112",
+            "correo": "corto@test.com",
+            "telefono": "0414",
+            "password": "Mypassword1!",
+            "unidad_solicitada_id": 1,
+            "tipo_ocupante_solicitado": "PROPIETARIO",
+        },
+        headers={"Idempotency-Key": "short"},
+    )
+    assert res_short.status_code == 422

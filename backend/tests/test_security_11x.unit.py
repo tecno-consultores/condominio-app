@@ -17,10 +17,17 @@ from src.main import _es_produccion, app
 from src.redis_client import (
     build_idempotency_key,
     check_and_set_idempotency_key,
+    clear_login_failures,
     clear_user_session_revocation,
     get_redis_client,
     get_refresh_token_from_grace_period,
+    is_login_locked_out,
+    is_session_id_revoked,
     is_user_session_revoked,
+    mark_refresh_jti_used,
+    record_login_failure,
+    reset_local_security_state,
+    revoke_session_id,
     revoke_user_session,
     rotate_refresh_token_with_grace_period,
 )
@@ -40,9 +47,13 @@ from src.schemas import (
 from src.security import (
     DEFAULT_INSECURE_SECRET_KEY,
     create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    decode_token_unverified_exp,
     generate_csrf_token,
     get_password_hash,
     read_uploaded_file_safely,
+    should_use_secure_cookie,
     validate_csrf_token,
     validate_file_magic_bytes,
     validate_production_security_settings,
@@ -386,3 +397,140 @@ def test_validate_production_security_settings_fail_fast(monkeypatch: pytest.Mon
 
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@postgres:5432/condominio")
     validate_production_security_settings()
+
+
+def test_should_use_secure_cookie_and_refresh_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Valida COOKIE_SECURE adaptable y utilidades JWT de refresh_token y decodificación segura."""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    assert should_use_secure_cookie() is False
+
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    assert should_use_secure_cookie() is True
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    assert should_use_secure_cookie() is True
+
+    monkeypatch.setenv("COOKIE_SECURE", "false")
+    assert should_use_secure_cookie() is False
+
+    rt = create_refresh_token({"sub": "tok@test.com", "id": 3, "sid": "sid-t"})
+    decoded = decode_refresh_token(rt)
+    assert decoded["typ"] == "refresh"
+    assert decoded["sub"] == "tok@test.com"
+    assert decode_token_unverified_exp(rt) is not None
+    assert decode_token_unverified_exp("token-malo") is None
+
+
+def test_csrf_middleware_blocks_cookie_mutation_when_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enforce X-CSRF-Token bloquea mutaciones por cookie sin token y permite Bearer o token válido."""
+    monkeypatch.setenv("CSRF_ENFORCE", "true")
+    client = TestClient(app)
+    token = create_access_token({"sub": "csrf@test.com", "rol": "PROPIETARIO", "id": 9, "sid": "sid-csrf"})
+    valid_csrf = generate_csrf_token("sid-csrf")
+
+    client.cookies.set("access_token", f"Bearer {token}")
+    blocked = client.post("/api/finanzas/tasas", json={})
+    assert blocked.status_code == 403
+    assert "CSRF" in blocked.json()["detail"]
+
+    # Pre-auth /auth/logout aunque tenga cookie también requiere CSRF? Logout no está excluido si hay sesión cookie
+    # Bearer explícito omite validación double-submit
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars().first.return_value = None
+    mock_session.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_session
+
+    bearer_req = client.post("/api/finanzas/tasas", headers={"Authorization": f"Bearer {token}"}, json={})
+    assert bearer_req.status_code != 403
+
+    csrf_ok_req = client.post("/api/finanzas/tasas", headers={"X-CSRF-Token": valid_csrf}, json={})
+    assert csrf_ok_req.status_code != 403
+    app.dependency_overrides = {}
+    client.cookies.clear()
+
+
+@pytest.mark.asyncio
+async def test_redis_fail_closed_in_production_and_sid_revocation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """En APP_ENV=production KeyDB caído o None debe fallar cerrado con HTTP 503."""
+    reset_local_security_state()
+    monkeypatch.setenv("APP_ENV", "production")
+
+    broken_redis = AsyncMock()
+    broken_redis.get.side_effect = RuntimeError("KeyDB unreachable")
+    broken_redis.set.side_effect = RuntimeError("KeyDB unreachable")
+    broken_redis.incr.side_effect = RuntimeError("KeyDB unreachable")
+
+    for client_arg in (None, broken_redis):
+        with pytest.raises(HTTPException) as exc_rev:
+            await is_session_id_revoked(client_arg, "sid-prod")
+        assert exc_rev.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_lock:
+            await is_login_locked_out(client_arg, "1.1.1.1", "a@b.com")
+        assert exc_lock.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_fail:
+            await record_login_failure(client_arg, "1.1.1.1", "a@b.com")
+        assert exc_fail.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_jti:
+            await mark_refresh_jti_used(client_arg, "jti-prod")
+        assert exc_jti.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_g1:
+            await rotate_refresh_token_with_grace_period(client_arg, "fam-1", "tok")
+        assert exc_g1.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_g2:
+            await get_refresh_token_from_grace_period(client_arg, "fam-1")
+        assert exc_g2.value.status_code == 503
+
+    monkeypatch.setenv("APP_ENV", "development")
+    ok_redis = AsyncMock()
+    ok_redis.get.return_value = "5"
+    ok_redis.incr.return_value = 1
+    assert await is_login_locked_out(ok_redis, "10.0.0.1", "u@test.com") is True
+    assert await record_login_failure(ok_redis, "10.0.0.2", "u@test.com") == 1
+    ok_redis.expire.assert_awaited_once()
+    await clear_login_failures(ok_redis, "10.0.0.2", "u@test.com")
+    await revoke_session_id(ok_redis, "sid-dev-1")
+    assert await is_session_id_revoked(None, "sid-dev-1") is True
+    assert await mark_refresh_jti_used(None, "") is False
+    reset_local_security_state()
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_revoked_sid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_current_user rechaza con 401 si el SID fue revocado aunque el usuario esté activo."""
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    from src.dependencies import get_current_user
+
+    monkeypatch.setenv("APP_ENV", "development")
+    reset_local_security_state()
+    tok = create_access_token({"sub": "siduser@test.com", "id": 51, "sid": "sid-rev-dep"})
+    req = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/auth/me",
+            "headers": [(b"authorization", f"Bearer {tok}".encode())],
+        }
+    )
+    mock_db = AsyncMock()
+    mock_res = MagicMock()
+    mock_res.scalars().first.return_value = SimpleNamespace(id=51, correo="siduser@test.com", rol="PROPIETARIO")
+    mock_db.execute.return_value = mock_res
+
+    mock_redis = AsyncMock()
+    mock_redis.get.side_effect = [None, "1"]
+
+    with pytest.raises(HTTPException) as exc:
+        await get_current_user(req, db=mock_db, redis_conn=mock_redis)
+    assert exc.value.status_code == 401
+    assert "Sesión revocada" in exc.value.detail

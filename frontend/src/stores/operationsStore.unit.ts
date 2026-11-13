@@ -361,4 +361,24 @@ describe('operationsStore — Patrón No Destructivo, Incidencias, Conserjería,
       store.actualizarAlicuotaUnidad(999, { alicuota: '10.0000' }, 'idemp-ali-3'),
     ).rejects.toThrow();
   });
+
+  it('mantiene isStale=false y limpia sesión ante ApiError 401 (Hito 17.2)', async () => {
+    const { useAuthStore } = await import('./authStore');
+    const authStore = useAuthStore();
+    authStore.setProfileForTesting({
+      id: 6,
+      nombre: 'Admin Ops',
+      cedula: 'V-6',
+      correo: 'ops@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PRESIDENTE',
+    });
+
+    const store = useOperationsStore();
+    vi.spyOn(apiClient, 'get').mockRejectedValue(new ApiError(401, 'Sesión revocada'));
+    await store.fetchAdminData();
+    expect(store.isStale).toBe(false);
+    expect(authStore.isAuthenticated).toBe(false);
+  });
 });

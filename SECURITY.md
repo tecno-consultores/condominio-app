@@ -83,8 +83,11 @@ flowchart TD
 - **Riesgo:** Agotamiento de memoria RAM al subir comprobantes o fotografías de gran tamaño.
 - **Mitigación Implementada:** `read_uploaded_file_safely` en `backend/src/security.py` lee en bloques de 64 KB e impone una cuota máxima de **2 MB** (`MAX_UPLOAD_SIZE_BYTES`), abortando al instante con HTTP `413 Request Entity Too Large`.
 
-### 4.7. Preservación de Cabeceras de Proxy Inverso y Cabeceras HTTP Defensivas
-- **Mitigación Implementada:** Middleware HTTP en `backend/src/main.py` que inyecta en toda respuesta `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` y `Referrer-Policy: strict-origin-when-cross-origin`.
+### 4.7. Preservación de Cabeceras de Proxy Inverso, CSP, Fetch Metadata y Cabeceras HTTP Defensivas
+- **Mitigación Implementada:** Middleware HTTP `security_headers_middleware` en `backend/src/main.py` que:
+  - Inyecta en toda respuesta `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Content-Security-Policy` (`default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'` en rutas API; política restringida con CDN Swagger/ReDoc en `/docs` y `/redoc`), `Cross-Origin-Opener-Policy: same-origin-allow-popups`, `Cross-Origin-Resource-Policy: same-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()` y fusión sin duplicados de `Vary: Sec-Fetch-Dest, Sec-Fetch-Mode, Sec-Fetch-Site`.
+  - Emite `Strict-Transport-Security: max-age=31536000; includeSubDomains` de forma condicional cuando `COOKIE_SECURE=true`, `APP_ENV=production` o señal TLS/proxy `HTTPS`.
+  - Ejecuta aislamiento temprano **Fetch Metadata** (`_is_allowed_fetch_metadata`) antes de la autenticación y el enrutamiento: permite `same-origin`, `same-site`, `none`, clientes sin `Sec-Fetch-Site` y navegaciones seguras `GET`/`HEAD` (`navigate` distinto de `object`/`embed`), rechazando solicitudes `cross-site` no navegables (ej. `cors`, `no-cors`, `POST`) con `HTTP 403`.
 
 ### 4.8. Tokens Anti-CSRF HMAC-SHA256 y Exclusión de Tokens Bearer (M2M/MCP)
 - **Mitigación Implementada:** `generate_csrf_token` y `validate_csrf_token` en `backend/src/security.py` emplean firmas `HMAC-SHA256` y comparación en tiempo constante (`hmac.compare_digest`). Además, `get_current_user` en `backend/src/dependencies.py` soporta tanto cookies `HttpOnly` como cabeceras `Authorization: Bearer` para herramientas automatizadas y servidores MCP.
@@ -122,6 +125,14 @@ flowchart TD
 
 ### 4.19. Arranque Fail-Fast y KDF Estricto PBKDF2 en Producción (Hito 17.1)
 - **Mitigación Implementada:** En `backend/src/security.py` y `lifespan` de `backend/src/main.py`, `validate_production_security_settings()` aborta inmediatamente con `RuntimeError` si `APP_ENV=production` intenta iniciar con la `SECRET_KEY` por defecto (< 32 caracteres o valor de desarrollo) o `DATABASE_URL` vacía / SQLite `:memory:`. Asimismo, `verify_password` rechaza hashes heredados SHA-256 sin sal aplicando un cómputo ficticio `PBKDF2-HMAC-SHA256` en tiempo constante para evitar enumeración temporal.
+
+### 4.20. Ciclo Completo de Sesión, CSRF Real, Lockout Anti-Brute-Force y KeyDB Fail-Closed (Hito 17.2)
+- **Mitigación Implementada:**
+  - **Revocación y Purga Completa (`POST /api/auth/logout`):** Invoca `revoke_session_id` y `mark_refresh_jti_used` en KeyDB, elimina las cookies `access_token`, `refresh_token` y `csrf_token`, y envía `Clear-Site-Data: "cookies", "storage", "cache"`.
+  - **Rotación Anti-Replay de Refresh Tokens (`POST /api/auth/refresh`):** Mantiene ventana concurrente de cortesía de `5s` (`rotate_refresh_token_with_grace_period`); cualquier reuso posterior revoca el `sid` completo (`HTTP 401`).
+  - **Middleware CSRF Real (`backend/src/main.py`):** Exige `X-CSRF-Token` validado por `HMAC-SHA256` en mutaciones por cookie cuando `APP_ENV=production` o `CSRF_ENFORCE=true` (eximiendo `Authorization: Bearer` para clientes M2M/MCP), con cookie `secure` configurable mediante `COOKIE_SECURE`.
+  - **Lockout Anti-Fuerza Bruta (`POST /api/auth/login`):** Bloquea por `(ip, correo)` tras `5` fallos en `15 minutos` (`HTTP 429`) y ejecuta cómputo constante `DUMMY_PASSWORD_HASH` para correos inexistentes.
+  - **KeyDB Fail-Closed e Idempotencia Canónica (`backend/src/redis_client.py`):** Falla cerrado con `HTTP 503` si KeyDB cae en `APP_ENV=production`, eleva el TTL de idempotencia a `86400s` (24h) y exige cabeceras `Idempotency-Key` de `8..128` caracteres.
 
 ---
 

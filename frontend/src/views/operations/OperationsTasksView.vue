@@ -87,7 +87,7 @@ async function handleCompleteTask(tareaId: number): Promise<void> {
   gap: 1rem;
   margin-bottom: 1.25rem;
   color-scheme: light dark;
-  accent-color: #0284c7;
+  accent-color: #0369a1;
 }
 
 .page-header__title {
@@ -118,7 +118,7 @@ async function handleCompleteTask(tareaId: number): Promise<void> {
 .progress-box__bar {
   width: 100%;
   height: 12px;
-  accent-color: #0284c7;
+  accent-color: #0369a1;
 }
 
 .banner {
