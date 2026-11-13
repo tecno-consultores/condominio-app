@@ -67,7 +67,7 @@ frontend/
 ├── vitest.config.ts               # Umbral innegociable >= 95% en lines, branches, functions, statements
 ├── playwright.config.ts           # Mobile Safari (iPhone 13) + Desktop Chrome + snapshots sin animaciones
 ├── stryker.conf.json              # Pruebas de mutación sobre .ts y .vue
-├── lighthouserc.js                # Performance >= 0.90, Accessibility >= 0.95
+├── lighthouserc.cjs               # Performance >= 0.90, Accessibility >= 0.95
 ├── TESTING.md                     # Bitácora viva de pruebas del Frontend
 ├── test/
 │   └── ui_business_flow.feature   # Escenarios BDD de Karate Labs UI en Chrome Headless

@@ -5,18 +5,19 @@
 ## 1. Stack Tecnológico y Arquitectura
 - **Estructura del Proyecto:** Monorepo (Frontend, Backend, Worker, Docker, Docs, QA x11).
 - **Backend:** FastAPI (Python). Oculto dentro de la red de Docker, sin exposición directa.
-- **Frontend:** Vue 3, diseño Mobile-First.
-- **Base de Datos:** PostgreSQL. Migraciones automatizadas vía Alembic en el entrypoint del contenedor.
-- **Proxy / Gateway:** Nginx Proxy Manager (NPM).
-- **Almacenamiento de Archivos:** MinIO (S3 Compatible) desplegado en Docker. Uso exclusivo de URLs firmadas temporales; las imágenes no transitan por FastAPI.
-- **Procesamiento de Imágenes:** Worker Asíncrono (ej. Celery + Redis). Todas las imágenes subidas (comprobantes, fotos de áreas, logos) se convierten obligatoriamente a formato **AVIF**.
-- **Control de Estado en Red:** Redis (usado para colas del Worker y para Idempotencia).
+- **Frontend:** Vue 3 (`<script setup lang="ts">`) + Pinia + Vue Router + CSS Nativo con tokens `OKLCH` y `light-dark()`, diseño Mobile-First.
+- **Base de Datos:** PostgreSQL 17. Migraciones automatizadas vía Alembic.
+- **Proxy / Gateway:** Nginx Proxy Manager (NPM) o Nginx TLS reverso.
+- **Almacenamiento de Archivos:** MinIO (S3 Compatible) desplegado en Docker. Uso de URLs seguras/firmadas y validación binaria de *Magic Bytes*.
+- **Procesamiento de Imágenes y Colas:** Worker asíncrono en Python (`backend/src/worker.py`) respaldado por **KeyDB Multi-Hilo** (compatible con protocolo Redis). Conversión a formato **AVIF** y despacho de notificaciones/tareas recurrentes.
+- **Control de Estado en Red:** **KeyDB Multi-Hilo** (idempotencia por ámbito `idemp:{scope}:{key}`, revocación de sesiones JWT, *grace period* de refresh tokens y quemado atómico de nonces QR `qr_used:{jti}`).
 
 ## 2. Seguridad y Autenticación
-- **Tokens:** JWT almacenados y transmitidos exclusivamente mediante Cookies `HttpOnly` y `Secure`.
-- **Registro de Usuarios:** Sistema de "Usuario Fantasma". El registro es abierto, pero el usuario no tiene acceso a ningún panel del sistema hasta que un Administrador/Presidente aprueba la cuenta y le asigna una Unidad (Casa/Apartamento) en el sistema.
-- **Notificación de Registro:** El Worker asíncrono envía un email al Presidente y Administrador cuando hay un nuevo registro.
-- **Idempotencia:** Implementada en el Frontend (generación de UUID) y Backend (validación contra Redis) para prevenir duplicidad de registros (ej. evitar reportar el mismo pago dos veces por problemas de red).
+- **Tokens:** JWT con autenticación dual: Cookies `HttpOnly` + protección CSRF `HMAC-SHA256` para SPA, y cabecera `Authorization: Bearer` para integraciones M2M/MCP.
+- **Arranque Fail-Fast:** Validación estricta en `lifespan` (`validate_production_security_settings`) que impide iniciar en `APP_ENV=production` con `SECRET_KEY` insegura/por defecto o `DATABASE_URL` SQLite `:memory:`.
+- **Registro de Usuarios:** Sistema de "Usuario Fantasma". El registro es abierto (`es_activo = False`, `rol = "FANTASMA"`), bloqueado por RBAC (`403 Forbidden`) hasta que la Junta/Presidente aprueba la cuenta y le asigna Unidad y Contrato.
+- **Notificación de Registro:** El Worker asíncrono encola notificaciones al Presidente y Administrador cuando hay un nuevo registro.
+- **Idempotencia:** Implementada en el Frontend (`useIdempotency`, generación de UUID) y Backend (validación atómica en KeyDB) para prevenir duplicidad de mutaciones.
 
 ## 3. Modelo de Entidades (Core)
 - **Estructura Polimórfica:** Soporta edificios (Pisos -> Apartamentos) y Urbanizaciones (Calles -> Casas). Permite condominios mixtos.
@@ -63,14 +64,14 @@
 
 ### 8.1. Registro y Asignación ("Flujo Fantasma")
 1. **Frontend:** Usuario llena datos. Genera `Idempotency-Key` y envía petición.
-2. **Backend:** Valida UUID en Redis. Crea usuario con `Es_Activo = FALSE` (sin unidad asignada).
-3. **Worker:** Envía notificación por correo a Presidente y Administrador.
+2. **Backend:** Valida UUID en KeyDB Multi-Hilo (`idemp:register:{key}`). Crea usuario con `Es_Activo = FALSE` (sin unidad asignada).
+3. **Worker:** Encola notificación por correo a Presidente y Administrador.
 4. **Presidente:** Entra al panel, identifica al usuario, le asigna Unidad y Rol, y lo activa.
 5. **Backend:** Crea registro en `Contratos_Ocupacion` (historial) y actualiza el estado del usuario a `Es_Activo = TRUE`.
 
 ### 8.2. Reporte y Aprobación de Pagos
 1. **Frontend:** Propietario reporta pago y sube comprobante. Vue3 genera `Idempotency-Key` y bloquea el botón visualmente.
-2. **Backend:** Valida UUID en Redis (previene doble clic).
+2. **Backend:** Valida UUID en KeyDB Multi-Hilo (`idemp:user:{id}:{key}`) evitando duplicados por doble clic.
 3. **Worker:** Convierte imagen a AVIF y sube a MinIO.
 4. **Backend:** Crea registro en `Pagos_Reportados` en estado `EN_REVISION`. El recibo pasa a estado visual `PAGO_EN_REVISION`.
 5. **Tesorero:** Revisa el reporte.

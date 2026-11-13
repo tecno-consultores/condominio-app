@@ -1,108 +1,115 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Condominio App Contributors
+# Copyright (C) 2026 Jesus Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
 
 """verify_zero_orphan_vue_components.py — Invariante de Cero Componentes UI Huérfanos.
 
-Audita que cada archivo .vue (o componente de UI en frontend/src o vue3/src) posea su
-correspondiente suite .unit.ts dedicada o esté directamente testeado en una suite unitaria activa.
+Audita que cada archivo .vue (o componente de UI) posea su correspondiente suite
+.unit.ts dedicada o esté directamente testeado en una suite unitaria activa.
 """
-
-from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
 
 
-def _resolve_frontend_src(repo_root: Path) -> Path | None:
+def main(target_root: Path | None = None) -> int:
+    repo_root = target_root or Path(__file__).resolve().parent.parent.parent
+
+    # Detecta todos los directorios frontend presentes
     candidates = [
-        repo_root / "frontend" / "src",
         repo_root / "vue3" / "src",
+        repo_root / "react-frontend" / "src",
+        repo_root / "frontend" / "src",
         repo_root / "src",
     ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
+    frontend_dirs = [c for c in candidates if c.exists()]
 
+    if not frontend_dirs:
+        print("✔ [UI Orphans] Sin directorio frontend activo (omitido).")
+        return 0
 
-def _is_ui_component_file(file_name: str) -> bool:
-    return file_name.endswith(".vue") or (
-        file_name.endswith(".tsx") and not file_name.endswith(".unit.tsx")
-    )
-
-
-def _collect_frontend_files(frontend_src: Path) -> tuple[list[str], list[str]]:
     ui_files: list[str] = []
-    unit_files: list[str] = []
-    for root, _, files in os.walk(frontend_src):
-        for file_name in files:
-            full_path = os.path.join(root, file_name)
-            if _is_ui_component_file(file_name):
-                ui_files.append(full_path)
-            elif file_name.endswith((".unit.ts", ".unit.tsx", ".spec.ts", ".test.ts")):
-                unit_files.append(full_path)
-    return ui_files, unit_files
+    unit_files_set: set[str] = set()
+    for frontend_src in frontend_dirs:
+        for root, _, files in os.walk(frontend_src):
+            for f in files:
+                if f.endswith(".vue") or (
+                    f.endswith(".tsx") and not f.endswith((".unit.tsx", ".spec.tsx", ".test.tsx"))
+                ):
+                    ui_files.append(os.path.join(root, f))
+                if f.endswith((".unit.ts", ".unit.tsx", ".spec.ts", ".spec.tsx", ".test.ts", ".test.tsx")):
+                    unit_files_set.add(os.path.join(root, f))
 
-
-def _is_referenced_in_unit_suites(ui_file: str, unit_files: list[str]) -> bool:
-    base = os.path.basename(ui_file)
-    name, ext = os.path.splitext(base)
-    direct_unit = ui_file.replace(ext, ".unit.ts")
-    direct_unit_tsx = ui_file.replace(ext, ".unit.tsx")
-
-    if os.path.exists(direct_unit) or os.path.exists(direct_unit_tsx):
-        return True
-
-    tokens = (base, f"'{name}'", f'"{name}"', f" {name} ")
-    for unit_f in unit_files:
-        try:
-            with open(unit_f, encoding="utf-8") as file:
-                content = file.read()
-            if any(token in content for token in tokens):
-                return True
-        except OSError:
-            continue
-    return False
-
-
-def main() -> int:
-    repo_root = Path(__file__).resolve().parent.parent.parent
-    frontend_src = _resolve_frontend_src(repo_root)
-
-    if not frontend_src:
-        print(
-            "ℹ️ No se detectó directorio de frontend (frontend/src o vue3/src); "
-            "omitiendo verificación de huérfanos."
-        )
-        return 0
-
-    ui_files, unit_files = _collect_frontend_files(frontend_src)
-    if not ui_files:
-        print("ℹ️ No se encontraron componentes UI (.vue / .tsx); verificación aprobada.")
-        return 0
-
-    orphans = [
-        os.path.relpath(ui_file, repo_root)
-        for ui_file in sorted(ui_files)
-        if not _is_referenced_in_unit_suites(ui_file, unit_files)
+    test_dir_candidates = [
+        repo_root / "vue3" / "tests",
+        repo_root / "react-frontend" / "tests",
+        repo_root / "frontend" / "tests",
+        repo_root / "tests",
     ]
+    for tdir in test_dir_candidates:
+        if not tdir.exists():
+            continue
+        for root, _, files in os.walk(tdir):
+            for f in files:
+                if f.endswith((".unit.ts", ".unit.tsx", ".spec.ts", ".spec.tsx", ".test.ts", ".test.tsx")):
+                    unit_files_set.add(os.path.join(root, f))
 
-    print(f"📊 Componentes UI auditados: {len(ui_files)}")
-    print(f"📊 Suites de pruebas unitarias: {len(unit_files)}")
+    unit_files = sorted(unit_files_set)
+
+    if not ui_files:
+        print("✔ [UI Orphans] 0 componentes UI (.vue / .tsx) detectados.")
+        return 0
+
+    unit_basenames = {os.path.basename(u) for u in unit_files}
+
+    orphans = []
+    for uf in sorted(ui_files):
+        rel_path = os.path.relpath(uf, repo_root)
+        base = os.path.basename(uf)
+        name = os.path.splitext(base)[0]
+        camel_name = name[0].lower() + name[1:] if name else name
+
+        # 1. Comprobación directa: <Component>.unit.ts o lowerCamelCase (<component>.unit.ts)
+        ext = os.path.splitext(uf)[1]
+        direct_unit = uf.replace(ext, ".unit.ts")
+        direct_unit_tsx = uf.replace(ext, ".unit.tsx")
+
+        if (
+            os.path.exists(direct_unit)
+            or os.path.exists(direct_unit_tsx)
+            or f"{name}.unit.ts" in unit_basenames
+            or f"{name}.unit.tsx" in unit_basenames
+            or f"{camel_name}.unit.ts" in unit_basenames
+            or f"{camel_name}.unit.tsx" in unit_basenames
+        ):
+            continue
+
+        # 2. Comprobación de inclusión/montaje en alguna suite unitaria
+        found = False
+        for unit_f in unit_files:
+            try:
+                with open(unit_f, encoding="utf-8") as file:
+                    content = file.read()
+                    if base in content or f"'{name}'" in content or f'"{name}"' in content or f" {name} " in content:
+                        found = True
+                        break
+            except OSError:
+                pass
+
+        if not found:
+            orphans.append(rel_path)
 
     if orphans:
-        print(f"\n❌ Se detectaron {len(orphans)} componente(s) UI huérfano(s) sin pruebas unitarias:")
-        for orphan in orphans:
-            print(f"   - {orphan}")
+        print(f"❌ Se detectaron {len(orphans)} componente(s) UI huérfano(s) sin pruebas unitarias ({len(ui_files)} componentes / {len(unit_files)} suites):")
+        for o in orphans:
+            print(f"   - {o}")
         print(
-            "\nDirectiva Incumplida: Invariante de Cero Componentes UI Huérfanos "
-            "(.agents/rules/mandatory_qa_pyramid_and_doc_sync.md)"
+            "Directiva Incumplida: Invariante de Cero Componentes UI Huérfanos (.agents/rules/mandatory_qa_pyramid_and_doc_sync.md)"
         )
         return 1
 
-    print("✔ Cero componentes UI huérfanos. 100% de componentes y vistas cuentan con pruebas unitarias.")
+    print(f"✔ [UI Orphans] {len(ui_files)} componentes / {len(unit_files)} suites unitarias (0 huérfanos).")
     return 0
 
 

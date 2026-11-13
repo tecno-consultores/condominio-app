@@ -36,6 +36,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
     * *Tab 2 (Relación de Gastos):* Gráfica de dona dividida por categorías y lista de facturas.
   * **Botón Flotante (FAB):** Botón principal para `"Pagar / Reportar"`.
 * **Endpoints FastAPI:**
+  * `GET /api/finanzas/tasa`: Obtiene la tasa de cambio USD/VES vigente del día.
   * `GET /api/finanzas/resumen`: Devuelve la deuda global, gráfica de gastos y estado de cobranza del mes.
   * `GET /api/comunicados/recientes`: Lista los comunicados activos de la cartelera.
 
@@ -64,6 +65,8 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * *Flujo de Rechazo:* Si pulsa rechazar, se oculta la foto y aparece un Modal exigiendo escribir el "Motivo" para habilitar el botón de confirmación.
   * **Cierre de Mes:** Muestra una vista previa del PDF preliminar y un botón crítico de `"Cerrar Mes"`.
 * **Endpoints FastAPI:**
+  * `POST /api/finanzas/tasa` y `GET /api/finanzas/tasa`: Registra/actualiza y consulta la tasa oficial USD/VES. *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/egresos`: Registra gastos operativos y egresos multimoneda con validación de factura segura. *[Header: Idempotency-Key]*
   * `GET /api/pagos/revision`: Lista de pagos pendientes.
   * `PUT /api/pagos/{id}/aprobar`: Cambia estado y audita.
   * `PUT /api/pagos/{id}/rechazar`: Requiere `motivo`.
@@ -95,6 +98,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Bandeja de Usuarios:** Tarjetas de registros nuevos. Ficha con toggle para elegir `[ Ocupado Propietario / Inquilino / Vacío ]` y quién es el responsable de pagar el condominio.
   * **Composición de Junta:** Tabla de cargos (Presidente, Tesorero, Vocero, etc.) con interruptor de activación y buscador para asignar propietarios.
 * **Endpoints FastAPI:**
+  * `GET /api/estructura/unidades`: Lista las unidades disponibles para el registro y gestión.
   * `POST /api/estructura/generar`: Crea sectores y unidades con su identificador.
   * `GET /api/usuarios/pendientes`: Lista "Fantasmas".
   * `PUT /api/usuarios/{id}/asignar`: Asigna unidad, rol y activa al usuario.
@@ -114,6 +118,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Galería Voceros (Modo Público):** Cuadrícula de fotos (Grid) agrupada por áreas para que los propietarios vean el estado físico del conjunto.
 * **Endpoints FastAPI:**
   * `POST /api/tareas/plantillas`: Presidente crea asignaciones periódicas.
+  * `POST /api/tareas/diarias` y `POST /api/tareas/generar-diarias`: Crea una tarea puntual o genera las tareas diarias a partir de plantillas activas.
   * `GET /api/tareas/diarias`: Checklist del día en curso.
   * `PUT /api/tareas/{id}/completar`: Conserje marca como lista (acepta URL de foto opcional).
   * `POST /api/voceros/fotos`: Sube AVIFs (Límite: 30).

@@ -10,9 +10,9 @@ Construida con una arquitectura modular **Mobile-First**, resuelve los problemas
 
 - **Backend:** FastAPI (Python 3.12+) + SQLAlchemy 2.0 Async + Alembic + PostgreSQL 17
 - **Motor en Memoria (Idempotencia, Rate-Limiting & Colas):** KeyDB Multi-Hilo (`eqalpha/keydb:alpine --server-threads 2`)
-- **Frontend:** Vue 3 (`<script setup lang="ts">`) + Pinia + Vue Router + Tailwind CSS (Mobile-First, Anti-JSDOM Layout & WCAG 2.1 AA)
+- **Frontend:** Vue 3 (`<script setup lang="ts">`) + Pinia + Vue Router + CSS Nativo con Tokens `OKLCH` y `light-dark()` (Mobile-First, Anti-JSDOM Layout & WCAG 2.1 AA)
 - **Almacenamiento Multimedia:** MinIO (S3 Compatible) con conversión asíncrona a formato AVIF y lectura segura por chunks ($\le 2\text{ MB}$)
-- **Gobernanza IA & QA 11X:** Ecosistema `.agents/` (`Rule Zero`: 100% contenedores Docker efímeros `sinfallas/*`)
+- **Gobernanza IA & QA 11X:** Ecosistema Thin-Repo `.agents/` + `@sinfallas/mcp-qa-11x` (`Rule Zero`: 100% contenedores Docker efímeros `sinfallas/*`)
 
 ---
 
@@ -42,10 +42,16 @@ condominio-app/
 │   ├── ARCHITECTURE.md     # Visión general de roles y máquinas de estado
 │   └── API_ROUTES.md       # Mapa de vistas (GUI) y endpoints REST
 ├── scripts/
-│   └── verificar-secretos.sh # Escáner global de credenciales y llaves privadas
-├── AGENTS.md               # Directivas supremas para agentes de IA y desarrolladores
-├── SECURITY.md             # Política de seguridad y arquitectura defensiva 11X
-├── ROADMAP.md              # Plan maestro de hitos y sub-tareas (Backend, GUI Vue 3 y Caos)
+│   ├── actualizar-grafos-graphify.sh # Extractor AST --code-only sin daemons (sinfallas/remote-graphify)
+│   ├── auditar-infra.sh              # Escáner Trivy IaC + FS (HIGH/CRITICAL = 0, caché SHA-256)
+│   ├── limpieza.sh                   # Purga efímera sin sudo ni docker system prune global
+│   └── verificar-secretos.sh         # Escáner global de credenciales y llaves privadas
+├── Makefile                # Orquestación unificada QA 11X (qa-lint, qa-unit, qa-parity, qa-bdd, qa-infra)
+├── .npmrc                  # Política supply-chain ignore-scripts=true
+├── .trivy.yaml             # Exclusiones corporativas para Trivy IaC y File System
+├── AGENTS.md               # Directivas supremas para agentes de IA y desarrolladores (Thin-Repo v2.20.3)
+├── SECURITY.md             # Política de seguridad y arquitectura defensiva 11X (18+ vectores)
+├── ROADMAP.md              # Plan maestro de hitos y sub-tareas (Hitos 1..18)
 ├── TESTING.md              # Resumen ejecutivo de certificación QA 11X
 ├── CHANGELOG.md            # Historial semántico de cambios
 └── README.md
@@ -76,7 +82,10 @@ make -C frontend qa-unit        # Vitest + Cobertura V8 (>= 95%) + Compilación 
 make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs)
 make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-core/playwright)
 
-# Gate Integral de Certificación de Cierre (.agents)
+# Orquestación unificada desde la raíz
+make qa-all
+
+# Gate Integral de Certificación de Cierre (.agents + @sinfallas/mcp-qa-11x)
 ./.agents/scripts/certify_task_completion.sh
 ```
 
@@ -95,6 +104,8 @@ make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-c
 9. **[`docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md`](./docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)** — Gobernanza Digital (Art. 23 y 24 LPH), Cartas Consulta y Asambleas, Voto Ponderado por Alícuota con firma `HMAC-SHA256` y Acta Automática.
 10. **[`docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`](./docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md)** — Control de Acceso QR (`HMAC-SHA256` + `jti` anti-replay en KeyDB), Paquetería en Garita y Reserva de Áreas Sociales vinculada a Solvencia.
 11. **[`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)** — Diseño UX/UI de "Hospitalidad Residencial", Sistema de Tokens `OKLCH` + `light-dark()`, Navegación agrupada con SVG, Dashboard Contextual, Estados Vacíos ilustrados, `View Transitions API`, `@starting-style` + Bottom Sheet en `<dialog>` y `calc-size()`.
+12. **[`docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md`](./docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md)** — Endurecimiento Backend Fase 5 (Hito 17): packaging `--no-dev`, Fail-Fast en producción, eliminación de SHA-256 heredado, bloqueo pesimista PostgreSQL, anti-reversión FSM, subida `multipart` binaria a MinIO y PostgreSQL 17 RLS + Keycloak.
+13. **[`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md)** — Gobernanza Thin-Repo v2.20.3, Higiene AST sin daemons, `Rule Zero` (E2E/Lighthouse local + `Makefile` unificado + CI/CD endurecido) y Blueprint de Despliegue Productivo (Hito 18).
 
 ---
 

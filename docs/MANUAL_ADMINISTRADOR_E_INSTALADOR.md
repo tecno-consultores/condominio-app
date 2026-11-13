@@ -77,21 +77,14 @@ cp backend/.env.example backend/.env
 
 ```ini
 # ==============================================================================
-# CONFIGURACIÓN DE NÚCLEO Y SEGURIDAD CRIPTOGRÁFICA
+# CONFIGURACIÓN DE NÚCLEO Y SEGURIDAD CRIPTOGRÁFICA (Variables Reales del Backend)
 # ==============================================================================
-PROJECT_NAME="Condominio Residencial Parque Real"
-ENVIRONMENT=production
-DEBUG=false
-ALLOWED_HOSTS="condominio.mi-comunidad.com,api.condominio.mi-comunidad.com"
+APP_ENV=production
+ALLOWED_ORIGINS="https://condominio.mi-comunidad.com,https://www.condominio.mi-comunidad.com"
 
-# Clave secreta simétrica HS256 para emisión de JWT (mínimo 64 caracteres aleatorios)
+# Clave secreta simétrica HS256/HMAC-SHA256 para JWT, CSRF, firmas de solvencia, votos LPH y pases QR.
+# En APP_ENV=production el arranque aborta (Fail-Fast) si mide < 32 caracteres o conserva el valor dev.
 SECRET_KEY="GENERE_UNA_CADENA_ALEATORIA_DE_64_CARACTERES_HEXADECIMALES"
-
-# Sal maestra para derivación de contraseñas KDF (PBKDF2-HMAC-SHA256, 100.000 iteraciones)
-PASSWORD_SALT="CADENA_SECRETA_DE_AL_MENOS_32_CARACTERES"
-
-# Clave para firma inmutable HMAC-SHA256 de votos y certificados de solvencia
-CRYPTO_SIGNING_KEY="CLAVE_CRIPTOGRAFICA_PARA_FIRMA_DE_ACTAS_Y_SOLVENCIAS"
 
 # ==============================================================================
 # BASE DE DATOS POSTGRESQL 17
@@ -101,17 +94,16 @@ POSTGRES_PASSWORD=PASSWORD_ULTRA_SEGURO_POSTGRES_2026
 POSTGRES_DB=condominio_db
 POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
+# En APP_ENV=production el arranque aborta si esta variable falta o usa SQLite (:memory:)
 DATABASE_URL=postgresql+asyncpg://condo_admin:PASSWORD_ULTRA_SEGURO_POSTGRES_2026@postgres:5432/condominio_db
 
 # ==============================================================================
-# MOTOR KEYDB (MULTI-HILO)
+# MOTOR KEYDB (MULTI-HILO, PROTOCOLO REDIS)
 # ==============================================================================
-REDIS_HOST=keydb
-REDIS_PORT=6379
-REDIS_PASSWORD=PASSWORD_SEGURO_KEYDB_2026
+REDIS_URL=redis://:PASSWORD_SEGURO_KEYDB_2026@keydb:6379/0
 
 # ==============================================================================
-# ALMACENAMIENTO S3 / MINIO
+# ALMACENAMIENTO S3 / MINIO (Referencia de Despliegue)
 # ==============================================================================
 MINIO_ENDPOINT=minio:9000
 MINIO_ROOT_USER=minio_admin
@@ -122,7 +114,7 @@ MINIO_USE_SSL=false
 
 > [!IMPORTANT]
 > **Generación de Secretos Seguros en Consola:**
-> Para generar valores verdaderamente aleatorios para `SECRET_KEY`, `CRYPTO_SIGNING_KEY` y contraseñas, ejecute en su terminal:
+> Para generar un valor criptográficamente aleatorio para `SECRET_KEY` (mínimo 32 caracteres; recomendado 64 hex) y contraseñas de infraestructura, ejecute en su terminal:
 > ```bash
 > openssl rand -hex 32
 > ```
@@ -150,8 +142,8 @@ Siguiendo el estándar de calidad corporativo **QA Nivel 11X**, ningún servicio
    ```
 4. Compruebe la salud y conectividad de todos los servicios:
    ```bash
-   curl -I http://localhost:8000/health
-   # Debe responder: HTTP/1.1 200 OK {"status": "ok", "database": "connected", "cache": "connected"}
+   curl -i http://localhost:8000/health
+   # Debe responder HTTP/1.1 200 OK con cuerpo JSON: {"status": "healthy"}
    ```
 
 ---
@@ -276,7 +268,7 @@ El repositorio incluye herramientas automáticas de mantenimiento:
   Elimina contenedores detenidos, volúmenes huérfanos, cachés locales de Node y compilados temporales sin afectar los volúmenes persistentes de producción.
 - **Auditoría de Seguridad y Escaneo de Secretos:**
   ```bash
-  ./auditar-infra.sh
+  ./scripts/auditar-infra.sh
   ./scripts/verificar-secretos.sh
   ```
   Certifica que no existan puertos innecesarios expuestos ni secretos confidenciales expuestos en el código fuente.

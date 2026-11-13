@@ -38,12 +38,14 @@ from src.schemas import (
     UsuarioCreate,
 )
 from src.security import (
+    DEFAULT_INSECURE_SECRET_KEY,
     create_access_token,
     generate_csrf_token,
     get_password_hash,
     read_uploaded_file_safely,
     validate_csrf_token,
     validate_file_magic_bytes,
+    validate_production_security_settings,
     validate_safe_outgoing_url,
     verify_password,
     verify_websocket_origin,
@@ -71,11 +73,12 @@ def test_pbkdf2_password_hash_and_verify() -> None:
 
 
 def test_verify_password_malformed_pbkdf2_and_legacy() -> None:
-    """Maneja hashes PBKDF2 malformados y hashes legacy SHA-256."""
+    """Rechaza hashes PBKDF2 malformados y rechaza hashes legacy SHA-256 sin sal (Hito 17.1)."""
     assert verify_password("x", "pbkdf2_sha256$solo_dos_partes") is False
     legacy_hash = hashlib.sha256(b"legacy123").hexdigest()
-    assert verify_password("legacy123", legacy_hash) is True
+    assert verify_password("legacy123", legacy_hash) is False
     assert verify_password("wrong", legacy_hash) is False
+    assert verify_password("x", "") is False
 
 
 def test_csrf_token_generation_and_validation() -> None:
@@ -354,3 +357,32 @@ def test_bearer_token_authentication_and_production_422_sanitization(
     res_422 = client.post("/api/auth/login", json={"correo": "solo_correo"})
     assert res_422.status_code == 422
     assert res_422.json() == {"detail": "Los datos proporcionados no cumplen con los requisitos de validación."}
+
+
+def test_validate_production_security_settings_fail_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Valida Fail-Fast en producción ante SECRET_KEY débil o DATABASE_URL en memoria (Hito 17.1)."""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("SECRET_KEY", DEFAULT_INSECURE_SECRET_KEY)
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    validate_production_security_settings()
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@postgres:5432/condominio")
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        validate_production_security_settings()
+
+    monkeypatch.setenv("SECRET_KEY", "corta")
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        validate_production_security_settings()
+
+    monkeypatch.setenv("SECRET_KEY", "super-clave-produccion-32-caracteres-ok!")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        validate_production_security_settings()
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        validate_production_security_settings()
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@postgres:5432/condominio")
+    validate_production_security_settings()

@@ -2,6 +2,7 @@
 
 COMPOSE_FILE = docker-compose.qa.yml
 SERVICE_NAME = qa-backend
+USER_FLAGS = -u "$$(id -u):$$(id -g)"
 # Detección automática de la ruta host para Docker-in-Docker / bind mounts
 HOST_WORKSPACE ?= $(shell docker inspect $$(hostname) 2>/dev/null | grep -B1 '"Destination": "/workspace"' | grep '"Source"' | sed -E 's/.*"Source": "([^"]+)".*/\1/')
 ifeq ($(HOST_WORKSPACE),)
@@ -12,30 +13,31 @@ endif
 export HOST_PWD
 
 qa-lint:
-	@echo "🔍 Ejecutando Ruff, Mypy y Bandit (SAST)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run ruff check . --fix && uv run mypy . && uv run bandit -r src/"
+	@echo "🔍 Ejecutando Ruff, Mypy (strict) y Bandit (SAST)..."
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run ruff check . && uv run ruff format --check . && uv run mypy --strict --cache-dir=/tmp/mypy src/ && uv run bandit -r src/"
 
 qa-complexity:
 	@echo "📊 Verificando Complejidad Ciclomática (Radon) con gates Nivel 11X..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run radon cc src/ -s -nb && uv run radon mi src/ -s && uv run python scripts/radon_gates.py"
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run radon cc src/ -s -nb && uv run radon mi src/ -s && uv run python scripts/radon_gates.py"
 
 qa-deps:
 	@echo "🔐 Auditoría de vulnerabilidades en dependencias (uv audit)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv audit"
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv audit"
 
 qa-unit:
 	@echo "🧪 Ejecutando Pruebas Unitarias Aisladas (Pytest con cobertura >=95%)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run pytest --cov=src --cov-fail-under=95"
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run pytest --cov=src --cov-fail-under=95"
 
 qa-parity:
 	@echo "🗄️ Verificando Paridad ORM vs Migraciones Alembic y Motor Real PostgreSQL 17..."
-	python3 ../.agents/scripts/verify_alembic_orm_parity.py
+	docker run --rm -v "${HOST_PWD}/..:/workspace:ro" -w /workspace/backend sinfallas/base-python-uv:3.13 python3 /workspace/.agents/scripts/verify_alembic_orm_parity.py
 	docker compose -f $(COMPOSE_FILE) up -d --wait postgres
-	docker compose -f $(COMPOSE_FILE) run --rm -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
 
 qa-bdd:
 	@echo "📚 Ejecutando Pruebas BDD de Caja Negra (Karate Labs API)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
+	@docker compose -f $(COMPOSE_FILE) run --rm --no-deps qa-backend bash -c 'for i in $$(seq 1 30); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
 	docker compose -f $(COMPOSE_FILE) run --rm karatelabs mvn clean test
 
 qa-mutation:
@@ -67,8 +69,8 @@ qa-all: qa-lint qa-complexity qa-unit qa-parity
 
 qa-infra:
 	@echo "🛰️ Auditoría de Infraestructura como Código (Trivy IaC + FS) sobre el repositorio..."
-	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy:latest config . --severity HIGH,CRITICAL --exit-code 1 --skip-dirs backend/.venv
-	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy:latest fs . --severity CRITICAL --exit-code 1 --skip-dirs backend/.venv
+	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy:latest config . --severity HIGH,CRITICAL --exit-code 1 --skip-dirs backend/.venv,frontend/node_modules,node_modules,graphify-out
+	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy:latest fs . --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs backend/.venv,frontend/node_modules,node_modules,graphify-out
 
 qa-profile:
 	@echo "📈 Perfilando la API con py-spy bajo carga de Locust (guardando profile.svg)..."
@@ -86,4 +88,3 @@ clean-cache:
 	@echo "🧹 Limpiando volúmenes de caché de uv y contenedores..."
 	docker compose -f $(COMPOSE_FILE) down -v
 	docker compose -f $(COMPOSE_FILE) --profile chaos down -v
-	docker compose -f $(COMPOSE_FILE) --profile graphify down -v

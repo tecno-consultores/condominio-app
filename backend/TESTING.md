@@ -10,10 +10,9 @@
 La suite unitaria actual cubre de forma completamente aislada (sin red ni base de datos real):
 
 - `tests/test_main.unit.py`:
-  - Healthcheck HTTP `/health` respondiendo con estado 200 y JSON `{"status": "healthy"}`.
-  - Cabeceras de seguridad HTTP (`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`).
+  - Healthcheck HTTP `/health` respondiendo con estado 200 y JSON `{"status": "healthy"}`, `OPTIONS` devolviendo `405` con cabecera `Allow`, `Cache-Control: no-store` en todas las respuestas y arranque *Fail-Fast* en `lifespan` bajo `APP_ENV=production`.
 - `tests/test_security_11x.unit.py`:
-  - Hashing `PBKDF2-HMAC-SHA256` con sal criptográfica de 16 bytes, verificación en tiempo constante (`hmac.compare_digest`) y soporte de transición para hashes SHA-256 heredados.
+  - Hashing `PBKDF2-HMAC-SHA256` con sal criptográfica de 16 bytes, verificación en tiempo constante (`hmac.compare_digest`), rechazo estricto de hashes legacy SHA-256 sin sal con cómputo ficticio PBKDF2 en tiempo constante y validación `validate_production_security_settings()` *Fail-Fast* en `APP_ENV=production`.
   - Generación y validación de tokens CSRF `HMAC-SHA256` (`generate_csrf_token`, `validate_csrf_token`).
   - Validador Anti-SSRF `validate_safe_outgoing_url` (bloqueo de esquemas no HTTP, credenciales en URL, `localhost`, contenedores internos `postgres`/`redis`/`minio`, rangos RFC 1918 y fallo DNS).
   - Lector seguro de archivos `read_uploaded_file_safely` (corte inmediato HTTP 413 al superar 2 MB).

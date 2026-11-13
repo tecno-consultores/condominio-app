@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   qa-frontend:
     name: 🧩 Huérfanos UI, Lint SonarJS, Tipado Vue-TSC, Cobertura ≥ 95% y Build Vite
@@ -26,3 +29,7 @@ jobs:
 
       - name: 🧪 Pruebas Unitarias Vitest (Cobertura V8 ≥ 95%) + Build Vite
         run: make qa-unit
+
+      - name: 🧹 Limpieza de contenedores QA
+        if: always()
+        run: make clean-cache

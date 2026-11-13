@@ -1,86 +1,71 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Condominio App Contributors
-
-"""Script de Auditoría de Salud Topológica y Límites de Capas (Graphify AST).
-
+# Copyright (C) 2026 Jesus Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
+"""
+Script de Auditoría de Salud Topológica y Límites de Capas (Graphify AST).
 Verifica que las relaciones entre componentes y módulos respeten las reglas
-arquitectónicas y no existan acoplamientos inversos prohibidos.
+arquitectónicas y no existan acoplamientos inversos ni dependencias cíclicas prohibidas.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def find_graph_files() -> list[Path]:
+def find_graph_files(target_root: Path | None = None) -> list[Path]:
+    root = target_root or REPO_ROOT
+    ignored = {"node_modules", ".venv", ".trivycache", "dist", "coverage"}
     graphs: list[Path] = []
     seen: set[Path] = set()
     for pattern in ["**/graphify-out/graph.json", "**/graph.json"]:
-        for path in REPO_ROOT.glob(pattern):
-            resolved = path.resolve()
-            if (
-                "node_modules" not in str(path)
-                and ".venv" not in str(path)
-                and resolved not in seen
-            ):
+        for p in sorted(root.glob(pattern)):
+            resolved = p.resolve()
+            rel_parts = p.relative_to(root).parts
+            if resolved not in seen and not any(part in ignored for part in rel_parts):
                 seen.add(resolved)
-                graphs.append(path)
+                graphs.append(p)
     return graphs
 
 
 def load_graph(path: Path) -> dict[str, Any]:
-    with open(path, encoding="utf-8") as file:
-        return cast(dict[str, Any], json.load(file))
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-def audit_layers(graph: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+def audit_layers(graph: dict[str, Any], graph_path: Path) -> tuple[list[str], dict[str, Any]]:
     nodes = {n["id"]: n for n in graph.get("nodes", [])}
     links = graph.get("links", [])
     violations: list[str] = []
 
-    forbidden_prefixes = [
-        "src/models",
-        "src/schemas",
-        "src/finanzas",
-        "backend/src/models",
-        "backend/src/schemas",
-        "backend/src/finanzas",
-    ]
-    router_prefixes = ("src/routers/", "backend/src/routers/")
+    domain_re = re.compile(r"(?:^|/)src/(?:models|schemas|core|domain)/")
+    api_re = re.compile(r"(?:^|/)src/(?:api|controllers)/")
+    ui_common_re = re.compile(r"(?:^|/)src/components/common/")
+    ui_views_re = re.compile(r"(?:^|/)src/(?:views|pages)/")
 
     for link in links:
-        src_file = link.get("source_file", "")
+        src_node = nodes.get(link.get("source", ""))
+        src_file = str(link.get("source_file") or (src_node.get("source_file", "") if src_node else "")).replace(
+            "\\", "/"
+        )
         tgt_id = link.get("target", "")
         tgt_node = nodes.get(tgt_id)
-        if not tgt_node:
+        if not src_file or not tgt_node:
             continue
-        tgt_file = tgt_node.get("source_file", "")
+        tgt_file = str(tgt_node.get("source_file", "")).replace("\\", "/")
+        if not tgt_file:
+            continue
 
-        for prefix in forbidden_prefixes:
-            if src_file.startswith(prefix) and tgt_file.startswith(router_prefixes):
-                violations.append(
-                    f"Acoplamiento inverso: '{src_file}' ({link.get('context', 'call')}) -> '{tgt_file}'"
-                )
+        if domain_re.search(src_file) and api_re.search(tgt_file):
+            violations.append(f"Acoplamiento inverso: '{src_file}' ({link.get('context', 'call')}) -> '{tgt_file}'")
 
-        if src_file.startswith(("src/components/", "frontend/src/components/")) and (
-            tgt_file.startswith(("src/views/", "src/pages/", "frontend/src/views/"))
-        ):
-            violations.append(
-                f"Acoplamiento invertido UI: Componente '{src_file}' depende de vista '{tgt_file}'"
-            )
-
-        if src_file.startswith(("src/stores/", "frontend/src/stores/", "src/services/", "frontend/src/services/")) and (
-            tgt_file.startswith(("src/views/", "frontend/src/views/"))
-        ):
-            violations.append(
-                f"Acoplamiento invertido Store/Service: '{src_file}' depende de vista '{tgt_file}'"
-            )
+        if ui_common_re.search(src_file) and ui_views_re.search(tgt_file):
+            violations.append(f"Acoplamiento invertido UI: Componente común '{src_file}' depende de vista '{tgt_file}'")
 
     stats = {
         "nodes": len(nodes),
@@ -91,34 +76,35 @@ def audit_layers(graph: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
 
 
 def main() -> int:
-    print("🔍 [Graphify AST] Auditando salud topológica y límites de capas arquitectónicas...")
-
     graph_files = find_graph_files()
     if not graph_files:
-        print("ℹ️ No se detectaron grafos AST (graph.json). Ejecución aprobada.")
+        print("✔ [AST Topology] 0 grafos AST (graph.json) detectados.")
         return 0
 
     all_violations: list[str] = []
+    total_nodes = 0
+    total_links = 0
     for g_path in graph_files:
         try:
             graph = load_graph(g_path)
-            violations, stats = audit_layers(graph)
-            print(
-                f"📊 Grafo {g_path.relative_to(REPO_ROOT)}: "
-                f"{stats['nodes']} nodos, {stats['links']} relaciones, {stats['communities']} comunidades."
-            )
+            violations, stats = audit_layers(graph, g_path)
+            total_nodes += stats["nodes"]
+            total_links += stats["links"]
             if violations:
                 all_violations.extend([f"[{g_path.name}] {v}" for v in violations])
-        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            print(f"⚠️ Error procesando grafo {g_path}: {exc}")
+        except Exception as e:
+            print(f"❌ Error procesando grafo {g_path}: {e}")
+            all_violations.append(f"[{g_path.name}] Grafo AST corrupto o ilegible (Fail-Secure): {e}")
 
     if all_violations:
-        print("\n❌ Se detectaron violaciones de límites de capas:")
-        for violation in all_violations:
-            print(f"   - {violation}")
+        print("❌ Se detectaron violaciones de límites de capas:")
+        for v in all_violations:
+            print(f"   - {v}")
         return 1
 
-    print("✔ Salud topológica y límites de capas certificados (0 acoplamientos indebidos).")
+    print(
+        f"✔ [AST Topology] {len(graph_files)} grafo(s), {total_nodes} nodos, {total_links} relaciones (0 violaciones de capa)."
+    )
     return 0
 
 

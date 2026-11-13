@@ -12,26 +12,26 @@
 | :--- | :--- | :--- | :--- |
 | **Secret Scanning** | `./scripts/verificar-secretos.sh` | 0 secretos expuestos | ✅ **0 hallazgos** |
 | **Lint, Tipado & SAST (Backend)** | `make -C backend qa-lint` (`ruff`, `mypy --strict`, `bandit`) | 0 errores / 0 advertencias | ✅ **100% Limpio** |
-| **Complejidad Ciclomática & MI** | `make -C backend qa-complexity` (`radon_gates.py`) | CC $\le$ Grado B, MI $\ge$ Grado B | ✅ **Grado A en todos los módulos** |
+| **Complejidad Ciclomática & MI** | `make -C backend qa-complexity` (`radon_gates.py`) | CC $\le$ Grado B, MI $\ge$ Grado B | ✅ **Grado A/B (CC <= 10, MI >= B)** |
 | **Auditoría de Dependencias** | `make -C backend qa-deps` (`uv audit`) | 0 CVEs conocidos | ✅ **0 vulnerabilidades** |
-| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.85% cobertura (215/215 pass)** |
+| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **99.85% cobertura (217/217 pass)** |
 | **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (27 tablas)** |
 | **Lint, Tipado & SonarJS (Frontend)** | `make -C frontend qa-lint` (`vue-tsc`, `prettier`, `eslint`) | 0 errores / CC $\le 15$ | ✅ **100% Limpio** |
 | **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **38/38 componentes cubiertos** |
-| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.48% líneas / 99.41% sentencias / 97.63% funciones / 95.88% ramas (108/108 pass)** |
-| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **1.983 nodos, 4.469 relaciones, 114 comunidades, 0 violaciones** |
+| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **99.36% líneas / 99.12% sentencias / 97.66% funciones / 95.52% ramas (108/108 pass)** |
+| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **2.292 nodos, 5.373 relaciones, 134 comunidades (0 violaciones en 3 grafos: 4.036 nodos, 9.741 relaciones)** |
 | **Contratos OpenAPI & Fuzzing** | `make -C backend qa-contracts` (`schemathesis`) | 0 fallos 5xx / contrato | ✅ **626/626 casos aprobados** |
 | **Seguridad Dinámica (DAST)** | `make -C backend qa-dast` (`zaproxy/zap-stable`) | `FAIL-NEW: 0` | ✅ **0 fallos (66 reglas PASS)** |
 | **Ingeniería del Caos & Carga** | `make -C backend qa-chaos` (`Pumba` + `Locust` + `Prometheus`) | 0 errores bajo `netem 500ms` | ✅ **2.786 peticiones, 0 fallos** |
-| **Auditoría IaC & Contenedores** | `./auditar-infra.sh` (`trivy config` + `trivy fs`) | 0 HIGH/CRITICAL misconfigs | ✅ **0 hallazgos** |
+| **Auditoría IaC & Contenedores** | `./scripts/auditar-infra.sh` (`trivy config` + `trivy fs`) | 0 HIGH/CRITICAL misconfigs & CVEs | ✅ **0 hallazgos** |
 
 ---
 
 ## 2. Suites Unitarias del Backend (`backend/tests/*.unit.py`)
 
-- `tests/test_main.unit.py`: Healthcheck `/health`, cabeceras de seguridad HTTP (`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`), sanitización de errores `422` en producción y ocultamiento de `/docs` en `APP_ENV=production`.
+- `tests/test_main.unit.py`: Healthcheck `/health`, cabeceras de seguridad HTTP (`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`), sanitización de errores `422` en producción, ocultamiento de `/docs` y arranque *Fail-Fast* en `lifespan` bajo `APP_ENV=production`.
 - `tests/test_security_11x.unit.py`:
-  - Hashing `PBKDF2-HMAC-SHA256` con sal aleatoria, verificación en tiempo constante y soporte de transición para hashes SHA-256 heredados.
+  - Hashing `PBKDF2-HMAC-SHA256` con sal aleatoria, verificación en tiempo constante, rechazo estricto de hashes legacy SHA-256 sin sal y validación *Fail-Fast* (`validate_production_security_settings`) en `APP_ENV=production`.
   - Generación y validación de tokens CSRF `HMAC-SHA256` (expiración, firma inválida, formato malformado).
   - Validador Anti-SSRF `validate_safe_outgoing_url` (bloqueo de esquemas no HTTP, credenciales embebidas, `localhost`, contenedor interno `postgres`/`redis`/`minio`, rangos RFC 1918 y fallo DNS).
   - Lector seguro de archivos `read_uploaded_file_safely` (corte inmediato HTTP 413 al superar 2 MB).

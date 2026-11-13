@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Condominio App Contributors
+# Copyright (C) 2026 Jesus Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
 
 """verify_json_no_duplicate_keys.py — Verificador estricto de claves duplicadas en JSON.
 
 El analizador estándar json.loads de Python sobreescribe silenciosamente claves repetidas,
-ocultando colisiones en archivos de configuración o diccionarios i18n.
+ocultando colisiones de traducción en diccionarios i18n o configuraciones.
 Este script implementa un decodificador con object_pairs_hook para rechazar colisiones.
 """
-
-from __future__ import annotations
 
 import json
 import sys
@@ -34,53 +32,66 @@ def detect_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def audit_json_file(file_path: Path) -> list[str]:
-    errors: list[str] = []
+    errors = []
     try:
         content = file_path.read_text(encoding="utf-8")
         json.loads(content, object_pairs_hook=detect_duplicate_keys)
-    except json.JSONDecodeError as exc:
-        errors.append(f"{file_path}: Error de parseo JSON ({exc})")
-    except (ValueError, OSError) as exc:
-        errors.append(f"{file_path}: {exc}")
+    except ValueError as e:
+        errors.append(f"{file_path}: {e}")
+    except Exception as e:
+        errors.append(f"{file_path}: Error de parseo JSON ({e})")
     return errors
 
 
-def main() -> int:
-    repo_root = Path(__file__).resolve().parent.parent.parent
-    json_files = list(repo_root.glob("**/*.json"))
-
-    ignored_patterns = [
+def collect_json_candidates(repo_root: Path) -> list[Path]:
+    ignored_dirs = {
+        ".git",
         "node_modules",
         ".stryker-tmp",
         "coverage",
         ".venv",
         "dist",
         "build",
-        "htmlcov",
-        "graphify-out/cache",
-    ]
-    filtered_files = [
-        f for f in json_files
-        if not any(pattern in str(f) for pattern in ignored_patterns)
-    ]
+        "graphify-out",
+        ".trivycache",
+        "target",
+    }
+    seen: set[Path] = set()
+    filtered: list[Path] = []
+    for pattern in ("**/*.json", "**/*.json.example"):
+        for candidate in sorted(repo_root.glob(pattern)):
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            rel_parts = candidate.relative_to(repo_root).parts
+            if any(part in ignored_dirs for part in rel_parts):
+                continue
+            seen.add(resolved)
+            filtered.append(candidate)
+    return filtered
+
+
+def main(target_root: Path | None = None) -> int:
+    repo_root = target_root or Path(__file__).resolve().parent.parent.parent
+    filtered_files = collect_json_candidates(repo_root)
 
     if not filtered_files:
-        print("ℹ️ No se detectaron archivos JSON relevantes para auditar.")
+        print("✔ [JSON Integrity] 0 archivos JSON relevantes.")
         return 0
 
-    all_errors: list[str] = []
+    all_errors = []
     for jf in filtered_files:
         errors = audit_json_file(jf)
         if errors:
             all_errors.extend(errors)
 
     if all_errors:
-        print("\n❌ ERROR: Se detectaron colisiones de claves duplicadas en archivos JSON:")
+        print("❌ ERROR: Se detectaron colisiones de claves duplicadas en archivos JSON:")
         for err in all_errors:
             print(f"   - {err}")
         return 1
 
-    print(f"✔ Auditoría exitosa: {len(filtered_files)} archivos JSON validados sin claves duplicadas.")
+    print(f"✔ [JSON Integrity] {len(filtered_files)} archivos JSON validados (0 claves duplicadas).")
     return 0
 
 

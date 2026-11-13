@@ -1,26 +1,20 @@
 #!/usr/bin/env bash
-# Licencia: MIT
-# Propósito: Inicializar la barrera de entrada de QA Testing Blueprints en local.
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 Condominio App Contributors
+# Propósito: Inicializar hooks de Git con Lefthook sin contaminar el workspace (Rule Zero).
 
 LC_ALL=C
-set -e
+set -euo pipefail
 
-echo "🛡️ Configurando Barrera de Entrada Corporativa (Lefthook + Commitlint)..."
-echo "ℹ️  El lint de mensajes de commit (commitlint) corre efímeramente en la imagen oficial sinfallas/base-node-ionic (con pnpm), sin requerir Node en el host."
+echo "🛡️ Configurando Barrera de Entrada Corporativa (Lefthook + Conventional Commits Bash)..."
+echo "ℹ️  Las validaciones pre-commit, commit-msg y pre-push se ejecutan efímeramente vía Docker o Bash puro."
 
-# Verificar si NPM está disponible para instalar Lefthook fácilmente (opción más común)
-if command -v npm &> /dev/null; then
-    echo "Instalando Lefthook (única herramienta requerida en el host)..."
-    npm install --no-save @evilmartians/lefthook
-else
-    echo "NPM no encontrado. Descargando el binario de Lefthook..."
-    # Descarga directa del binario para entornos sin Node.js global
-    curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | sudo -E bash
-    sudo apt install lefthook
+if ! command -v lefthook >/dev/null 2>&1; then
+  echo "❌ [ERROR] 'lefthook' no está instalado en el PATH del sistema." >&2
+  echo "💡 Instálelo de forma global (sin npm install local) desde https://github.com/evilmartians/lefthook/releases o con su gestor de paquetes del SO (p. ej. brew/apt/go)." >&2
+  exit 1
 fi
 
-# Instalar los hooks en el repositorio de Git actual
 lefthook install
-
-echo "✅ ¡Barrera activada! A partir de ahora, todo 'git commit' será evaluado efímeramente por Docker."
+echo "✅ ¡Barrera activada! Todo 'git commit' y 'git push' será auditado automáticamente."
 exit 0

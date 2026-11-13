@@ -4,7 +4,7 @@
 **Licencia:** MIT  
 **Estándar de Certificación:** QA 11X DevSecOps (`qa-testing-blueprints`)
 
-En **Condominio App**, la seguridad de los fondos comunitarios, la privacidad de los propietarios e inquilinos y la integridad contable son la máxima prioridad. Este documento establece los estándares de **Seguridad por Diseño (Security-by-Design)**, la mitigación de los 13 vectores de ataque en arquitecturas híbridas (SPA Vue 3 + API Asíncrona FastAPI) y la política de auditoría preventiva **Shift-Left**.
+En **Condominio App**, la seguridad de los fondos comunitarios, la privacidad de los propietarios e inquilinos y la integridad contable son la máxima prioridad. Este documento establece los estándares de **Seguridad por Diseño (Security-by-Design)**, la mitigación de los 19 vectores de ataque en arquitecturas híbridas (SPA Vue 3 + API Asíncrona FastAPI) y la política de auditoría preventiva **Shift-Left**.
 
 ---
 
@@ -57,7 +57,7 @@ flowchart TD
 
 ---
 
-## 4. Mitigación Integral de los 13 Vectores de Ataque Híbridos (SPA + API)
+## 4. Mitigación Integral de los 19 Vectores de Ataque Híbridos (SPA + API)
 
 ### 4.1. Prevención de Asignación Masiva (*Mass Assignment / Over-posting*)
 - **Riesgo:** Un atacante inyecta atributos no autorizados en el JSON de registro o pago (ej. `"rol": "TESORERO"`, `"es_activo": true`, `"estado": "APROBADO"`).
@@ -90,7 +90,7 @@ flowchart TD
 - **Mitigación Implementada:** `generate_csrf_token` y `validate_csrf_token` en `backend/src/security.py` emplean firmas `HMAC-SHA256` y comparación en tiempo constante (`hmac.compare_digest`). Además, `get_current_user` en `backend/src/dependencies.py` soporta tanto cookies `HttpOnly` como cabeceras `Authorization: Bearer` para herramientas automatizadas y servidores MCP.
 
 ### 4.9. Prevención de XSS y Prototype Pollution en Frontend Vue 3
-- **Mitigación Especificada (`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`):** Uso obligatorio de `escapeHtml` y `sanitizeObject` (`Object.create(null)`, filtrado de `__proto__`, `constructor`, `prototype`) en `frontend/src/utils/security.ts`.
+- **Mitigación Implementada (`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`):** Uso obligatorio de `escapeHtml` y `sanitizeObject` (`Object.create(null)`, filtrado de `__proto__`, `constructor`, `prototype`) en `frontend/src/utils/security.ts`.
 
 ### 4.10. Tolerancia a Carreras Concurrentes (*Grace Period* de 5s) en Refresh Tokens
 - **Mitigación Implementada:** `rotate_refresh_token_with_grace_period` y `check_refresh_token_grace_period` en `backend/src/redis_client.py` almacenan una ventana de cortesía de 5 segundos en KeyDB para evitar cierres de sesión falsos cuando un propietario abre varias pestañas simultáneamente.
@@ -103,22 +103,25 @@ flowchart TD
 - **Mitigación Implementada:** En `backend/src/main.py`, cuando `APP_ENV == "production"`, `docs_url`, `redoc_url` y `openapi_url` se desactivan (`None`).
 
 ### 4.13. Gobernanza Shift-Left de Lockfiles (`uv.lock` y `pnpm-lock.yaml`)
-- **Mitigación Implementada:** Auditoría continua mediante `make -C backend qa-deps` (`uv audit`) y `./auditar-infra.sh` (Trivy IaC + FS) exigiendo **0 vulnerabilidades CRITICAL/HIGH**.
+- **Mitigación Implementada:** Auditoría continua mediante `make -C backend qa-deps` (`uv audit`), `make -C frontend qa-lint` (`pnpm audit --audit-level=high`), configuración `.npmrc` (`ignore-scripts=true`) y `./scripts/auditar-infra.sh` (Trivy IaC + FS `HIGH/CRITICAL` = 0).
 
 ### 4.14. Saneamiento de Esquemas en URLs de Evidencia (`UrlEvidenciaSegura`)
 - **Mitigación Implementada:** Validación estricta en `backend/src/schemas.py` que bloquea esquemas `javascript:`, `data:`, `vbscript:` y `file:` en comprobantes, facturas y fotos.
 
 ### 4.15. Inspección de *Magic Bytes* Binarios en Subida de Archivos
-- **Mitigación Especificada (`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`):** Verificación de la firma binaria real (`%PDF-`, `\x89PNG`, `\xFF\xD8\xFF`, `RIFF....WEBP`, `ftypavif`) dentro de `read_uploaded_file_safely` antes de procesar o almacenar archivos.
+- **Mitigación Implementada (`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`):** Verificación de la firma binaria real (`%PDF-`, `\x89PNG`, `\xFF\xD8\xFF`, `RIFF....WEBP`, `ftypavif`) dentro de `read_uploaded_file_safely` antes de procesar o almacenar archivos.
 
 ### 4.16. Revocación Instantánea de Sesiones en KeyDB Multi-Hilo
-- **Mitigación Especificada (`docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md`):** Al desactivar un usuario o finalizar su contrato de ocupación, se registra `revoked_user:{id}` en KeyDB para invalidar en el acto cualquier JWT vigente.
+- **Mitigación Implementada (`docs/specs/02_DOMINIO_IDENTIDAD_ESTRUCTURA_Y_RBAC.md`):** Al desactivar un usuario o finalizar su contrato de ocupación, se registra `revoked_user:{id}` en KeyDB para invalidar en el acto cualquier JWT vigente.
 
 ### 4.17. No Repudio y Anti-Replay en Pases QR, Cartas Consulta y Certificados de Solvencia
-- **Mitigación Especificada (`docs/specs/07..09`):** Sello criptográfico `HMAC-SHA256` verificado con `hmac.compare_digest` para Certificados de Solvencia, Votos en Cartas Consulta y Pases de Visita QR, combinado con quema atómica de `jti` (`SET qr_used:{jti} 1 NX EX {ttl}`) en KeyDB Multi-Hilo.
+- **Mitigación Implementada (`docs/specs/07..09`):** Sello criptográfico `HMAC-SHA256` verificado con `hmac.compare_digest` para Certificados de Solvencia, Votos en Cartas Consulta y Pases de Visita QR, combinado con quema atómica de `jti` (`SET qr_used:{jti} 1 NX EX {ttl}`) en KeyDB Multi-Hilo.
 
 ### 4.18. Bloqueo Anti-Fraude de Referencias Bancarias Duplicadas
-- **Mitigación Especificada (`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`):** Restricción de unicidad sobre `(metodo, numero_referencia)` para impedir que múltiples reportes de pago reutilicen el mismo número de operación bancaria.
+- **Mitigación Implementada (`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`):** Restricción de unicidad sobre `(metodo, numero_referencia)` para impedir que múltiples reportes de pago reutilicen el mismo número de operación bancaria.
+
+### 4.19. Arranque Fail-Fast y KDF Estricto PBKDF2 en Producción (Hito 17.1)
+- **Mitigación Implementada:** En `backend/src/security.py` y `lifespan` de `backend/src/main.py`, `validate_production_security_settings()` aborta inmediatamente con `RuntimeError` si `APP_ENV=production` intenta iniciar con la `SECRET_KEY` por defecto (< 32 caracteres o valor de desarrollo) o `DATABASE_URL` vacía / SQLite `:memory:`. Asimismo, `verify_password` rechaza hashes heredados SHA-256 sin sal aplicando un cómputo ficticio `PBKDF2-HMAC-SHA256` en tiempo constante para evitar enumeración temporal.
 
 ---
 
@@ -127,5 +130,5 @@ flowchart TD
 Antes de cada commit y push, el código supera:
 1. **Detección de Secretos:** `./scripts/verificar-secretos.sh` (0 credenciales expuestas).
 2. **SAST Estático y Complejidad:** `Ruff`, `Mypy --strict`, `Bandit` y `Radon` (Grado A/B).
-3. **Auditoría IaC y Dependencias:** `./auditar-infra.sh` (Trivy) y `uv audit`.
-4. **Compuerta de Certificación 11X:** `./.agents/scripts/certify_task_completion.sh`.
+3. **Auditoría IaC y Dependencias:** `./scripts/auditar-infra.sh` (Trivy IaC + FS `HIGH/CRITICAL`) y `uv audit` / `pnpm audit`.
+4. **Compuerta de Certificación 11X:** `certify_11x_gate` (`@sinfallas/mcp-qa-11x`) y `./.agents/scripts/certify_task_completion.sh`.

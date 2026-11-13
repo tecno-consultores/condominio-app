@@ -1,46 +1,17 @@
 #!/usr/bin/env bash
-# Licencia: MIT
-# Propósito: Purga profunda del entorno de QA del backend FastAPI (Nivel 11X).
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 Condominio App Contributors
+# Propósito: Purga segura del entorno QA de FastAPI delegando al limpiador sin sudo (Rule Zero).
 
 LC_ALL=C
+set -euo pipefail
 
-if [[ "$EUID" != "0" ]]; then
-        echo "ERROR: debe ser root. Ejecuta con sudo ./limpieza.sh"
-        exit 1
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-clear
-echo "Iniciando purga profunda del entorno de QA de FastAPI (Nivel 11X)..."
+echo "🧹 Limpiando caché, reportes y contenedores QA del Backend FastAPI..."
+docker compose -f "${SCRIPT_DIR}/docker-compose.qa.yml" down -v 2>/dev/null || true
+docker compose -f "${SCRIPT_DIR}/docker-compose.qa.yml" --profile chaos down -v 2>/dev/null || true
 
-rm -f .coverage
-rm -rf .mypy_cache
-rm -rf .pytest_cache
-rm -rf .ruff_cache
-rm -rf .tox
-rm -rf .schemathesis
-rm -rf .uv/
-rm -rf dist
-rm -rf htmlcov/
-rm -rf tests/__pycache__
-rm -rf src/*/__pycache__
-rm -rf scripts/*/__pycache__
-rm -rf target/
-rm -rf test/target/
-rm -f zap-report.html
-rm -f chaos-report.html
-rm -f zap.yaml
-rm -f profile.svg
-rm -rf graphify-out/
-rm -rf prometheus_data/
-rm -f .venv
-
-chown -R $USER:$USER . 2>/dev/null || true
-
-docker compose -f docker-compose.qa.yml down -v 2>/dev/null || true
-docker compose -f docker-compose.qa.yml --profile chaos down -v 2>/dev/null || true
-docker compose -f docker-compose.qa.yml --profile graphify down -v 2>/dev/null || true
-
-docker system prune -af --volumes
-
-echo "Limpieza de caché, reportes, imágenes y contenedores finalizada exitosamente."
+"${REPO_ROOT}/scripts/limpieza.sh" "$@"
 exit 0

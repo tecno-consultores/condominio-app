@@ -3,99 +3,92 @@
 
 # 🤖 AI Agent Directives & Technical Governance — Condominio App (Standard 11X)
 
-Welcome to the **Condominio App** repository. All AI coding assistants (Google Antigravity, Claude Code / Claude Desktop, Hermes Agent, Cursor, Windsurf, etc.) and human developers must strictly adhere to the Level-11X corporate quality, security, and testing directives defined here and in `.agents/rules/`.
+Welcome to the **Condominio App** repository. All AI coding assistants (Google Antigravity, Claude Code / Claude Desktop, Hermes Agent, Cursor, Windsurf, etc.) and human developers must strictly adhere to the Level-11X corporate quality, security, and testing directives defined here, in `.agents/rules/domain_condominio_app_rules.md`, and in the global QA 11X corporate skills (`@sinfallas/mcp-qa-11x`).
 
 > **OUTPUT LANGUAGE CONSTRAINT:**
 > Always interact with the user, provide status updates, explain reasoning, and write commit messages / user-facing documentation in Spanish.
 >
 > **TOKEN EFFICIENCY & LANGUAGE DESIGN:**
-> All directives in `.agents/rules/` and skills in `.agents/skills/` are maintained in concise, high-density technical English to optimize token utilization (~35% reduction in context window) and ensure maximum logical adherence across LLMs (Google Antigravity, Claude, Hermes Agent, Cursor). All human-facing documentation (`docs/`, `docs/specs/`, `CHANGELOG.md`, `ROADMAP.md`, `README.md`, `TESTING.md`, `SECURITY.md`) remains strictly in Spanish. See [.agents/README.md](file:///.agents/README.md) for full architectural rationale.
+> Directives in `.agents/rules/` and global skills are maintained in concise, high-density technical English to optimize token utilization (~35% reduction in context window) and ensure maximum logical adherence across LLMs. All human-facing documentation (`docs/`, `docs/specs/`, `CHANGELOG.md`, `ROADMAP.md`, `README.md`, `TESTING.md`, `SECURITY.md`) remains strictly in Spanish. See [.agents/README.md](./.agents/README.md) for full architectural rationale.
 
 ---
 
-## 1. Active Rules in `.agents/rules/`
+## 1. Thin-Repo Governance & Domain Rules in `.agents/rules/`
 
-1. [mandatory_qa_pyramid_and_doc_sync.md](file:///.agents/rules/mandatory_qa_pyramid_and_doc_sync.md):
-   - **Supreme Directive — Mandatory 11X Test Creation:** Any code addition or modification MUST strictly include corresponding test suites across all applicable layers of the 11X quality pyramid. Includes backend unit tests with `>= 95%` coverage, frontend unit tests (Vitest `>= 95%`), real database migration verification (`make -C backend qa-parity`), front-back integration contracts, and **ALWAYS Karate Labs BDD scenarios** for API (`backend/test/api_test.feature`) and UI (`frontend/test/ui_business_flow.feature`).
-   - **Zero-Orphan UI Component Invariant:** Every UI component or view (`.vue`) must have a dedicated or active unit test suite maintaining a 100% pass rate.
-   - **Mandatory Test Execution:** The full test suite MUST be executed and passed inside ephemeral Docker containers (`Rule Zero`) after EACH task modifying code before concluding.
-   - **Continuous Mandatory Documentation Sync:** Autonomously and continuously update affected documentation in `docs/`, `docs/specs/`, `CHANGELOG.md` (under `## [Unreleased]`), `ROADMAP.md`, `TESTING.md`, and `README.md`.
+Global canonical QA 11X rules and skills are consumed directly from the global `@sinfallas/mcp-qa-11x` installation without duplicating them locally. Project-specific governance is isolated in:
 
-2. [secure_development_and_testing_guidelines.md](file:///.agents/rules/secure_development_and_testing_guidelines.md):
-   - **Anti-Mock Blindness:** ORM changes require immediate versioned Alembic migrations verified against real PostgreSQL engines. Never rely on mocks alone when testing persistence.
-   - **Security-by-Design:** Mass Assignment prevention (`extra="forbid"`), anti-SSRF URL validation (`validate_safe_outgoing_url`), safe evidence URI validation (`UrlEvidenciaSegura`), binary magic-byte inspection, salted password KDFs (`PBKDF2-HMAC-SHA256`), HMAC-SHA256 CSRF protection, strict 2MB upload limits (`read_uploaded_file_safely` + client pre-validation `validateProofFileUpload`), anti-CSWSH WebSocket origin validation, client-side open-redirect prevention (`isSafeRedirectUrl`), pnpm supply-chain script allowlisting (`pnpm-workspace.yaml` `allowBuilds`), scoped `Idempotency-Key` headers in KeyDB Multi-Threaded (`useIdempotency` + `apiClient`), penny-exact Hamilton aliquot prorating, and `HMAC-SHA256` signatures with KeyDB `jti` anti-replay nonces for Solvency Certificates, Carta Consulta votes, and Visitor QR Passes.
-   - **Visual Geometry & In-Flow Ergonomics (Anti-JSDOM):** JSDOM does not calculate layout or bounding boxes (always returns 0x0). Validate DOM hierarchy and inspect viewports in real browser sessions. Prohibit fixed floating footers that steal vertical space or overlap the mobile Bottom Navigation Bar / FAB; enforce in-flow footers (`AppFooter.vue`) inside `<main>` (`AppShellLayout.vue`) with `margin-top: auto` and safe bottom clearance `calc(4.5rem + env(safe-area-inset-bottom, 0px))`.
-
-3. [frontend_parity_and_closure.md](file:///.agents/rules/frontend_parity_and_closure.md):
-   - **Terminal ↔ Frontend Parity:** Zero console-only actions or orphan API endpoints without a matching Vue 3 interface (`docs/API_ROUTES.md`).
-   - **Zero Read-Only Operational Consoles:** Operational management views MUST offer tactical mutation actions (create, approve, reject with mandatory reason, toggle, complete) instead of passive read-only views.
-   - **UX/UI Hospitality, Perceptual Tokens & Compositor Motion (`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`):** Enforce centralized `OKLCH` / `light-dark()` tokens, two-part shadows, top-layer `<dialog>` entry/exit animations (`@starting-style` + `transition-behavior: allow-discrete` + `overlay` + mobile Bottom Sheet + `data-closing` fallback), SPA `document.startViewTransition`, non-color-only state indicators (icons + text for colorblind safety), and strict `@media (prefers-reduced-motion: reduce)` / `@media (forced-colors: active)` compliance.
-   - **Closure Protocol:** Strict execution of tests in ephemeral Docker, secret scanning, dependency audit, and clean git staging.
-
-4. [continuous_agent_evolution.md](file:///.agents/rules/continuous_agent_evolution.md):
-   - **Autonomous Evolution of `.agents/`:** Proactively update rules, skills, and automation scripts whenever discovering an improvement opportunity, unhandled edge case, procedure automation, or token optimization without waiting for user prompting.
-
-5. [anti_regression_and_side_effects_guardrail.md](file:///.agents/rules/anti_regression_and_side_effects_guardrail.md):
-   - **Anti-Regression & Blast-Radius Governance:** Zero degradation of pre-existing functionality. Mandatory pre-modification and post-modification AST graph extraction (`sinfallas/remote-graphify:latest` -> `graphify-out/graph.json`), topological layer health check (`.agents/scripts/verify_topological_health.py`), and blast radius audit (`.agents/scripts/inspect_blast_radius.py`). Preserve valid known state in frontend Pinia stores on network error (anti-destructive catch).
-   - **Deterministic Recovery Diary (`.agents/ACTIVE_TASK.md`):** Maintain `.agents/ACTIVE_TASK.md` (ignored by Git via `.gitignore`) with granular `CP-X.Y` checkpoints during multi-step tasks so interrupted sessions can resume deterministically without losing progress.
-
-6. [ground_truth_fixtures_and_negative_invariants.md](file:///.agents/rules/ground_truth_fixtures_and_negative_invariants.md):
-   - **Universal Trimodal Fixtures & Negative Invariants:** Eradicate mock blindness by testing against three states: Virgin/Ghost (`es_activo=False`, `rol="FANTASMA"`), Nominal Configured (`es_activo=True`), and Locked/Degraded (`bloqueado=True` Candado Contable).
+1. [domain_condominio_app_rules.md](./.agents/rules/domain_condominio_app_rules.md):
+   - **Anti-Mock Blindness & Trimodal Fixtures:** Test against Virgin/Ghost (`es_activo=False`, `rol="FANTASMA"`), Nominal (`es_activo=True`), and Locked/Degraded (`bloqueado=True` Candado Contable) fixtures; ORM changes require versioned Alembic migrations verified against real PostgreSQL 17 (`make -C backend qa-parity`).
+   - **Parallel BDD Scenario Isolation (`Karate Labs`):** Every scenario in `backend/test/api_test.feature` registers its own isolated fixture with dynamic UUIDs (`java.util.UUID.randomUUID() + ''`) and file-backed SQLite/PostgreSQL concurrency safety.
+   - **Rule Zero & Vue 3 Invariants:** Never run linters, tests, migrations, or audits directly on the host OS; execute all checks inside ephemeral Docker containers (`Makefile`, `backend/docker-compose.qa.yml`, `frontend/docker-compose.qa.yml`). Wrap Vue `<input type="number" v-model>` reads safely with `String(val.value ?? '').trim()`.
+   - **Continuous Mandatory Documentation & Checkpoint Sync:** Update affected files in `docs/`, `docs/specs/`, `CHANGELOG.md` (`## [Unreleased]`), `ROADMAP.md`, `TESTING.md`, `backend/TESTING.md`, `frontend/TESTING.md`, `.agents/ACTIVE_TASK.md`, `README.md`, and `SECURITY.md`.
 
 ---
 
 ## 2. Rule Zero: Ephemeral Docker Execution
 
-**NEVER** execute tests, migrations, linters, or operational scripts directly on the host machine (`Ubuntu`, `macOS`, or `Windows`). All executions must occur inside ephemeral Docker containers (`backend/docker-compose.qa.yml`, `frontend/docker-compose.qa.yml`, and `Makefile`).
+**NEVER** execute tests, migrations, linters, or operational scripts directly on the host machine (`Ubuntu`, `macOS`, or `Windows`). All executions must occur inside ephemeral Docker containers (`Makefile`, `backend/docker-compose.qa.yml`, `frontend/docker-compose.qa.yml`).
 
 ---
 
-## 3. Skills Catalog in `.agents/skills/`
+## 3. Global Corporate Skills (`@sinfallas/mcp-qa-11x`)
 
-1. `qa-11x-docker-certifier`: QA 11X Corporate Standard certifier in ephemeral Docker (coverage `>= 95%`, Radon/SonarJS, Karate Labs, mutation testing, zero host contamination).
-2. `docker-trivy-keydb-hardening`: Container hardening (Trivy HIGH/CRITICAL = 0), multi-threaded KeyDB in-memory caching engine, non-root users, and performance optimization.
-3. `graphify-ast-navigator`: AST Knowledge Graph navigation, blast-radius pre-audit, layer boundary compliance, and CLI-first query protocol.
+Consumed globally (no local duplication in `.agents/skills/`):
+
+1. `qa-11x-architect`: Master QA 11X & DevSecOps Architect (13 QA layers, DISA ASD STIG V6R5 & OWASP v4.2, 3-Path execution protocol).
+2. `qa-11x-docker-certifier`: Ephemeral Docker QA certifier (`>= 95%` coverage, Radon/SonarJS, Karate Labs, mutation testing, zero host contamination).
+3. `docker-trivy-keydb-hardening`: Container hardening (`Trivy HIGH/CRITICAL = 0`), multi-threaded KeyDB engine, and non-root runtime users.
+4. `graphify-ast-navigator`: AST Knowledge Graph navigation (`graphify-out/graph.json`, `--code-only`), blast-radius pre-audit, and layer boundary compliance.
+5. `refactoring-ui`: Visual hierarchy, `OKLCH` tokens, `light-dark()` theming, Anti-JSDOM geometry, and WCAG 2.1 AA compliance.
 
 ---
 
-## 4. Automation Scripts in `.agents/scripts/`
+## 4. Automation Scripts in `.agents/scripts/` and `scripts/`
 
-- `certify_task_completion.sh`: End-to-end certification gate enforcing secret scanning, IaC auditing, JSON integrity, zero orphan UI components, topological health, ORM parity, and documentation sync.
-- `verify_alembic_orm_parity.py`: Automated parity validator between SQLAlchemy ORM models and Alembic migrations (detects schema drift).
-- `verify_zero_orphan_vue_components.py`: Automated parity validator ensuring 100% of UI components and views have active unit test suites.
-- `verify_json_no_duplicate_keys.py`: Automated integrity validator detecting duplicate keys in JSON files.
-- `inspect_blast_radius.py`: Automated pre-refactoring blast radius inspector calculating incoming dependency edges across the codebase.
-- `verify_topological_health.py`: Automated AST architectural validator detecting forbidden cross-layer coupling.
+- `.agents/scripts/certify_task_completion.sh`: 10-stage closure certification gate (secrets, Trivy IaC/FS, JSON integrity, zero orphan UI components, zero orphan API endpoints, AST topology, ORM parity, roadmap consistency, docs invariants, and test/doc sync).
+- `.agents/scripts/verify_alembic_orm_parity.py`: Parity validator between SQLAlchemy ORM models, Alembic migrations, and revision ID lengths (`<= 32`).
+- `.agents/scripts/verify_zero_orphan_vue_components.py`: Ensures 100% of `.vue` views and components have active `.unit.ts` suites.
+- `.agents/scripts/verify_no_orphan_api_endpoints.py`: Bidirectional front-back API parity validator.
+- `.agents/scripts/verify_json_no_duplicate_keys.py`: Detects duplicate keys in JSON files.
+- `.agents/scripts/inspect_blast_radius.py`: Computes incoming dependency edges from `graphify-out/graph.json`.
+- `.agents/scripts/verify_topological_health.py`: AST architectural validator blocking forbidden cross-layer coupling.
+- `.agents/scripts/verify_roadmap_consistency.py`: Validates bidirectional consistency across `ROADMAP.md` and `.agents/ACTIVE_TASK.md`.
+- `.agents/scripts/verify_docs_invariants.py`: Enforces cognitive budgets (`<= 40` lines in `ACTIVE_TASK.md`) and documentation invariants.
+- `scripts/actualizar-grafos-graphify.sh`, `scripts/auditar-infra.sh`, `scripts/verificar-secretos.sh`, `scripts/limpieza.sh`, `scripts/generar-sbom-cyclonedx.sh`.
 
 ---
 
 ## 5. Mandatory Task Closure Protocol
 
-> **NON-NEGOTIABLE:** Following **EACH** task or user request modifying, adding, or fixing source code, the AI agent **MUST** autonomously execute the following protocol before concluding:
+> **NON-NEGOTIABLE:** Following **EACH** task modifying source code, the AI agent **MUST** autonomously execute:
 >
-> 1. **Mandatory 11X Test Creation (ALWAYS Including Karate Labs):** Create or extend unit and integration tests, and **ALWAYS incorporate Karate Labs BDD scenarios** for API (`backend/test/api_test.feature`) and UI (`frontend/test/ui_business_flow.feature`).
-> 2. **Mandatory Test Execution & Anti-Regression Verification:** Execute the complete test suite in ephemeral Docker containers (`Rule Zero`), certifying `>= 95%` coverage, 100% passed assertions, Karate Labs BDD validation, and 0 typing/linting errors. Regenerate and verify the AST Knowledge Graph (`graphify-out/graph.json`) using `sinfallas/remote-graphify:latest` and `.agents/scripts/verify_topological_health.py`.
-> 3. **Mandatory Documentation & Checkpoint Synchronization:** Unconditionally update all affected files across `docs/`, `docs/specs/`, `CHANGELOG.md` (section `## [Unreleased]`), `ROADMAP.md`, `TESTING.md`, `frontend/TESTING.md`, `.agents/ACTIVE_TASK.md` (local session journal), and `README.md`.
-> 4. **Secret Scanning, Local Dependency Audit & ORM Parity:** Run `./scripts/verificar-secretos.sh`, execute `./auditar-infra.sh`, and run `./.agents/scripts/certify_task_completion.sh`.
+> 1. **Mandatory 11X Test Creation (ALWAYS Including Karate Labs):** Create or extend unit/integration tests (`>= 95%` coverage) and incorporate Karate Labs BDD scenarios in `backend/test/api_test.feature` (with dynamic UUID `Idempotency-Key`) and `frontend/test/ui_business_flow.feature`.
+> 2. **Mandatory Test Execution & AST Graph Verification:** Execute suites inside ephemeral Docker (`Rule Zero` / `run_ephemeral_qa`), refresh `graphify-out/graph.json` (`./scripts/actualizar-grafos-graphify.sh`), and verify `0` topological violations.
+> 3. **Mandatory Documentation & Checkpoint Sync:** Update affected files in `docs/`, `docs/specs/`, `CHANGELOG.md`, `ROADMAP.md`, `TESTING.md`, `backend/TESTING.md`, `frontend/TESTING.md`, `.agents/ACTIVE_TASK.md`, and `README.md`.
+> 4. **Security & Gate 10/10 Closure:** Run `./scripts/verificar-secretos.sh`, `./scripts/auditar-infra.sh`, and `certify_11x_gate` / `./.agents/scripts/certify_task_completion.sh`.
 
 ---
 
 <!-- QA_11X_MCP_CONNECTOR_START -->
 ## 🤖 Central QA 11X Skill & MCP Server Connector (`@sinfallas/mcp-qa-11x`)
 
-> **OUTPUT LANGUAGE CONSTRAINT:**
-> Always interact with the user, provide status updates, explain reasoning, and write commit messages / user-facing documentation strictly in Spanish.
+> **OUTPUT LANGUAGE & HIGH-IQ TOKEN ECONOMY:** Interact and explain reasoning in the **user's prompt language**; write commit messages and human-facing docs matching the **existing language of `README.md` and `CHANGELOG.md`** (explicitly ignoring `AGENTS.md` and `.agents/**`, which remain in concise English for token economy; default to prompt language on empty repos). Apply *3-Tier Progressive Disclosure* (load global skill `references/*.md` and local `.agents/rules/domain_*.md` on-demand only), *Graphify AST-First & Windowed-Read-Second* (for ANY code/architecture Q&A or pre-change, query `graphify-out/graph.json` & `GRAPH_REPORT.md` via `inspect_ast_blast_radius` / `inspect_blast_radius.py` BEFORE `grep` or `read_file` with `StartLine`/`EndLine` 40–80 lines; never read full files `>150` lines blindly), *Zero Redundant Re-Read*, *Parallel Tool Batching*, and *Subagent Context Isolation* (`<=20` line summary return).
 
-This project (`condominio-app`) enforces the **Level-11X Quality & DevSecOps Standard** via the centralized MCP Server and Global Skills. Before modifying code, running tests, or closing any task, you **MUST**:
+This project (`condominio-app`) enforces the **Level-11X Quality & DevSecOps Standard** (stacks: `fastapi, vue3, bash-scripts`).
 
-1. **Activate Global Skills:** Load `qa-11x-architect` (for all backend, testing, Docker, and DevSecOps tasks) and `refactoring-ui` (for any Vue 3 / React / CSS / UI task).
-2. **Enforce Rule Zero & Active Task Resilience:**
-   - **Rule Zero:** NEVER run `pytest`, `vitest`, `npm`, `pnpm`, `uv`, migrations, or linters directly on the host OS. Execute everything inside ephemeral Docker containers (`docker-compose.qa.yml` / `Makefile`).
-   - **Active Task Invariant:** Track progress in real time inside `.agents/ACTIVE_TASK.md` (`IN_PROGRESS` -> `COMPLETED (100%)`).
-3. **Execute Mandatory MCP Tools (`@sinfallas/mcp-qa-11x`):**
-   - `inspect_project_config` & `audit_test_pyramid_gaps`: Diagnose active stacks (`bash-scripts`) and missing test layers across the 13-layer pyramid.
-   - `inspect_ast_blast_radius`: Audit incoming dependency edges before modifying shared modules.
-   - `audit_security_stig_owasp`: Certify 0 `CRITICAL`/`HIGH` findings against the 22 DISA ASD STIG V6R5 & OWASP v4.2 patterns.
-   - `run_ephemeral_qa`: Run linters (`--max-warnings 0`), unit tests (`>= 95%` coverage), and Karate Labs BDD scenarios in ephemeral Docker.
-   - `certify_11x_gate` & `clean_workspace_11x`: Certify all closure checks and sanitize root-owned container files before `git commit` and `git push`.
+1. **3-Path Proportional Execution (`DOCS_ONLY` vs. `MICRO_CHANGE` vs. `CODE_CHANGE` / `FULL_11X`):**
+   - **`DOCS_ONLY` Fast-Path (ONLY `*.md` / `docs/` changed):** DO NOT run test suites (`run_ephemeral_qa`) and DO NOT rebuild AST graphs (`./scripts/actualizar-grafos-graphify.sh`). Only sync docs/`CHANGELOG.md`, run `certify_11x_gate`, and push to `git`.
+   - **`MICRO_CHANGE` Surgical-Path (`<= 3` files, 0 new API/ORM changes, `LOW` AST Blast Radius `< 5` callers):** Use an inline 3-line plan, run `inspect_ast_blast_radius`, execute affected stack `run_ephemeral_qa` in Docker (**Rule Zero**), update stack AST graph, sync `CHANGELOG.md`, run `certify_11x_gate`, and `git push`.
+   - **`CODE_CHANGE` (`FULL_11X`) Architectural-Path (`> 3` files, new API/UI, ORM migrations, security, or `MED`/`HIGH` Blast Radius):** Execute all 11 steps below inside ephemeral Docker (**Rule Zero** — never run `pytest`, `vitest`, `npm`, `pnpm`, `uv`, or linters on host OS).
+2. **Global Corporate Skills & MCP Tools (`@sinfallas/mcp-qa-11x`):** Consume the 5 global skills (`qa-11x-architect`, `qa-11x-docker-certifier`, `docker-trivy-keydb-hardening`, `graphify-ast-navigator`, `refactoring-ui`) without duplicating them in local `.agents/skills/`. Use `inspect_project_config`, `audit_test_pyramid_gaps`, `inspect_ast_blast_radius`, `audit_security_stig_owasp`, `run_ephemeral_qa` (`skip_if_docs_only: true` supported), `certify_11x_gate`, `clean_workspace_11x`, `reconcile_agents_governance`, and `propose_skill_evolution_pr` (on QA-escape bug fixes, proactively include `💡 Oportunidad de Mejora Detectada para el Estándar QA 11X` and invoke `propose_skill_evolution_pr`).
+3. **Mandatory 11-Step Execution & Closure Workflow (Non-Negotiable for Architectural Code Changes):**
+   - **Step 1 (Plan):** Invoke `/plan` or plan artifact before modifying code.
+   - **Step 2 (Active Task):** Track real-time progress (`- [ ]` -> `- [x]`) in `.agents/ACTIVE_TASK.md` (compact `<= 40 lines`).
+   - **Step 3 (AST Graph Q&A & Pre-Change):** Query `inspect_ast_blast_radius` (`inspect_blast_radius.py`); if `graphify-out/graph.json` is missing, create it first via `./scripts/actualizar-grafos-graphify.sh`.
+   - **Step 4 (Governance & Cleanup):** Sync `AGENTS.md`, `.agents/`, `scripts/limpieza.sh`, and `.gitignore`.
+   - **Step 5 (11X Tests + Karate Labs):** Create unit (`>= 95%` coverage), integration, and **Karate Labs BDD (`.feature`)** tests.
+   - **Step 6 (Full Suite Execution):** Run all suites in ephemeral Docker (`Rule Zero` / `run_ephemeral_qa`, 0 warnings).
+   - **Step 7–9 (Docs, Changelog & Roadmap):** Sync `docs/specs/`, `README.md`, `TESTING.md`, `CHANGELOG.md`, and `ROADMAP.md`.
+   - **Step 10 (Post-Change AST Graph):** Run `./scripts/actualizar-grafos-graphify.sh` (incremental per modified stack).
+   - **Step 11 (Certify & Push):** Run `certify_11x_gate` and `clean_workspace_11x`, mark `.agents/ACTIVE_TASK.md` `COMPLETED (100%)` (suggest `/compact`), and `git push`.
 <!-- QA_11X_MCP_CONNECTOR_END -->

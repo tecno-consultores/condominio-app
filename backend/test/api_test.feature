@@ -45,7 +45,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
 
   Scenario: 5. Intento de Asignación Masiva (extra=forbid) en registro es rechazado con 422
     Given path '/api/auth/register'
-    And header Idempotency-Key = '018f4a12-8888-7000-8000-000000000099'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request
       """
       {
@@ -93,14 +93,16 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match response.detail == 'No autenticado'
 
   Scenario: 10. Usuario Fantasma autenticado recibe 403 Forbidden al intentar acceder a módulos operativos
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'fantasma.' + uid + '@test.com'
     Given path '/api/auth/register'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000000404'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request
       """
       {
         "nombre": "Fantasma BDD",
-        "cedula": "V-40404040",
-        "correo": "fantasma.bdd@test.com",
+        "cedula": "#('V-' + uid)",
+        "correo": "#(email)",
         "telefono": "+584144040404",
         "password": "Password123!",
         "unidad_solicitada_id": 1,
@@ -113,7 +115,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match response.rol == 'FANTASMA'
 
     Given path '/api/auth/login'
-    And request { correo: "fantasma.bdd@test.com", password: "Password123!" }
+    And request { correo: "#(email)", password: "Password123!" }
     When method post
     Then status 200
 
@@ -150,14 +152,16 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match response.detail == 'No autenticado'
 
   Scenario: 12. Usuario Fantasma recibe 403 Forbidden en endpoints de Alícuotas, Fondos, Facturación y Solvencia
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'fantasma.hito10.' + uid + '@test.com'
     Given path '/api/auth/register'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001010'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request
       """
       {
         "nombre": "Fantasma Hito 10 BDD",
-        "cedula": "V-40404010",
-        "correo": "fantasma.hito10@test.com",
+        "cedula": "#('V-10' + uid)",
+        "correo": "#(email)",
         "telefono": "+584144040410",
         "password": "Password123!",
         "unidad_solicitada_id": 1,
@@ -168,30 +172,30 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 201
 
     Given path '/api/auth/login'
-    And request { correo: "fantasma.hito10@test.com", password: "Password123!" }
+    And request { correo: "#(email)", password: "Password123!" }
     When method post
     Then status 200
 
     Given path '/api/estructura/unidades/1/alicuota'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001011'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { alicuota: "25.0000", cuota_fija_usd: "30.00" }
     When method put
     Then status 403
 
     Given path '/api/finanzas/fondos'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001012'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { nombre: "Fondo BDD", tipo: "RESERVA_LEGAL", porcentaje_recargo: "10.00" }
     When method post
     Then status 403
 
     Given path '/api/finanzas/facturar-periodo'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001013'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { periodo: "2026-10", modalidad: "CUOTA_FIJA", monto_cuota_fija_usd: "25.00" }
     When method post
     Then status 403
 
     Given path '/api/finanzas/solvencia/1'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001014'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request {}
     When method post
     Then status 403
@@ -219,14 +223,16 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match response.detail == 'No autenticado'
 
   Scenario: 15. Usuario Fantasma recibe 403 Forbidden al listar, crear, votar o cerrar Cartas Consulta LPH
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'fantasma.hito11.' + uid + '@test.com'
     Given path '/api/auth/register'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001100'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request
       """
       {
         "nombre": "Fantasma Hito 11 BDD",
-        "cedula": "V-40404011",
-        "correo": "fantasma.hito11@test.com",
+        "cedula": "#('V-11' + uid)",
+        "correo": "#(email)",
         "telefono": "+584144040411",
         "password": "Password123!",
         "unidad_solicitada_id": 1,
@@ -237,7 +243,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 201
 
     Given path '/api/auth/login'
-    And request { correo: "fantasma.hito11@test.com", password: "Password123!" }
+    And request { correo: "#(email)", password: "Password123!" }
     When method post
     Then status 200
 
@@ -246,19 +252,19 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 403
 
     Given path '/api/consultas'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001101'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { titulo: "Carta Consulta BDD", descripcion_legal: "Sustento legal Art. 23 LPH", tipo_consulta: "CARTA_CONSULTA_1RA", regla_quorum: "DOS_TERCIOS", fecha_cierre: "2026-12-31T23:59:00Z", opciones: [{ etiqueta: "APROBAR", es_opcion_aprobatoria: true }, { etiqueta: "RECHAZAR", es_opcion_aprobatoria: false }] }
     When method post
     Then status 403
 
     Given path '/api/consultas/1/votar'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001102'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { unidad_id: 1, opcion_id: 1 }
     When method post
     Then status 403
 
     Given path '/api/consultas/1/cerrar'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001103'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request {}
     When method post
     Then status 403
@@ -279,14 +285,16 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match response.detail == 'No autenticado'
 
   Scenario: 17. Usuario Fantasma recibe 403 Forbidden al emitir pases QR, verificar en garita o gestionar paquetería
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'fantasma.hito12.' + uid + '@test.com'
     Given path '/api/auth/register'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001200'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request
       """
       {
         "nombre": "Fantasma Hito 12 BDD",
-        "cedula": "V-40404012",
-        "correo": "fantasma.hito12@test.com",
+        "cedula": "#('V-12' + uid)",
+        "correo": "#(email)",
         "telefono": "+584144040412",
         "password": "Password123!",
         "unidad_solicitada_id": 1,
@@ -297,7 +305,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 201
 
     Given path '/api/auth/login'
-    And request { correo: "fantasma.hito12@test.com", password: "Password123!" }
+    And request { correo: "#(email)", password: "Password123!" }
     When method post
     Then status 200
 
@@ -306,13 +314,13 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 403
 
     Given path '/api/accesos/pases'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001201'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { unidad_id: 1, nombre_visitante: "Visitante BDD", cedula_visitante: "V-19888777", modalidad: "UNICO_USO", horas_validez: 12 }
     When method post
     Then status 403
 
     Given path '/api/accesos/verificar-qr'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001202'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { qr_token: "UVJ8djF8anRpfDF8VU5JQ09fVVNPfDE4MDAwMDAwMDA.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
     When method post
     Then status 403
@@ -322,7 +330,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 403
 
     Given path '/api/paqueteria/registrar'
-    And header Idempotency-Key = '018f4a12-9999-7000-8000-000000001203'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { unidad_id: 1, empresa_envio: "ZOOM", descripcion: "Caja BDD" }
     When method post
     Then status 403
@@ -343,14 +351,16 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     And match response.detail == 'No autenticado'
 
   Scenario: 19. Usuario Fantasma recibe 403 Forbidden al consultar o reservar áreas sociales e inspeccionar post-evento
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'fantasma.hito13.' + uid + '@test.com'
     Given path '/api/auth/register'
-    And header Idempotency-Key = '018f4a13-9999-7000-8000-000000001300'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request
       """
       {
         "nombre": "Fantasma Hito 13 BDD",
-        "cedula": "V-40404013",
-        "correo": "fantasma.hito13@test.com",
+        "cedula": "#('V-13' + uid)",
+        "correo": "#(email)",
         "telefono": "+584144040413",
         "password": "Password123!",
         "unidad_solicitada_id": 1,
@@ -361,7 +371,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 201
 
     Given path '/api/auth/login'
-    And request { correo: "fantasma.hito13@test.com", password: "Password123!" }
+    And request { correo: "#(email)", password: "Password123!" }
     When method post
     Then status 200
 
@@ -370,7 +380,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 403
 
     Given path '/api/reservas/areas'
-    And header Idempotency-Key = '018f4a13-9999-7000-8000-000000001301'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { nombre: "Salón BDD", aforo_maximo: 60, costo_uso_usd: "25.00", deposito_garantia_usd: "80.00", requiere_solvencia_estricta: true }
     When method post
     Then status 403
@@ -380,7 +390,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 403
 
     Given path '/api/reservas/solicitar'
-    And header Idempotency-Key = '018f4a13-9999-7000-8000-000000001302'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { area_id: 1, unidad_id: 1, fecha_evento: "2026-12-25", motivo_evento: "Reserva BDD Hito 13" }
     When method post
     Then status 403

@@ -184,7 +184,7 @@ export default defineConfig({
 }
 ```
 
-### D. `lighthouserc.js` (Rendimiento Core Web Vitals)
+### D. `lighthouserc.cjs` (Rendimiento Core Web Vitals)
 ```javascript
 module.exports = {
   ci: {

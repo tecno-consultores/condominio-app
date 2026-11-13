@@ -1,42 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
-# Propósito: Purga profunda del entorno de QA de Vue 3 (Nivel 11X).
+# Propósito: Purga segura del entorno QA de Vue 3 delegando al limpiador sin sudo (Rule Zero).
 
 LC_ALL=C
+set -euo pipefail
 
-if [[ "$EUID" != "0" ]]; then
-        echo "ERROR: debe ser root. Ejecuta con sudo ./limpieza.sh"
-        exit 1
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-clear
-echo "Iniciando purga profunda del entorno de QA de Vue 3 (Nivel 11X)..."
+echo "🧹 Limpiando caché, builds, reportes y contenedores QA del Frontend Vue 3..."
+docker compose -f "${SCRIPT_DIR}/docker-compose.qa.yml" down -v 2>/dev/null || true
 
-rm -rf node_modules
-rm -rf dist
-rm -rf .nuxt
-
-rm -rf test-results/
-rm -rf playwright-report/
-rm -rf blob-report/
-rm -rf target/
-rm -rf test/target/
-rm -rf coverage/
-rm -rf .stryker-tmp/
-rm -rf lhci-reports/
-rm -rf .lighthouseci/
-rm -rf .lhcache/
-rm -rf graphify-out/
-rm -rf prometheus_data/
-rm -f *.log
-
-chown -R "${SUDO_USER:-$USER}:${SUDO_USER:-$USER}" . 2>/dev/null || true
-
-docker compose -f docker-compose.qa.yml down -v 2>/dev/null || true
-docker compose -f docker-compose.qa.yml --profile observability down -v 2>/dev/null || true
-docker compose -f docker-compose.qa.yml --profile graphify down -v 2>/dev/null || true
-docker system prune -af --volumes
-
-echo "Limpieza de caché, builds, reportes y contenedores de Vue 3 finalizada."
+"${REPO_ROOT}/scripts/limpieza.sh" "$@"
 exit 0

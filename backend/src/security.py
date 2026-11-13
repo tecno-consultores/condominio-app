@@ -13,12 +13,37 @@ from urllib.parse import urlparse
 import jwt
 from fastapi import HTTPException, status
 
-SECRET_KEY = os.getenv("SECRET_KEY", "qa-blueprint-11x-secret-key-super-secure-32bytes")
+# Valor centinela solo para desarrollo/QA efímero; rechazado en Fail-Fast para APP_ENV=production.
+_FALLBACK_DEV_SENTINEL = "qa-blueprint-11x-secret-key-super-secure-32bytes"
+DEFAULT_INSECURE_SECRET_KEY = _FALLBACK_DEV_SENTINEL
+SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_INSECURE_SECRET_KEY)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 PBKDF2_ITERATIONS = 100_000
 MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB (Patrón 6 Anti-DoS / OOM)
 UPLOAD_CHUNK_SIZE = 64 * 1024  # 64 KB
+
+
+def _get_secret_key() -> str:
+    """Resuelve dinámicamente la clave HMAC/JWT vigente."""
+    return os.getenv("SECRET_KEY") or SECRET_KEY
+
+
+def validate_production_security_settings() -> None:
+    """Falla de inmediato (Fail-Fast) si producción usa secretos por defecto o DB en memoria."""
+    if os.getenv("APP_ENV", "development").strip().lower() != "production":
+        return
+    secret = _get_secret_key().strip()
+    if not secret or secret == DEFAULT_INSECURE_SECRET_KEY or len(secret) < 32:
+        raise RuntimeError(
+            "Configuración insegura en APP_ENV=production: defina SECRET_KEY criptográfica (>= 32 caracteres)."
+        )
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if not db_url or ":memory:" in db_url:
+        raise RuntimeError(
+            "Configuración insegura en APP_ENV=production: DATABASE_URL no puede estar vacía ni usar SQLite :memory:."
+        )
+
 
 FORBIDDEN_CONTAINER_HOSTS = frozenset(
     {
@@ -57,16 +82,16 @@ def get_password_hash(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifica la contraseña en tiempo constante (hmac.compare_digest)."""
+    """Verifica la contraseña PBKDF2-HMAC-SHA256 en tiempo constante (hmac.compare_digest)."""
     if hashed_password.startswith("pbkdf2_sha256$"):
         parts = hashed_password.split("$")
-        if len(parts) != 3:
-            return False
-        _, salt, expected_digest = parts
-        computed = _pbkdf2_digest(plain_password, salt)
-        return hmac.compare_digest(computed, expected_digest)
-    legacy_digest = hashlib.sha256(plain_password.encode("utf-8")).hexdigest()
-    return hmac.compare_digest(legacy_digest, hashed_password)
+        if len(parts) == 3:
+            _, salt, expected_digest = parts
+            computed = _pbkdf2_digest(plain_password, salt)
+            return hmac.compare_digest(computed, expected_digest)
+    # Cómputo ficticio constante para mitigar enumeración temporal ante hashes inválidos o legacy
+    _pbkdf2_digest(plain_password, "0" * 32)
+    return False
 
 
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
@@ -74,20 +99,20 @@ def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = 
     delta = expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = datetime.now(UTC) + delta
     to_encode.update({"exp": int(expire.timestamp())})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _get_secret_key(), algorithm=ALGORITHM)
     return str(encoded_jwt)
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
     """Decodifica y valida la firma y expiración del token JWT."""
-    payload: dict[str, Any] = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    payload: dict[str, Any] = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
     return payload
 
 
 def generate_csrf_token(session_id: str) -> str:
     """Genera un token CSRF firmado con HMAC-SHA256 (Patrón 8)."""
     return hmac.new(
-        SECRET_KEY.encode("utf-8"),
+        _get_secret_key().encode("utf-8"),
         session_id.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()

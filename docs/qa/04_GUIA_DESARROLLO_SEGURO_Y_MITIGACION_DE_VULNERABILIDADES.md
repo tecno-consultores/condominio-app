@@ -32,4 +32,7 @@
 12. **Patrón 12 — Ocultación de Swagger / ReDoc / OpenAPI en Producción:**
     - En `backend/src/main.py`, `docs_url`, `redoc_url` y `openapi_url` se establecen en `None` cuando `APP_ENV=production`.
 13. **Patrón 13 — Protocolo Shift-Left para Mitigación de CVEs en Lockfiles:**
-    - Escaneo preventivo local con `./auditar-infra.sh` (Trivy IaC + FS) y `make -C backend qa-deps` (`uv audit`).
+    - Escaneo preventivo local con `./scripts/auditar-infra.sh` (Trivy IaC + FS) y `make -C backend qa-deps` (`uv audit`).
+
+> [!NOTE]
+> Los vectores extendidos **4.14 a 4.19** (saneamiento `UrlEvidenciaSegura`, verificación binaria de *Magic Bytes*, revocación instantánea de sesiones en KeyDB, no repudio `HMAC-SHA256`/anti-replay QR, unicidad bancaria anti-fraude y arranque *Fail-Fast* / KDF estricto PBKDF2 en producción) se detallan en [`SECURITY.md`](../../SECURITY.md#4-mitigaci%C3%B3n-integral-de-los-19-vectores-de-ataque-h%C3%ADbridos-spa--api).

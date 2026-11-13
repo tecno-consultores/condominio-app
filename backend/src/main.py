@@ -13,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.database import Base, engine
 from src.routers import accesos, administracion, auth, consultas, finanzas, incidencias, operaciones, pagos, reservas
+from src.security import validate_production_security_settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ def _es_produccion() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Garantiza el esquema en entornos efímeros (SQLite) al arrancar el servicio."""
+    """Valida secretos de producción y garantiza el esquema SQLite en entornos efímeros."""
+    validate_production_security_settings()
     if engine.dialect.name == "sqlite":
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

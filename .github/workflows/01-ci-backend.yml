@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   qa-backend:
-    name: 🧪 Lint, Complejidad, Dependencias, Cobertura y Paridad ORM
+    name: 🧪 Lint, Complejidad, Dependencias, Cobertura, Paridad y BDD
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,3 +39,10 @@ jobs:
 
       - name: 🗄️ Paridad Real Alembic ↔ ORM en PostgreSQL 17
         run: make qa-parity
+
+      - name: 📚 Pruebas BDD de Caja Negra (Karate Labs API)
+        run: make qa-bdd
+
+      - name: 🧹 Limpieza de contenedores QA
+        if: always()
+        run: make clean-cache

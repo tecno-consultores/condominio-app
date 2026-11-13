@@ -1,4 +1,7 @@
+import pytest
 from fastapi.testclient import TestClient
+
+from src.main import app
 
 
 def test_health_check(client: TestClient) -> None:
@@ -24,3 +27,19 @@ def test_respuestas_no_cacheables(client: TestClient) -> None:
     """Toda respuesta lleva Cache-Control: no-store para evitar almacenamiento de datos sensibles."""
     assert client.get("/health").headers["cache-control"] == "no-store"
     assert client.get("/no-existe").headers["cache-control"] == "no-store"
+
+
+def test_lifespan_fail_fast_produccion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El arranque lifespan rechaza iniciar en producción si faltan secretos o DB real."""
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@postgres:5432/db")
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        with TestClient(app):
+            pass
+
+    monkeypatch.setenv("SECRET_KEY", "a" * 32)
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        with TestClient(app):
+            pass
