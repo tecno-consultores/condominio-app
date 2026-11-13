@@ -37,7 +37,7 @@ qa-parity:
 qa-bdd:
 	@echo "📚 Ejecutando Pruebas BDD de Caja Negra (Karate Labs API)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
-	@docker compose -f $(COMPOSE_FILE) run --rm --no-deps qa-backend bash -c 'for i in $$(seq 1 30); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
+	@docker compose -f $(COMPOSE_FILE) run --rm --no-deps qa-backend bash -c 'for i in $$(seq 1 60); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
 	docker compose -f $(COMPOSE_FILE) run --rm karatelabs mvn clean test
 
 qa-mutation:
