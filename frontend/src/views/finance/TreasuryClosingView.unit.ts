@@ -38,6 +38,14 @@ describe('TreasuryClosingView.vue', () => {
     await wrapper.find('#input-egreso-monto').setValue('120.00');
     await wrapper.findAll('form')[1]?.trigger('submit.prevent');
     await flushPromises();
+    expect(postSpy).toHaveBeenCalledWith(
+      '/api/finanzas/egresos',
+      expect.objectContaining({
+        descripcion: 'Reparación sello mecánico',
+        monto: '120',
+      }),
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
     expect(wrapper.text()).toContain('Egreso #15 registrado');
 
     // 3. Candado Contable

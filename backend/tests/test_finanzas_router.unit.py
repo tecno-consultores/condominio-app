@@ -11,6 +11,9 @@ from src.database import get_db
 from src.dependencies import get_current_user
 from src.main import app
 from src.models import Egreso, Recibo, ReporteMensual, TasaCambio
+from src.redis_client import get_redis_client
+
+HEADERS = {"Idempotency-Key": "22222222-2222-2222-2222-222222222222"}
 
 
 class FakeUser:
@@ -44,9 +47,13 @@ def _result_list(values: list[Any]) -> MagicMock:
     return result
 
 
-def _setup(session: AsyncMock, user: Any = None) -> None:
+def _setup(session: AsyncMock, user: Any = None, redis_is_new: bool = True) -> AsyncMock:
+    mock_redis = AsyncMock()
+    mock_redis.set.return_value = redis_is_new
     app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_redis_client] = lambda: mock_redis
     app.dependency_overrides[get_current_user] = lambda: user or FakeUser()
+    return mock_redis
 
 
 def _tasa() -> TasaCambio:
@@ -141,7 +148,7 @@ def test_obtener_tasa_no_registrada(client: TestClient) -> None:
 
 
 def test_registrar_egreso_success(client: TestClient) -> None:
-    session = _mock_session(_result(_tasa()))
+    session = _mock_session(_result(None), _result(_tasa()))
     _setup(session)
     payload = {
         "periodo": "2026-10",
@@ -151,7 +158,7 @@ def test_registrar_egreso_success(client: TestClient) -> None:
         "moneda": "VES",
     }
 
-    response = client.post("/api/finanzas/egresos", json=payload)
+    response = client.post("/api/finanzas/egresos", json=payload, headers=HEADERS)
 
     assert response.status_code == 201
     assert float(response.json()["monto_usd"]) == 100.0
@@ -160,7 +167,7 @@ def test_registrar_egreso_success(client: TestClient) -> None:
 
 
 def test_registrar_egreso_sin_tasa(client: TestClient) -> None:
-    session = _mock_session(_result(None))
+    session = _mock_session(_result(None), _result(None))
     _setup(session)
     payload = {
         "periodo": "2026-10",
@@ -170,7 +177,7 @@ def test_registrar_egreso_sin_tasa(client: TestClient) -> None:
         "moneda": "USD",
     }
 
-    response = client.post("/api/finanzas/egresos", json=payload)
+    response = client.post("/api/finanzas/egresos", json=payload, headers=HEADERS)
 
     assert response.status_code == 400
 
@@ -178,7 +185,7 @@ def test_registrar_egreso_sin_tasa(client: TestClient) -> None:
 
 
 def test_registrar_egreso_falla_bd(client: TestClient) -> None:
-    session = _mock_session(_result(_tasa()))
+    session = _mock_session(_result(None), _result(_tasa()))
     session.commit.side_effect = Exception("DB down")
     _setup(session)
     payload = {
@@ -189,7 +196,7 @@ def test_registrar_egreso_falla_bd(client: TestClient) -> None:
         "moneda": "USD",
     }
 
-    response = client.post("/api/finanzas/egresos", json=payload)
+    response = client.post("/api/finanzas/egresos", json=payload, headers=HEADERS)
 
     assert response.status_code == 500
 
@@ -205,14 +212,14 @@ def test_registrar_egreso_periodo_invalido_es_422(client: TestClient) -> None:
         "monto": "100.00",
         "moneda": "USD",
     }
-    response = client.post("/api/finanzas/egresos", json=payload)
+    response = client.post("/api/finanzas/egresos", json=payload, headers=HEADERS)
     assert response.status_code == 422
     app.dependency_overrides = {}
 
 
 def test_registrar_egreso_tasa_cero_falla(client: TestClient) -> None:
     tasa_cero = TasaCambio(id=1, fecha=date.today(), tasa_usd_ves=Decimal(0))
-    session = _mock_session(_result(tasa_cero))
+    session = _mock_session(_result(None), _result(tasa_cero))
     _setup(session)
     payload = {
         "periodo": "2026-10",
@@ -222,9 +229,38 @@ def test_registrar_egreso_tasa_cero_falla(client: TestClient) -> None:
         "moneda": "VES",
     }
 
-    response = client.post("/api/finanzas/egresos", json=payload)
+    response = client.post("/api/finanzas/egresos", json=payload, headers=HEADERS)
 
     assert response.status_code == 400
+
+    app.dependency_overrides = {}
+
+
+def test_registrar_egreso_candado_contable_e_idempotencia(client: TestClient) -> None:
+    payload = {
+        "periodo": "2026-10",
+        "categoria": "MANTENIMIENTO",
+        "descripcion": "Gasto extemporáneo tras cierre",
+        "monto": "50.00",
+        "moneda": "USD",
+    }
+
+    # 1. Falta Idempotency-Key -> 422
+    _setup(_mock_session())
+    assert client.post("/api/finanzas/egresos", json=payload).status_code == 422
+
+    # 2. Idempotency-Key repetida -> 409
+    _setup(_mock_session(), redis_is_new=False)
+    res_dup = client.post("/api/finanzas/egresos", json=payload, headers=HEADERS)
+    assert res_dup.status_code == 409
+    assert "Idempotency-Key" in res_dup.json()["detail"]
+
+    # 3. Periodo cerrado en ReporteMensual -> 409 Candado Contable
+    reporte_cerrado = ReporteMensual(id=1, periodo="2026-10", estado="CERRADO")
+    _setup(_mock_session(_result(reporte_cerrado)))
+    res_cerrado = client.post("/api/finanzas/egresos", json=payload, headers=HEADERS)
+    assert res_cerrado.status_code == 409
+    assert "Candado Contable" in res_cerrado.json()["detail"]
 
     app.dependency_overrides = {}
 
@@ -332,5 +368,13 @@ def test_finanzas_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
 
     _setup(_mock_session(), user=PropietarioUser())
     assert client.post("/api/finanzas/tasa", json={"tasa_usd_ves": "36.5000"}).status_code == 403
+    assert (
+        client.post(
+            "/api/finanzas/egresos",
+            json={"periodo": "2026-10", "categoria": "A", "descripcion": "X", "monto": "10.00", "moneda": "USD"},
+            headers=HEADERS,
+        ).status_code
+        == 403
+    )
     assert client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-10"}).status_code == 403
     app.dependency_overrides = {}

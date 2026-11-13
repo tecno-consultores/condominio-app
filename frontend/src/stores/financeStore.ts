@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { apiClient, ApiError } from '../services/apiClient';
+import { generateIdempotencyKey } from '../utils/security';
 import { useAuthStore } from './authStore';
 
 export type MonedaPago = 'USD' | 'VES';
@@ -322,6 +323,7 @@ export const useFinanceStore = defineStore('finance', () => {
 
   async function registrarEgreso(
     payload: EgresoCreateDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
   ): Promise<{ id: number; monto_usd: string }> {
     isLoading.value = true;
     errorMessage.value = null;
@@ -329,6 +331,7 @@ export const useFinanceStore = defineStore('finance', () => {
       const result = await apiClient.post<{ id: number; monto_usd: string }>(
         '/api/finanzas/egresos',
         payload,
+        { idempotencyKey },
       );
       lastUpdatedAt.value = Date.now();
       return result;
@@ -361,11 +364,18 @@ export const useFinanceStore = defineStore('finance', () => {
     }
   }
 
-  async function aprobarPago(pagoId: number): Promise<PagoDTO> {
+  async function aprobarPago(
+    pagoId: number,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<PagoDTO> {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      const updated = await apiClient.put<PagoDTO>(`/api/pagos/${pagoId}/aprobar`, {});
+      const updated = await apiClient.put<PagoDTO>(
+        `/api/pagos/${pagoId}/aprobar`,
+        {},
+        { idempotencyKey },
+      );
       data.value = {
         ...data.value,
         pagosEnRevision: data.value.pagosEnRevision.filter((p) => p.id !== pagoId),

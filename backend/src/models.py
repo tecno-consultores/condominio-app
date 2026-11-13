@@ -7,11 +7,13 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -76,6 +78,7 @@ class Recibo(Base):
     """Recibo de cobranza de una unidad para un periodo (formato YYYY-MM)."""
 
     __tablename__ = "recibos"
+    __table_args__ = (UniqueConstraint("unidad_id", "periodo", name="uq_recibo_unidad_periodo"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"))
     periodo: Mapped[str] = mapped_column(String(7), index=True)
@@ -90,6 +93,16 @@ class PagoReportado(Base):
     """Pago reportado por un propietario. Guarda la tasa del día exacto del reporte."""
 
     __tablename__ = "pagos_reportados"
+    __table_args__ = (
+        Index(
+            "uq_pagos_metodo_ref_activo",
+            "metodo_pago",
+            "numero_referencia",
+            unique=True,
+            postgresql_where=text("numero_referencia IS NOT NULL AND estado != 'RECHAZADO'"),
+            sqlite_where=text("numero_referencia IS NOT NULL AND estado != 'RECHAZADO'"),
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     recibo_id: Mapped[int] = mapped_column(ForeignKey("recibos.id"))
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
@@ -289,7 +302,7 @@ class ConsultaComunitaria(Base):
     descripcion_legal: Mapped[str] = mapped_column(String, nullable=False)
     tipo_consulta: Mapped[str] = mapped_column(String(30), default="CARTA_CONSULTA_1RA")
     regla_quorum: Mapped[str] = mapped_column(String(30), default="DOS_TERCIOS")
-    quorum_minimo_alicuota: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("66.6700"))
+    quorum_minimo_alicuota: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("66.6667"))
     fecha_apertura: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     fecha_cierre: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     estado: Mapped[str] = mapped_column(String(30), default="ABIERTA", index=True)

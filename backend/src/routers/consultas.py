@@ -59,7 +59,10 @@ async def _cargar_opciones_y_votos(
 
 
 def _calcular_metricas_consulta(
-    opciones: list[OpcionConsulta], votos: list[VotoConsulta], quorum_minimo: Decimal
+    opciones: list[OpcionConsulta],
+    votos: list[VotoConsulta],
+    quorum_minimo: Decimal,
+    regla_quorum: str | None = None,
 ) -> tuple[Decimal, Decimal, list[OpcionConsultaResultadoResponse]]:
     conteo_por_opcion: dict[int, int] = {op.id: 0 for op in opciones}
     alicuota_por_opcion: dict[int, Decimal] = {op.id: Decimal("0.0000") for op in opciones}
@@ -76,6 +79,7 @@ def _calcular_metricas_consulta(
         quorum_minimo_alicuota=quorum_minimo,
         opciones_aprobatorias_ids=aprobatorias_ids,
         alicuotas_por_opcion=alicuota_por_opcion,
+        regla_quorum=regla_quorum,
     )
 
     opciones_resp = [
@@ -135,7 +139,9 @@ async def _armar_detalle_consulta(
 ) -> ConsultaDetalleResponse:
     opciones, votos = await _cargar_opciones_y_votos(db, consulta.id)
     quorum_min = Decimal(str(consulta.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
-    participacion, aprobatoria, opciones_resp = _calcular_metricas_consulta(opciones, votos, quorum_min)
+    participacion, aprobatoria, opciones_resp = _calcular_metricas_consulta(
+        opciones, votos, quorum_min, consulta.regla_quorum
+    )
     unidades_propias = await _unidades_usuario(db, usuario_id)
     opciones_map = {op.id: op.etiqueta for op in opciones}
     mi_voto = await _construir_mi_voto(db, votos, opciones_map, usuario_id, unidades_propias)
@@ -236,7 +242,7 @@ async def listar_consultas(
     for c in consultas:
         opciones, votos = await _cargar_opciones_y_votos(db, c.id)
         quorum_min = Decimal(str(c.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
-        participacion, aprobatoria, _ = _calcular_metricas_consulta(opciones, votos, quorum_min)
+        participacion, aprobatoria, _ = _calcular_metricas_consulta(opciones, votos, quorum_min, c.regla_quorum)
         ya_voto = any(v.usuario_id == usuario.id or v.unidad_id in unidades_propias for v in votos)
         salida.append(
             ConsultaResumenResponse(
@@ -427,7 +433,7 @@ async def votar_en_consulta(
 
     opciones, votos = await _cargar_opciones_y_votos(db, consulta_id)
     quorum_min = Decimal(str(consulta.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
-    participacion_total, _, _ = _calcular_metricas_consulta(opciones, votos, quorum_min)
+    participacion_total, _, _ = _calcular_metricas_consulta(opciones, votos, quorum_min, consulta.regla_quorum)
 
     return ReciboVotoResponse(
         voto_id=voto.id,
@@ -508,10 +514,14 @@ async def cerrar_consulta(
 
     opciones, votos = await _cargar_opciones_y_votos(db, consulta_id)
     quorum_min = Decimal(str(consulta.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
-    participacion, aprobatoria, opciones_resp = _calcular_metricas_consulta(opciones, votos, quorum_min)
+    participacion, aprobatoria, opciones_resp = _calcular_metricas_consulta(
+        opciones, votos, quorum_min, consulta.regla_quorum
+    )
     aprobatorias_ids = {op.id for op in opciones if op.es_opcion_aprobatoria}
     alicuotas_map = {op.id: op.alicuota_acumulada for op in opciones_resp}
-    estado_final, _, _ = evaluar_escrutinio_consulta(quorum_min, aprobatorias_ids, alicuotas_map)
+    estado_final, _, _ = evaluar_escrutinio_consulta(
+        quorum_min, aprobatorias_ids, alicuotas_map, regla_quorum=consulta.regla_quorum
+    )
 
     firmas_concat = "|".join(v.firma_hmac for v in votos) or f"SIN_VOTOS|{consulta.id}"
     hash_global = hmac.new(

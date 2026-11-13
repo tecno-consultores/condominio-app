@@ -48,13 +48,13 @@
 
 ---
 
-## 3. Concurrencia Financiera, Candado Contable, Anti-IDOR y Exactitud LPH (Sub-tarea 17.3)
+## 3. Concurrencia Financiera, Candado Contable, Anti-IDOR y Exactitud LPH (Sub-tarea 17.3 — Implementada)
 
-- **Atomicidad en `PUT /api/pagos/{pago_id}/aprobar` (`backend/src/routers/pagos.py`):** exigir cabecera `Idempotency-Key` obligatoria y bloquear con `with_for_update()` las filas `Pago`, `Recibo` y `Unidad` antes de acreditar montos y excedentes, eliminando condiciones de carrera (*lost update* / doble acreditación).
-- **Anti-IDOR en `POST /api/pagos/reportar`:** verificar en base de datos que el `recibo_id` corresponda a una unidad donde el usuario autenticado posea un `ContratoOcupacion` activo (o posea rol `TESORERO`/`PRESIDENTE`), y añadir índice único parcial en `Pago(metodo, numero_referencia)` excluyendo `estado == 'RECHAZADO'`.
-- **Cierre Inmutable del Candado Contable (`backend/src/routers/finanzas.py`):** bloquear `POST /api/finanzas/egresos` con `HTTP 409 Conflict` cuando el periodo objetivo ya posea `ReporteMensual.bloqueado == True`, exigiendo además `Idempotency-Key`.
-- **Unicidad de Facturación (`Recibo` — Migración `0007`):** añadir `UniqueConstraint("unidad_id", "periodo")` en `Recibo` para garantizar un único recibo ordinario por unidad y periodo.
-- **Prorrateo Exacto de Cuotas Extraordinarias y Quórum `2/3`:** en `_anexar_cuota_extraordinaria`, respetar la modalidad `ALICUOTA` usando `prorratear_por_alicuotas` en vez de partes iguales, validar `validar_suma_alicuotas` antes de facturar cargos variables, y evaluar `DOS_TERCIOS` con fracción racional exacta (`Decimal(2) / Decimal(3)`).
+- **Atomicidad en `PUT /api/pagos/{pago_id}/aprobar` (`backend/src/routers/pagos.py`):** exigir cabecera `Idempotency-Key` obligatoria y bloquear con `with_for_update()` las filas `PagoReportado`, `Recibo` y `Unidad` antes de acreditar montos y excedentes, eliminando condiciones de carrera (*lost update* / doble acreditación).
+- **Anti-IDOR en `POST /api/pagos/reportar`:** verificar en base de datos que el `recibo_id` corresponda a una unidad donde el usuario autenticado posea un `ContratoOcupacion` activo (o posea rol `TESORERO`/`PRESIDENTE`), normalizar referencia bancaria y añadir índice único parcial `uq_pagos_metodo_ref_activo` en `PagoReportado(metodo_pago, numero_referencia)` excluyendo `estado = 'RECHAZADO'` y `NULL`.
+- **Cierre Inmutable del Candado Contable (`backend/src/routers/finanzas.py`):** bloquear `POST /api/finanzas/egresos` con `HTTP 409 Conflict` cuando el periodo objetivo ya posea `ReporteMensual.estado == "CERRADO"`, exigiendo además `Idempotency-Key`.
+- **Unicidad de Facturación (`Recibo` — Migración `0007_hito17_unicidad_finanzas`):** añadir `UniqueConstraint("unidad_id", "periodo", name="uq_recibo_unidad_periodo")` en `Recibo` para garantizar un único recibo ordinario por unidad y periodo.
+- **Prorrateo Exacto de Cuotas Extraordinarias y Quórum `2/3` (`backend/src/facturacion_lph.py`, `backend/src/finanzas.py`):** respetar la modalidad `ALICUOTA` al anexar cuotas extraordinarias usando `prorratear_por_alicuotas` en vez de partes iguales, validar `validar_suma_alicuotas` antes de facturar cargos variables, y evaluar `DOS_TERCIOS` con fracción racional exacta (`FRACCION_DOS_TERCIOS = Decimal(2) / Decimal(3)`).
 
 ---
 

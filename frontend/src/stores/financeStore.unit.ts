@@ -95,9 +95,11 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
 
   it('registra tasa BCV, egreso y pago idempotente actualizando el estado', async () => {
     const store = useFinanceStore();
-    vi.spyOn(apiClient, 'post')
+    const postSpy = vi
+      .spyOn(apiClient, 'post')
       .mockResolvedValueOnce({ id: 5, fecha: '2026-10-30', tasa_usd_ves: '42.15' })
       .mockResolvedValueOnce({ id: 9, monto_usd: '80.00' })
+      .mockResolvedValueOnce({ id: 10, monto_usd: '80.00' })
       .mockResolvedValueOnce({
         id: 77,
         recibo_id: 1,
@@ -115,14 +117,36 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
     const tasa = await store.registrarTasa('42.15', '2026-10-30');
     expect(tasa.tasa_usd_ves).toBe('42.15');
 
-    const egreso = await store.registrarEgreso({
+    const egreso = await store.registrarEgreso(
+      {
+        periodo: '2026-10',
+        categoria: 'Ascensores',
+        descripcion: 'Mantenimiento preventivo mensual',
+        monto: '80.00',
+        moneda: 'USD',
+      },
+      'idemp-egreso-001',
+    );
+    expect(egreso.id).toBe(9);
+    expect(postSpy).toHaveBeenCalledWith(
+      '/api/finanzas/egresos',
+      expect.objectContaining({ periodo: '2026-10', monto: '80.00' }),
+      { idempotencyKey: 'idemp-egreso-001' },
+    );
+
+    const egresoAuto = await store.registrarEgreso({
       periodo: '2026-10',
       categoria: 'Ascensores',
       descripcion: 'Mantenimiento preventivo mensual',
       monto: '80.00',
       moneda: 'USD',
     });
-    expect(egreso.id).toBe(9);
+    expect(egresoAuto).toBeDefined();
+    expect(postSpy).toHaveBeenLastCalledWith(
+      '/api/finanzas/egresos',
+      expect.objectContaining({ periodo: '2026-10' }),
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
 
     const pago = await store.reportarPago(
       {
@@ -173,11 +197,17 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
       'El motivo de rechazo debe tener al menos 5 caracteres.',
     );
 
-    vi.spyOn(apiClient, 'put')
+    const putSpy = vi
+      .spyOn(apiClient, 'put')
       .mockResolvedValueOnce({ ...store.data.pagosEnRevision[0], estado: 'APROBADO' })
       .mockResolvedValueOnce({ ...store.data.pagosEnRevision[1], estado: 'RECHAZADO' });
 
-    await store.aprobarPago(11);
+    await store.aprobarPago(11, 'idemp-aprobar-011');
+    expect(putSpy).toHaveBeenCalledWith(
+      '/api/pagos/11/aprobar',
+      {},
+      { idempotencyKey: 'idemp-aprobar-011' },
+    );
     expect(store.data.pagosEnRevision).toHaveLength(1);
 
     await store.rechazarPago(12, 'Referencia bancaria no localizada en estado de cuenta');

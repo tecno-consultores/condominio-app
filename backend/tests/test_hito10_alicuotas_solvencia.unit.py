@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from src.database import get_db
 from src.dependencies import get_current_user
@@ -122,7 +123,8 @@ def test_reportar_pago_referencia_bancaria_unica_exito(client: TestClient) -> No
         estado="PENDIENTE",
         bloqueado=False,
     )
-    session = _mock_session(_result(None), _result(tasa), _result(recibo))
+    contrato = ContratoOcupacion(id=1, usuario_id=5, unidad_id=1, tipo_ocupante="PROPIETARIO", es_activo=True)
+    session = _mock_session(_result(None), _result(tasa), _result(recibo), _result(contrato))
     _setup(session, user=FakeUser(user_id=5, rol="PROPIETARIO"))
 
     res = client.post(
@@ -172,7 +174,7 @@ def test_aprobar_pago_con_sobrepago_acredita_saldo_a_favor_unidad(client: TestCl
     session = _mock_session(_result(pago), _result(recibo), _result(unidad))
     _setup(session)
 
-    res = client.put("/api/pagos/12/aprobar")
+    res = client.put("/api/pagos/12/aprobar", headers=HEADERS)
     assert res.status_code == 200
     assert recibo.estado == "PAGADO"
     assert recibo.monto_pagado_usd == Decimal("100.00")
@@ -524,6 +526,120 @@ def test_facturar_periodo_errores_y_bloqueos(client: TestClient) -> None:
         ).status_code
         == 400
     )
+
+    # 6. Modalidad ALICUOTA con suma de alícuotas != 100.0000% -> 400
+    uni_suma_invalida = [
+        Unidad(
+            id=1,
+            identificador="A-01",
+            estructura_id=1,
+            alicuota=Decimal("50.0000"),
+            credito_disponible_usd=Decimal("0.00"),
+        ),
+        Unidad(
+            id=2,
+            identificador="A-02",
+            estructura_id=1,
+            alicuota=Decimal("30.0000"),
+            credito_disponible_usd=Decimal("0.00"),
+        ),
+    ]
+    session_bad_alic = _mock_session(
+        _result(None),
+        _result(None),
+        _result_list(uni_suma_invalida),
+        _result_list([]),
+        _result(None),
+    )
+    _setup(session_bad_alic)
+    res_bad_alic = client.post(
+        "/api/finanzas/facturar-periodo",
+        json={"periodo": "2026-10", "modalidad": "ALICUOTA", "incluir_fondo_reserva": False},
+        headers=HEADERS,
+    )
+    assert res_bad_alic.status_code == 400
+    assert "100.0000%" in res_bad_alic.json()["detail"]
+
+    # 7. Colisión concurrente IntegrityError sobre uq_recibo_unidad_periodo -> 409 Conflict
+    uni_ok = [
+        Unidad(
+            id=1,
+            identificador="A-01",
+            estructura_id=1,
+            alicuota=Decimal("100.0000"),
+            credito_disponible_usd=Decimal("0.00"),
+        )
+    ]
+    session_ie = _mock_session(
+        _result(None),
+        _result(None),
+        _result_list(uni_ok),
+        _result_list([]),
+        _result(None),
+    )
+    session_ie.commit.side_effect = IntegrityError("dup", {}, Exception("uq_recibo_unidad_periodo"))
+    _setup(session_ie)
+    res_ie = client.post(
+        "/api/finanzas/facturar-periodo",
+        json={"periodo": "2026-10", "modalidad": "ALICUOTA", "incluir_fondo_reserva": False},
+        headers=HEADERS,
+    )
+    assert res_ie.status_code == 409
+    app.dependency_overrides = {}
+
+
+def test_facturar_periodo_cuota_extraordinaria_prorrateada_por_alicuota(client: TestClient) -> None:
+    unidades = [
+        Unidad(
+            id=1,
+            identificador="A-01",
+            estructura_id=1,
+            alicuota=Decimal("50.0000"),
+            credito_disponible_usd=Decimal("0.00"),
+        ),
+        Unidad(
+            id=2,
+            identificador="A-02",
+            estructura_id=1,
+            alicuota=Decimal("30.0000"),
+            credito_disponible_usd=Decimal("0.00"),
+        ),
+        Unidad(
+            id=3,
+            identificador="A-03",
+            estructura_id=1,
+            alicuota=Decimal("20.0000"),
+            credito_disponible_usd=Decimal("0.00"),
+        ),
+    ]
+    session = _mock_session(
+        _result(None),
+        _result(None),
+        _result_list(unidades),
+        _result_list([]),
+        _result(None),
+    )
+    _setup(session)
+
+    res = client.post(
+        "/api/finanzas/facturar-periodo",
+        json={
+            "periodo": "2027-01",
+            "modalidad": "ALICUOTA",
+            "incluir_fondo_reserva": False,
+            "cuota_extraordinaria_total_usd": "100.00",
+            "descripcion_cuota_extraordinaria": "Impermeabilización techo",
+        },
+        headers=HEADERS,
+    )
+    assert res.status_code == 201
+    extra_items = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if isinstance(call.args[0], ReciboItem) and call.args[0].tipo_item == "CUOTA_EXTRAORDINARIA"
+    ]
+    montos_extra = sorted(item.monto_usd for item in extra_items)
+    assert montos_extra == [Decimal("20.00"), Decimal("30.00"), Decimal("50.00")]
     app.dependency_overrides = {}
 
 

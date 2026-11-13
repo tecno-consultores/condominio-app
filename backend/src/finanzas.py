@@ -250,8 +250,11 @@ def construir_qr_token_solvencia(
     return f"{b64_payload}.{firma_hmac}"
 
 
+FRACCION_DOS_TERCIOS = Decimal(2) / Decimal(3)
+UMBRAL_DOS_TERCIOS_PCT = (FRACCION_DOS_TERCIOS * Decimal("100")).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+
 _UMBRALES_QUORUM: dict[str, Decimal] = {
-    "DOS_TERCIOS": Decimal("66.6700"),
+    "DOS_TERCIOS": UMBRAL_DOS_TERCIOS_PCT,
     "MAYORIA_SIMPLE": Decimal("50.0100"),
     "UNANIMIDAD": Decimal("100.0000"),
 }
@@ -323,16 +326,24 @@ def calcular_ip_hash_voto(ip_origen: str, consulta_id: int, secret_key: str) -> 
     ).hexdigest()
 
 
+def _cumple_umbral_quorum(valor_pct: Decimal, quorum_min: Decimal, usa_dos_tercios: bool) -> bool:
+    if usa_dos_tercios:
+        return (valor_pct / Decimal("100")) >= FRACCION_DOS_TERCIOS
+    return valor_pct >= quorum_min
+
+
 def evaluar_escrutinio_consulta(
     quorum_minimo_alicuota: Decimal,
     opciones_aprobatorias_ids: set[int],
     alicuotas_por_opcion: dict[int, Decimal],
+    regla_quorum: str | None = None,
 ) -> tuple[str, Decimal, Decimal]:
     """Evalúa el resultado de una Carta Consulta o Asamblea ponderada por alícuota.
 
     Retorna (estado_final, participacion_total_alicuota, alicuota_aprobatoria).
     """
     quorum_min = Decimal(str(quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+    usa_dos_tercios = regla_quorum == "DOS_TERCIOS" or quorum_min == UMBRAL_DOS_TERCIOS_PCT
     participacion_total = Decimal("0.0000")
     alicuota_aprobatoria = Decimal("0.0000")
 
@@ -345,9 +356,9 @@ def evaluar_escrutinio_consulta(
     participacion_total = participacion_total.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
     alicuota_aprobatoria = alicuota_aprobatoria.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
 
-    if participacion_total < quorum_min:
+    if not _cumple_umbral_quorum(participacion_total, quorum_min, usa_dos_tercios):
         return "CERRADA_SIN_QUORUM", participacion_total, alicuota_aprobatoria
-    if alicuota_aprobatoria >= quorum_min:
+    if _cumple_umbral_quorum(alicuota_aprobatoria, quorum_min, usa_dos_tercios):
         return "CERRADA_APROBADA", participacion_total, alicuota_aprobatoria
     return "CERRADA_RECHAZADA", participacion_total, alicuota_aprobatoria
 

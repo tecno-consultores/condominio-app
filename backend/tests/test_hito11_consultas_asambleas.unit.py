@@ -98,7 +98,7 @@ def _setup(session: AsyncMock, user: FakeUser | None = None, redis_new: bool = T
 
 
 def test_umbral_quorum_por_regla_y_error() -> None:
-    assert umbral_quorum_por_regla("DOS_TERCIOS") == Decimal("66.6700")
+    assert umbral_quorum_por_regla("DOS_TERCIOS") == Decimal("66.6667")
     assert umbral_quorum_por_regla("MAYORIA_SIMPLE") == Decimal("50.0100")
     assert umbral_quorum_por_regla("UNANIMIDAD") == Decimal("100.0000")
     with pytest.raises(ErrorFinanciero, match="Regla de quórum inválida"):
@@ -147,6 +147,30 @@ def test_evaluar_escrutinio_consulta_tres_estados() -> None:
     assert aprob_re == Decimal("40.0000")
 
 
+def test_evaluar_escrutinio_dos_tercios_fraccion_racional_exacta() -> None:
+    # 66.6666% es estrictamente menor que 2/3 -> sin quórum y aprobatoria insuficiente
+    est_sin, part_sin, _ = evaluar_escrutinio_consulta(
+        Decimal("66.6667"), {1}, {1: Decimal("66.6666")}, regla_quorum="DOS_TERCIOS"
+    )
+    assert est_sin == "CERRADA_SIN_QUORUM"
+    assert part_sin == Decimal("66.6666")
+
+    est_rech, part_rech, aprob_rech = evaluar_escrutinio_consulta(
+        Decimal("66.6667"), {1}, {1: Decimal("66.6666"), 2: Decimal("33.3334")}, regla_quorum="DOS_TERCIOS"
+    )
+    assert est_rech == "CERRADA_RECHAZADA"
+    assert part_rech == Decimal("100.0000")
+    assert aprob_rech == Decimal("66.6666")
+
+    # 66.6667% (33.3334% + 33.3333%) supera 2/3 exacto -> CERRADA_APROBADA
+    est_ok, part_ok, aprob_ok = evaluar_escrutinio_consulta(
+        Decimal("66.6667"), {1}, {1: Decimal("66.6667"), 2: Decimal("0.0000")}, regla_quorum="DOS_TERCIOS"
+    )
+    assert est_ok == "CERRADA_APROBADA"
+    assert part_ok == Decimal("66.6667")
+    assert aprob_ok == Decimal("66.6667")
+
+
 # ==============================================================================
 # 2. ENDPOINTS DE CREACIÓN Y CONSULTA (/api/consultas)
 # ==============================================================================
@@ -182,7 +206,7 @@ def test_crear_consulta_exitoso_y_validaciones(client: TestClient) -> None:
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body["quorum_minimo_alicuota"] == "66.6700"
+    assert body["quorum_minimo_alicuota"] == "66.6667"
     assert body["estado"] == "ABIERTA"
     assert len(body["opciones"]) == 2
     assert body["ya_voto_usuario"] is False

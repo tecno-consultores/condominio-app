@@ -6,6 +6,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -21,6 +22,7 @@ from src.finanzas import (
 )
 from src.models import (
     AuditoriaRecibo,
+    ContratoOcupacion,
     PagoReportado,
     Recibo,
     TasaCambio,
@@ -48,20 +50,81 @@ async def obtener_tasa_del_dia(db: AsyncSession, fecha: date | None = None) -> T
     return tasa
 
 
-async def _obtener_pago(db: AsyncSession, pago_id: int) -> PagoReportado:
-    result = await db.execute(select(PagoReportado).where(PagoReportado.id == pago_id))
+async def _obtener_pago(db: AsyncSession, pago_id: int, *, for_update: bool = False) -> PagoReportado:
+    stmt = select(PagoReportado).where(PagoReportado.id == pago_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     pago = result.scalars().first()
     if not pago:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pago no encontrado")
     return pago
 
 
-async def _obtener_recibo(db: AsyncSession, recibo_id: int) -> Recibo:
-    result = await db.execute(select(Recibo).where(Recibo.id == recibo_id))
+async def _obtener_recibo(db: AsyncSession, recibo_id: int, *, for_update: bool = False) -> Recibo:
+    stmt = select(Recibo).where(Recibo.id == recibo_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     recibo = result.scalars().first()
     if not recibo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recibo no encontrado")
     return recibo
+
+
+async def _obtener_unidad_bloqueada(db: AsyncSession, unidad_id: int) -> Unidad:
+    res_unidad = await db.execute(select(Unidad).where(Unidad.id == unidad_id).with_for_update())
+    unidad = res_unidad.scalars().first()
+    if unidad is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unidad asociada al recibo no encontrada")
+    return unidad
+
+
+async def _verificar_titularidad_recibo(db: AsyncSession, usuario: Usuario, unidad_id: int) -> None:
+    """Impide IDOR verificando contrato activo en la unidad o pertenencia a Tesorería/Presidencia."""
+    if getattr(usuario, "rol", "") in _ROLES_TESORERIA:
+        return
+    res = await db.execute(
+        select(ContratoOcupacion).where(
+            ContratoOcupacion.usuario_id == usuario.id,
+            ContratoOcupacion.unidad_id == unidad_id,
+            ContratoOcupacion.es_activo.is_(True),
+            ContratoOcupacion.fecha_fin.is_(None),
+        )
+    )
+    if res.scalars().first() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene autorización para reportar pagos sobre esta unidad",
+        )
+
+
+async def _verificar_referencia_no_duplicada(
+    db: AsyncSession,
+    metodo_norm: str,
+    ref_limpia: str | None,
+) -> None:
+    if metodo_norm == "EFECTIVO" or not ref_limpia:
+        return
+    dup_res = await db.execute(
+        select(PagoReportado).where(
+            PagoReportado.metodo_pago == metodo_norm,
+            PagoReportado.numero_referencia == ref_limpia,
+            PagoReportado.estado != "RECHAZADO",
+        )
+    )
+    if dup_res.scalars().first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El número de referencia bancaria ya fue registrado previamente",
+        )
+
+
+def _normalizar_referencia_pago(pago: PagoReportar) -> tuple[str, str | None]:
+    validar_referencia(pago.metodo_pago, pago.numero_referencia)
+    metodo_norm = pago.metodo_pago.strip().upper()
+    ref_limpia = pago.numero_referencia.strip() if pago.numero_referencia and pago.numero_referencia.strip() else None
+    return metodo_norm, ref_limpia
 
 
 @router.post(
@@ -71,7 +134,7 @@ async def _obtener_recibo(db: AsyncSession, recibo_id: int) -> Recibo:
     responses={
         400: {"description": "Tasa del día no registrada o referencia inválida"},
         401: {"description": "No autenticado"},
-        403: {"description": "Usuario fantasma sin activar"},
+        403: {"description": "Usuario fantasma sin activar o unidad ajena (anti-IDOR)"},
         404: {"description": "Recibo no encontrado"},
         409: {"description": "Petición duplicada o periodo cerrado (Candado Contable)"},
     },
@@ -92,25 +155,12 @@ async def reportar_pago(
                 detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
             )
 
-        validar_referencia(pago.metodo_pago, pago.numero_referencia)
-        metodo_norm = pago.metodo_pago.strip().upper()
-        ref_limpia = pago.numero_referencia.strip() if pago.numero_referencia else None
-        if metodo_norm != "EFECTIVO" and ref_limpia:
-            dup_res = await db.execute(
-                select(PagoReportado).where(
-                    PagoReportado.metodo_pago == pago.metodo_pago,
-                    PagoReportado.numero_referencia == ref_limpia,
-                    PagoReportado.estado != "RECHAZADO",
-                )
-            )
-            if dup_res.scalars().first() is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="El número de referencia bancaria ya fue registrado previamente",
-                )
+        metodo_norm, ref_limpia = _normalizar_referencia_pago(pago)
+        await _verificar_referencia_no_duplicada(db, metodo_norm, ref_limpia)
 
         tasa = await obtener_tasa_del_dia(db)
         recibo = await _obtener_recibo(db, pago.recibo_id)
+        await _verificar_titularidad_recibo(db, usuario, recibo.unidad_id)
         if recibo.bloqueado:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -125,8 +175,8 @@ async def reportar_pago(
             moneda=pago.moneda,
             monto_usd=monto_usd,
             tasa_cambio=tasa.tasa_usd_ves,
-            metodo_pago=pago.metodo_pago,
-            numero_referencia=pago.numero_referencia,
+            metodo_pago=metodo_norm,
+            numero_referencia=ref_limpia,
             url_comprobante=pago.url_comprobante,
             estado="EN_REVISION",
         )
@@ -138,6 +188,12 @@ async def reportar_pago(
         raise
     except ErrorFinanciero as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El número de referencia bancaria ya fue registrado previamente",
+        ) from exc
     except Exception as exc:
         await db.rollback()
         raise HTTPException(
@@ -169,27 +225,37 @@ async def listar_pagos_en_revision(
     responses={
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes o usuario fantasma"},
-        404: {"description": "Pago o recibo no encontrado"},
-        409: {"description": "El pago no está en revisión o periodo cerrado"},
+        404: {"description": "Pago, recibo o unidad no encontrada"},
+        409: {"description": "Petición duplicada, el pago no está en revisión o periodo cerrado"},
     },
 )
 async def aprobar_pago(
     pago_id: int,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
+    redis_conn: aioredis.Redis = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    pago = await _obtener_pago(db, pago_id)
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"aprobar_pago:{pago_id}")
+    if not es_unica:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
+        )
+
+    pago = await _obtener_pago(db, pago_id, for_update=True)
     if pago.estado != "EN_REVISION":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El pago no está en revisión")
 
-    recibo = await _obtener_recibo(db, pago.recibo_id)
+    recibo = await _obtener_recibo(db, pago.recibo_id, for_update=True)
     if recibo.bloqueado:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El periodo está cerrado (Candado Contable)",
         )
 
+    unidad = await _obtener_unidad_bloqueada(db, recibo.unidad_id)
     excedente = calcular_excedente_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
     nuevo_pagado, nuevo_estado = aplicar_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
     recibo.monto_pagado_usd = recibo.monto_usd if excedente > Decimal("0.00") else nuevo_pagado
@@ -197,11 +263,8 @@ async def aprobar_pago(
     pago.estado = "APROBADO"
     motivo_auditoria: str | None = None
     if excedente > Decimal("0.00"):
-        res_unidad = await db.execute(select(Unidad).where(Unidad.id == recibo.unidad_id))
-        unidad = res_unidad.scalars().first()
-        if unidad is not None:
-            credito_previo = getattr(unidad, "credito_disponible_usd", None) or Decimal("0.00")
-            unidad.credito_disponible_usd = cuantizar(credito_previo + excedente)
+        credito_previo = getattr(unidad, "credito_disponible_usd", None) or Decimal("0.00")
+        unidad.credito_disponible_usd = cuantizar(credito_previo + excedente)
         motivo_auditoria = f"Sobrepago acreditado a saldo a favor: +{excedente} USD"
 
     db.add(

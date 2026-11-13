@@ -6,26 +6,29 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import get_db
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
+from src.facturacion_lph import (
+    calcular_cargos_modalidad,
+    cargar_contexto_facturacion,
+    persistir_lote_facturacion,
+    verificar_periodo_facturable,
+)
 from src.finanzas import (
     CERO,
-    ESTADO_PAGADO,
-    ESTADO_PENDIENTE,
     ErrorFinanciero,
-    aplicar_credito_disponible,
     calcular_deuda_total,
     calcular_saldo_pendiente,
     construir_qr_token_solvencia,
     convertir_a_usd,
     cuantizar,
     generar_firma_solvencia,
-    prorratear_partes_iguales,
-    prorratear_por_alicuotas,
     verificar_firma_solvencia,
 )
 from src.models import (
@@ -116,6 +119,16 @@ async def obtener_tasa(
     return tasa
 
 
+async def _validar_egreso_periodo_abierto(db: AsyncSession, periodo: str) -> None:
+    rep_res = await db.execute(select(ReporteMensual).where(ReporteMensual.periodo == periodo))
+    reporte = rep_res.scalars().first()
+    if reporte is not None and (reporte.estado == "CERRADO" or getattr(reporte, "bloqueado", False)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El periodo está cerrado por Candado Contable; no se admiten nuevos egresos",
+        )
+
+
 @router.post(
     "/egresos",
     status_code=status.HTTP_201_CREATED,
@@ -123,15 +136,25 @@ async def obtener_tasa(
         400: {"description": "Tasa del día no registrada o monto inválido"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes o usuario fantasma"},
+        409: {"description": "Periodo cerrado (Candado Contable) o Idempotency-Key repetida"},
     },
 )
 async def registrar_egreso(
     datos: EgresoCreate,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
+    redis_conn: aioredis.Redis = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     verificar_roles(usuario, _ROLES_TESORERIA)
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"egreso:{usuario.id}")
+    if not es_unica:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
+        )
     try:
+        await _validar_egreso_periodo_abierto(db, datos.periodo)
         tasa_result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == date.today()))
         tasa = tasa_result.scalars().first()
         if not tasa:
@@ -319,198 +342,6 @@ async def listar_fondos_condominio(
     return list(res.scalars().all())
 
 
-async def _verificar_periodo_facturable(db: AsyncSession, periodo: str) -> None:
-    rep_res = await db.execute(select(ReporteMensual).where(ReporteMensual.periodo == periodo))
-    reporte = rep_res.scalars().first()
-    if reporte and reporte.estado == "CERRADO":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El periodo está cerrado por Candado Contable y no admite facturación.",
-        )
-    rec_res = await db.execute(select(Recibo).where(Recibo.periodo == periodo))
-    if rec_res.scalars().first() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Los recibos de este periodo ya fueron emitidos previamente.",
-        )
-
-
-def _cargos_cuota_fija(
-    datos: FacturarPeriodoRequest,
-    unidades: list[Unidad],
-    total_egresos_comunes: Decimal,
-) -> tuple[dict[int, list[tuple[str, str, Decimal]]], Decimal]:
-    items_por_unidad: dict[int, list[tuple[str, str, Decimal]]] = {}
-    total_fijo = CERO
-    for u in unidades:
-        tarifa = getattr(u, "cuota_fija_usd", None) or datos.monto_cuota_fija_usd
-        if tarifa is None or tarifa <= CERO:
-            raise ErrorFinanciero("En modalidad CUOTA_FIJA debe definir monto_cuota_fija_usd mayor que cero")
-        cuota_u = cuantizar(tarifa)
-        total_fijo += cuota_u
-        items_por_unidad[u.id] = [("CUOTA_FIJA", f"Cuota fija mensual ({datos.periodo})", cuota_u)]
-    return items_por_unidad, cuantizar(total_fijo - total_egresos_comunes)
-
-
-def _cargos_variables(
-    datos: FacturarPeriodoRequest,
-    unidades: list[Unidad],
-    total_egresos_comunes: Decimal,
-    recargo_reserva_total: Decimal,
-) -> dict[int, list[tuple[str, str, Decimal]]]:
-    unidad_ids = [u.id for u in unidades]
-    pesos_alicuota = [(u.id, getattr(u, "alicuota", None) or Decimal("0.0000")) for u in unidades]
-    if datos.modalidad == "ALICUOTA":
-        mapa_gastos = prorratear_por_alicuotas(total_egresos_comunes, pesos_alicuota)
-        mapa_reserva = prorratear_por_alicuotas(recargo_reserva_total, pesos_alicuota)
-    else:
-        mapa_gastos = prorratear_partes_iguales(total_egresos_comunes, unidad_ids)
-        mapa_reserva = prorratear_partes_iguales(recargo_reserva_total, unidad_ids)
-
-    items_por_unidad: dict[int, list[tuple[str, str, Decimal]]] = {}
-    for u in unidades:
-        lineas: list[tuple[str, str, Decimal]] = [
-            ("GASTO_COMUN", f"Cuota parte de gastos comunes ({datos.periodo})", mapa_gastos[u.id])
-        ]
-        if mapa_reserva[u.id] > CERO:
-            lineas.append(("FONDO_RESERVA", "Aporte al Fondo de Reserva Legal", mapa_reserva[u.id]))
-        items_por_unidad[u.id] = lineas
-    return items_por_unidad
-
-
-def _anexar_cuota_extraordinaria(
-    datos: FacturarPeriodoRequest,
-    unidad_ids: list[int],
-    items_por_unidad: dict[int, list[tuple[str, str, Decimal]]],
-) -> None:
-    if datos.cuota_extraordinaria_total_usd <= CERO:
-        return
-    mapa_extra = prorratear_partes_iguales(datos.cuota_extraordinaria_total_usd, unidad_ids)
-    desc_extra = datos.descripcion_cuota_extraordinaria or "Cuota extraordinaria aprobada"
-    for uid, monto_extra in mapa_extra.items():
-        items_por_unidad[uid].append(("CUOTA_EXTRAORDINARIA", desc_extra, monto_extra))
-
-
-def _calcular_cargos_modalidad(
-    datos: FacturarPeriodoRequest,
-    unidades: list[Unidad],
-    total_egresos_comunes: Decimal,
-    recargo_reserva_total: Decimal,
-) -> tuple[dict[int, list[tuple[str, str, Decimal]]], Decimal]:
-    """Construye los ítems de cargo por unidad según la modalidad (ALICUOTA, CUOTA_FIJA, PARTES_IGUALES)."""
-    if datos.modalidad == "CUOTA_FIJA":
-        items_por_unidad, superavit_fondo = _cargos_cuota_fija(datos, unidades, total_egresos_comunes)
-    else:
-        items_por_unidad = _cargos_variables(datos, unidades, total_egresos_comunes, recargo_reserva_total)
-        superavit_fondo = CERO
-
-    _anexar_cuota_extraordinaria(datos, [u.id for u in unidades], items_por_unidad)
-    return items_por_unidad, superavit_fondo
-
-
-def _crear_recibo_e_items_unidad(
-    unidad: Unidad,
-    periodo: str,
-    lineas_cargo: list[tuple[str, str, Decimal]],
-) -> tuple[Recibo, list[ReciboItem], Decimal, Decimal]:
-    cargo_bruto = cuantizar(sum((m for _, _, m in lineas_cargo), CERO))
-    credito_actual = getattr(unidad, "credito_disponible_usd", None) or CERO
-    monto_neto, credito_usado, credito_restante = aplicar_credito_disponible(cargo_bruto, credito_actual)
-    unidad.credito_disponible_usd = credito_restante
-
-    cubierto_por_credito = cargo_bruto > CERO and monto_neto == CERO
-    monto_recibo = cargo_bruto if cubierto_por_credito else monto_neto
-    pagado_inicial = cargo_bruto if cubierto_por_credito else CERO
-    estado_inicial = ESTADO_PAGADO if (cubierto_por_credito or monto_recibo == CERO) else ESTADO_PENDIENTE
-
-    recibo = Recibo(
-        unidad_id=unidad.id,
-        periodo=periodo,
-        monto_usd=monto_recibo,
-        monto_pagado_usd=pagado_inicial,
-        estado=estado_inicial,
-        bloqueado=False,
-    )
-    items_orm = [ReciboItem(recibo_id=0, tipo_item=t, descripcion=d, monto_usd=m) for t, d, m in lineas_cargo]
-    if credito_usado > CERO:
-        items_orm.append(
-            ReciboItem(
-                recibo_id=0,
-                tipo_item="ABONO_CREDITO_PREVIO",
-                descripcion="Abono automático de saldo a favor disponible",
-                monto_usd=-credito_usado,
-            )
-        )
-    return recibo, items_orm, cargo_bruto, credito_usado
-
-
-async def _cargar_contexto_facturacion(
-    db: AsyncSession,
-    datos: FacturarPeriodoRequest,
-) -> tuple[list[Unidad], Decimal, FondoCondominio | None, Decimal]:
-    uni_res = await db.execute(select(Unidad).order_by(Unidad.id.asc()))
-    unidades = list(uni_res.scalars().all())
-    if not unidades:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No existen unidades registradas para emitir la facturación.",
-        )
-
-    egr_res = await db.execute(select(Egreso).where(Egreso.periodo == datos.periodo))
-    egresos_comunes = [e for e in egr_res.scalars().all() if getattr(e, "es_gasto_comun", True) is not False]
-    total_egresos = cuantizar(sum((e.monto_usd for e in egresos_comunes), CERO))
-
-    fondo_res = await db.execute(
-        select(FondoCondominio).where(
-            FondoCondominio.es_activo.is_(True),
-            FondoCondominio.tipo == "RESERVA_LEGAL",
-        )
-    )
-    fondo_reserva = fondo_res.scalars().first()
-    porcentaje_reserva = fondo_reserva.porcentaje_recargo if fondo_reserva is not None else Decimal("10.00")
-    aplica_reserva = datos.incluir_fondo_reserva and datos.modalidad != "CUOTA_FIJA"
-    recargo_reserva = cuantizar(total_egresos * (porcentaje_reserva / Decimal("100.00"))) if aplica_reserva else CERO
-    return unidades, total_egresos, fondo_reserva, recargo_reserva
-
-
-async def _persistir_lote_facturacion(
-    db: AsyncSession,
-    unidades: list[Unidad],
-    periodo: str,
-    modalidad: str,
-    items_por_unidad: dict[int, list[tuple[str, str, Decimal]]],
-    fondo_reserva: FondoCondominio | None,
-    recargo_reserva: Decimal,
-    superavit_fondo: Decimal,
-) -> tuple[Decimal, Decimal, Decimal]:
-    total_bruto = CERO
-    total_credito = CERO
-    total_neto = CERO
-    pares_recibo_items: list[tuple[Recibo, list[ReciboItem]]] = []
-
-    for u in unidades:
-        recibo, items_orm, bruto_u, credito_u = _crear_recibo_e_items_unidad(u, periodo, items_por_unidad[u.id])
-        db.add(recibo)
-        pares_recibo_items.append((recibo, items_orm))
-        total_bruto += bruto_u
-        total_credito += credito_u
-        total_neto += cuantizar(bruto_u - credito_u)
-
-    if fondo_reserva is not None:
-        incremento_fondo = superavit_fondo if modalidad == "CUOTA_FIJA" else recargo_reserva
-        fondo_reserva.saldo_actual_usd = cuantizar((fondo_reserva.saldo_actual_usd or CERO) + incremento_fondo)
-
-    await db.flush()
-    for idx, (recibo, items_orm) in enumerate(pares_recibo_items, start=1):
-        rid = recibo.id or idx
-        for item in items_orm:
-            item.recibo_id = rid
-            db.add(item)
-
-    await db.commit()
-    return cuantizar(total_bruto), cuantizar(total_credito), cuantizar(total_neto)
-
-
 @router.post(
     "/facturar-periodo",
     response_model=FacturarPeriodoResponse,
@@ -542,24 +373,31 @@ async def facturar_periodo(
             detail="Esta facturación mensual ya fue procesada.",
         )
 
-    await _verificar_periodo_facturable(db, datos.periodo)
-    unidades, total_egresos, fondo_reserva, recargo_reserva = await _cargar_contexto_facturacion(db, datos)
+    await verificar_periodo_facturable(db, datos.periodo)
+    unidades, total_egresos, fondo_reserva, recargo_reserva = await cargar_contexto_facturacion(db, datos)
 
     try:
-        items_por_unidad, superavit_fondo = _calcular_cargos_modalidad(datos, unidades, total_egresos, recargo_reserva)
+        items_por_unidad, superavit_fondo = calcular_cargos_modalidad(datos, unidades, total_egresos, recargo_reserva)
     except ErrorFinanciero as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    total_bruto, total_credito, total_neto = await _persistir_lote_facturacion(
-        db,
-        unidades,
-        datos.periodo,
-        datos.modalidad,
-        items_por_unidad,
-        fondo_reserva,
-        recargo_reserva,
-        superavit_fondo,
-    )
+    try:
+        total_bruto, total_credito, total_neto = await persistir_lote_facturacion(
+            db,
+            unidades,
+            datos.periodo,
+            datos.modalidad,
+            items_por_unidad,
+            fondo_reserva,
+            recargo_reserva,
+            superavit_fondo,
+        )
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El periodo {datos.periodo} ya posee recibos emitidos",
+        ) from exc
 
     return FacturarPeriodoResponse(
         periodo=datos.periodo,

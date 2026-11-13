@@ -60,7 +60,11 @@ describe('TreasuryPaymentsView.vue', () => {
     // Aprobar primer pago
     await wrapper.find('.btn-approve-payment').trigger('click');
     await flushPromises();
-    expect(putSpy).toHaveBeenCalledWith('/api/pagos/21/aprobar', {});
+    expect(putSpy).toHaveBeenCalledWith(
+      '/api/pagos/21/aprobar',
+      {},
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
     expect(wrapper.text()).toContain('Pago #21 aprobado');
 
     // Fallo al aprobar segundo pago -> mantiene tarjeta

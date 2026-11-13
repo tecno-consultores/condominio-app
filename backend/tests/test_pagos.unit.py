@@ -6,11 +6,12 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from src.database import get_db
 from src.dependencies import get_current_user
 from src.main import app
-from src.models import PagoReportado, Recibo, TasaCambio
+from src.models import ContratoOcupacion, PagoReportado, Recibo, TasaCambio, Unidad
 from src.redis_client import get_redis_client
 
 
@@ -67,6 +68,16 @@ def _recibo(bloqueado: bool = False, pagado: str = "0.00") -> Recibo:
         monto_pagado_usd=Decimal(pagado),
         estado="PENDIENTE",
         bloqueado=bloqueado,
+    )
+
+
+def _unidad(credito: str = "0.00") -> Unidad:
+    return Unidad(
+        id=1,
+        identificador="A-01",
+        estructura_id=1,
+        alicuota=Decimal("25.0000"),
+        credito_disponible_usd=Decimal(credito),
     )
 
 
@@ -224,10 +235,11 @@ def test_listar_pagos_en_revision(client: TestClient) -> None:
 def test_aprobar_pago_parcial(client: TestClient) -> None:
     pago = _pago(monto_usd="40.00")
     recibo = _recibo()
-    session = _mock_session(_result(pago), _result(recibo))
+    unidad = _unidad()
+    session = _mock_session(_result(pago), _result(recibo), _result(unidad))
     _setup(session)
 
-    response = client.put("/api/pagos/5/aprobar")
+    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
 
     assert response.status_code == 200
     assert response.json()["estado"] == "APROBADO"
@@ -241,10 +253,11 @@ def test_aprobar_pago_parcial(client: TestClient) -> None:
 def test_aprobar_pago_total_exacto(client: TestClient) -> None:
     pago = _pago(monto_usd="100.00")
     recibo = _recibo()
-    session = _mock_session(_result(pago), _result(recibo))
+    unidad = _unidad()
+    session = _mock_session(_result(pago), _result(recibo), _result(unidad))
     _setup(session)
 
-    response = client.put("/api/pagos/5/aprobar")
+    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
 
     assert response.status_code == 200
     assert recibo.estado == "PAGADO"
@@ -256,10 +269,11 @@ def test_aprobar_pago_total_exacto(client: TestClient) -> None:
 def test_aprobar_pago_parcial_sobre_saldo_previo(client: TestClient) -> None:
     pago = _pago(monto_usd="30.00")
     recibo = _recibo(pagado="40.00")
-    session = _mock_session(_result(pago), _result(recibo))
+    unidad = _unidad()
+    session = _mock_session(_result(pago), _result(recibo), _result(unidad))
     _setup(session)
 
-    client.put("/api/pagos/5/aprobar")
+    client.put("/api/pagos/5/aprobar", headers=HEADERS)
 
     assert recibo.monto_pagado_usd == Decimal("70.00")
     assert recibo.estado == "PAGADO_PARCIAL"
@@ -271,7 +285,7 @@ def test_aprobar_pago_no_encontrado(client: TestClient) -> None:
     session = _mock_session(_result(None))
     _setup(session)
 
-    response = client.put("/api/pagos/999/aprobar")
+    response = client.put("/api/pagos/999/aprobar", headers=HEADERS)
 
     assert response.status_code == 404
     assert "Pago no encontrado" in response.json()["detail"]
@@ -283,7 +297,7 @@ def test_aprobar_pago_no_esta_en_revision(client: TestClient) -> None:
     session = _mock_session(_result(_pago(estado="APROBADO")))
     _setup(session)
 
-    response = client.put("/api/pagos/5/aprobar")
+    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
 
     assert response.status_code == 409
     assert "no está en revisión" in response.json()["detail"]
@@ -295,7 +309,7 @@ def test_aprobar_recibo_no_encontrado(client: TestClient) -> None:
     session = _mock_session(_result(_pago()), _result(None))
     _setup(session)
 
-    response = client.put("/api/pagos/5/aprobar")
+    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
 
     assert response.status_code == 404
     assert "Recibo no encontrado" in response.json()["detail"]
@@ -307,7 +321,7 @@ def test_aprobar_mes_bloqueado(client: TestClient) -> None:
     session = _mock_session(_result(_pago()), _result(_recibo(bloqueado=True)))
     _setup(session)
 
-    response = client.put("/api/pagos/5/aprobar")
+    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
 
     assert response.status_code == 409
     assert "Candado Contable" in response.json()["detail"]
@@ -392,6 +406,64 @@ def test_pagos_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
 
     _setup(_mock_session(), user=PropietarioUser())
     assert client.get("/api/pagos/revision").status_code == 403
-    assert client.put("/api/pagos/5/aprobar").status_code == 403
+    assert client.put("/api/pagos/5/aprobar", headers=HEADERS).status_code == 403
     assert client.put("/api/pagos/5/rechazar", json={"motivo": "Motivo válido"}).status_code == 403
+    app.dependency_overrides = {}
+
+
+def test_aprobar_pago_sin_idempotency_key_duplicado_y_unidad_inexistente(client: TestClient) -> None:
+    _setup(_mock_session())
+    assert client.put("/api/pagos/5/aprobar").status_code == 422
+
+    _setup(_mock_session(), redis_is_new=False)
+    res_dup = client.put("/api/pagos/5/aprobar", headers=HEADERS)
+    assert res_dup.status_code == 409
+    assert "Idempotency-Key" in res_dup.json()["detail"]
+
+    session_sin_uni = _mock_session(_result(_pago()), _result(_recibo()), _result(None))
+    _setup(session_sin_uni)
+    res_uni = client.put("/api/pagos/5/aprobar", headers=HEADERS)
+    assert res_uni.status_code == 404
+    assert "Unidad" in res_uni.json()["detail"]
+    app.dependency_overrides = {}
+
+
+def test_reportar_pago_anti_idor_y_colision_integrity_error(client: TestClient) -> None:
+    class PropietarioUser:
+        id: int = 88
+        correo: str = "vecino@test.com"
+        rol: str = "PROPIETARIO"
+        es_activo: bool = True
+
+    # Vecino sin ContratoOcupacion activo sobre la unidad -> 403 anti-IDOR
+    session_idor = _mock_session(_result(_tasa()), _result(_recibo()), _result(None))
+    _setup(session_idor, user=PropietarioUser())
+    res_idor = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
+    assert res_idor.status_code == 403
+    assert "autorización" in res_idor.json()["detail"]
+
+    # Vecino con ContratoOcupacion activo -> 201 OK
+    contrato = ContratoOcupacion(id=1, usuario_id=88, unidad_id=1, tipo_ocupante="PROPIETARIO", es_activo=True)
+    session_ok = _mock_session(_result(_tasa()), _result(_recibo()), _result(contrato))
+    _setup(session_ok, user=PropietarioUser())
+    res_ok = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
+    assert res_ok.status_code == 201
+
+    # IntegrityError concurrente sobre referencia única parcial -> 409 Conflict
+    session_ie = _mock_session(_result(None), _result(_tasa()), _result(_recibo()))
+    session_ie.commit.side_effect = IntegrityError("dup", {}, Exception("uq_pagos_metodo_ref_activo"))
+    _setup(session_ie)
+    res_ie = client.post(
+        "/api/pagos/reportar",
+        json={
+            "recibo_id": 1,
+            "monto": "100.00",
+            "moneda": "USD",
+            "metodo_pago": "ZELLE",
+            "numero_referencia": "REF-RACE-01",
+        },
+        headers=HEADERS,
+    )
+    assert res_ie.status_code == 409
+    assert "referencia bancaria" in res_ie.json()["detail"]
     app.dependency_overrides = {}

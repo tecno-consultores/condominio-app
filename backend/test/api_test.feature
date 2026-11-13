@@ -513,3 +513,65 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 200
     And match header Content-Security-Policy contains "frame-ancestors 'none'"
 
+  Scenario: 22. Obligatoriedad de Idempotency-Key (422) y control RBAC/anti-IDOR (403) en pagos y egresos (Hito 17.3)
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'hito173.' + uid + '@condominio.com'
+    Given path '/api/auth/register'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request
+      """
+      {
+        "nombre": "Usuario BDD Hito 17.3",
+        "cedula": "#('V-173' + uid)",
+        "correo": "#(email)",
+        "telefono": "+584145550030",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "#(email)", password: "Password123!" }
+    When method post
+    Then status 200
+    * def csrfTok = response.csrf_token
+
+    # Aprobar pago y registrar egreso exigen cabecera Idempotency-Key -> 422 sin ella
+    Given path '/api/pagos/1/aprobar'
+    And header X-CSRF-Token = csrfTok
+    When method put
+    Then status 422
+    And match response.detail[0].loc contains 'Idempotency-Key'
+
+    Given path '/api/finanzas/egresos'
+    And header X-CSRF-Token = csrfTok
+    And request { periodo: "2026-10", categoria: "MANTENIMIENTO", descripcion: "Prueba BDD 17.3", monto: "25.00", moneda: "USD" }
+    When method post
+    Then status 422
+    And match response.detail[0].loc contains 'Idempotency-Key'
+
+    # Con Idempotency-Key + X-CSRF-Token válidos, usuario sin privilegios/contrato activo recibe 403
+    Given path '/api/pagos/1/aprobar'
+    And header X-CSRF-Token = csrfTok
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    When method put
+    Then status 403
+
+    Given path '/api/finanzas/egresos'
+    And header X-CSRF-Token = csrfTok
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request { periodo: "2026-10", categoria: "MANTENIMIENTO", descripcion: "Prueba BDD 17.3", monto: "25.00", moneda: "USD" }
+    When method post
+    Then status 403
+
+    Given path '/api/pagos/reportar'
+    And header X-CSRF-Token = csrfTok
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request { recibo_id: 1, monto: "25.00", moneda: "USD", metodo_pago: "EFECTIVO" }
+    When method post
+    Then status 403
+
+

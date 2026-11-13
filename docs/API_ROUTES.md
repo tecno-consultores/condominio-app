@@ -54,7 +54,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Paso 3:** Subida de captura de pantalla (Cámara/Galería).
   * **Botón Final:** "Enviar Reporte". Al pulsar, muestra un *spinner* y se bloquea visualmente para evitar doble envío.
 * **Endpoints FastAPI:**
-  * `POST /api/pagos/reportar`: Registra el pago y la tasa del día exacto. **Requiere campo `numero_referencia` en el payload si el método no es efectivo.** *[Header: Idempotency-Key]* -> Worker convierte imagen a AVIF.
+  * `POST /api/pagos/reportar`: Registra el pago y la tasa del día exacto tras verificar titularidad activa en `ContratoOcupacion` (anti-IDOR, salvo roles `TESORERO`/`PRESIDENTE`) y unicidad parcial `uq_pagos_metodo_ref_activo` en `(metodo_pago, numero_referencia)` (`409 Conflict`). **Requiere campo `numero_referencia` en el payload si el método no es efectivo.** *[Header: Idempotency-Key]* -> Worker convierte imagen a AVIF.
 
 ---
 
@@ -68,9 +68,9 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Cierre de Mes:** Muestra una vista previa del PDF preliminar y un botón crítico de `"Cerrar Mes"`.
 * **Endpoints FastAPI:**
   * `POST /api/finanzas/tasa` y `GET /api/finanzas/tasa`: Registra/actualiza y consulta la tasa oficial USD/VES. *[Header: Idempotency-Key]*
-  * `POST /api/finanzas/egresos`: Registra gastos operativos y egresos multimoneda con validación de factura segura. *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/egresos`: Registra gastos operativos y egresos multimoneda con validación de factura segura y bloqueo `409 Conflict` por Candado Contable (`ReporteMensual.estado == "CERRADO"`). *[Header: Idempotency-Key]*
   * `GET /api/pagos/revision`: Lista de pagos pendientes.
-  * `PUT /api/pagos/{id}/aprobar`: Cambia estado y audita.
+  * `PUT /api/pagos/{id}/aprobar`: Cambia estado con bloqueos pesimistas `.with_for_update()` (`PagoReportado`, `Recibo`, `Unidad`) y audita. *[Header: Idempotency-Key]*
   * `PUT /api/pagos/{id}/rechazar`: Requiere `motivo`.
   * `POST /api/finanzas/cierre-mensual`: Acción inmutable. Bloquea registros del mes y oficializa el PDF.
 
@@ -151,7 +151,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 * **Endpoints FastAPI:**
   * `PUT /api/estructura/unidades/{id}/alicuota`: Actualiza el porcentaje de participación (`alicuota`) y la cuota fija diferenciada (`cuota_fija_usd`) de la unidad. *[Header: Idempotency-Key]*
   * `POST /api/finanzas/fondos` y `GET /api/finanzas/fondos`: Gestión de fondos patrimoniales y de reserva. *[Header: Idempotency-Key]*
-  * `POST /api/finanzas/facturar-periodo`: Emite recibos mensuales bajo modalidad `ALICUOTA`, `CUOTA_FIJA` o `PARTES_IGUALES` y aplica saldos a favor (`credito_disponible_usd`). *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/facturar-periodo`: Emite recibos mensuales únicos por `(unidad_id, periodo)` (`uq_recibo_unidad_periodo`, `409 Conflict`) bajo modalidad `ALICUOTA`, `CUOTA_FIJA` o `PARTES_IGUALES`, valida `validar_suma_alicuotas`, prorratea cuotas extraordinarias por alícuota en `ALICUOTA` (`src/facturacion_lph.py`) y aplica saldos a favor (`credito_disponible_usd`). *[Header: Idempotency-Key]*
   * `GET /api/finanzas/recibos/{id}/desglose`: Devuelve las líneas detalladas (`ReciboItem`) del recibo.
   * `POST /api/finanzas/solvencia/{unidad_id}` y `GET /api/finanzas/solvencia/verificar/{folio}`: Emite y verifica certificados digitales de solvencia. *[Header: Idempotency-Key]*
 
@@ -162,7 +162,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ### 🖥️ Vistas: Cartas Consulta y Votación Ponderada por Alícuota
 * **Rutas Vue:** `/consultas`, `/consultas/:id`
 * **Diseño GUI:**
-  * **Listado (`ConsultationsListView.vue`) y Detalle (`ConsultationDetailView.vue`):** Muestra el quórum requerido ($66.6700\%$ en `DOS_TERCIOS`, $50.0100\%$ en `MAYORIA_SIMPLE` o $100.0000\%$ en `UNANIMIDAD`), barra nativa `<progress id="quorum-progress-bar">` en tiempo real por alícuota acumulada y opciones de votación.
+  * **Listado (`ConsultationsListView.vue`) y Detalle (`ConsultationDetailView.vue`):** Muestra el quórum requerido ($2/3$ racional exacto $\approx 66.6667\%$ en `DOS_TERCIOS`, $50.0100\%$ en `MAYORIA_SIMPLE` o $100.0000\%$ en `UNANIMIDAD`), barra nativa `<progress id="quorum-progress-bar">` en tiempo real por alícuota acumulada y opciones de votación.
   * **Recibo Criptográfico (`VoteReceiptModal.vue`):** Al votar, presenta modal `<dialog id="modal-vote-receipt" closedby="any">` con el hash `HMAC-SHA256` del voto, la unidad inmobiliaria y la alícuota capturada.
 * **Endpoints FastAPI:**
   * `POST /api/consultas`, `GET /api/consultas`, `GET /api/consultas/{id}`: Creación y consulta de Cartas Consulta y Asambleas. *[Header: Idempotency-Key]*
