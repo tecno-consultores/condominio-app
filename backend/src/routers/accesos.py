@@ -36,7 +36,11 @@ from src.schemas import (
 from src.security import SECRET_KEY, validate_safe_outgoing_url
 from src.worker import encolar_notificacion_correo
 
-router = APIRouter(prefix="/api", tags=["Accesos QR y Paquetería en Garita"])
+router = APIRouter(
+    prefix="/api",
+    tags=["Accesos QR y Paquetería en Garita"],
+    responses={401: {"description": "No autenticado"}},
+)
 
 _ROLES_GARITA = ("CONSERJE", "PRESIDENTE", "VOCERO")
 _ROLES_PAQUETERIA = ("CONSERJE", "PRESIDENTE")
@@ -225,7 +229,7 @@ async def listar_mis_pases_visita(
 
 
 @router.delete(
-    "/accesos/pases/{pase_id}",
+    "/accesos/pases/{pase_id:int}",
     response_model=PaseVisitaResponse,
     responses={
         403: {"description": "Solo el creador del pase o el Presidente pueden revocarlo"},

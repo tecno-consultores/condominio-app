@@ -43,7 +43,11 @@ from src.schemas import (
 )
 from src.security import SECRET_KEY
 
-router = APIRouter(prefix="/api/consultas", tags=["Gobernanza y Cartas Consulta LPH"])
+router = APIRouter(
+    prefix="/api/consultas",
+    tags=["Gobernanza y Cartas Consulta LPH"],
+    responses={401: {"description": "No autenticado"}},
+)
 
 _ROLES_GOBERNANZA = ("PRESIDENTE", "SECRETARIO")
 
@@ -186,6 +190,7 @@ async def _armar_detalle_consulta(
     status_code=status.HTTP_201_CREATED,
     response_model=ConsultaDetalleResponse,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Solo Presidente o Secretario pueden convocar consultas"},
         409: {"description": "Petición duplicada (Idempotency-Key)"},
     },
@@ -374,6 +379,7 @@ async def _validar_consulta_abierta_en_plazo(db: AsyncSession, consulta_id: int)
     status_code=status.HTTP_201_CREATED,
     response_model=ReciboVotoResponse,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Sin derecho a voto sobre la unidad o inquilino sin poder"},
         404: {"description": "Consulta, unidad u opción no encontrada"},
         409: {"description": "La unidad ya votó, la consulta está cerrada o Idempotency-Key duplicada"},

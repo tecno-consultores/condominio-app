@@ -290,6 +290,8 @@ async def cierre_mensual(
     response_model=FondoCondominioResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         409: {"description": "Fondo duplicado o Idempotency-Key repetida"},
     },
@@ -338,7 +340,10 @@ async def crear_fondo_condominio(
 @router.get(
     "/fondos",
     response_model=list[FondoCondominioResponse],
-    responses={403: {"description": "Usuario fantasma sin activar"}},
+    responses={
+        401: {"description": "No autenticado"},
+        403: {"description": "Usuario fantasma sin activar"},
+    },
 )
 async def listar_fondos_condominio(
     db: AsyncSession = Depends(get_db),
@@ -358,6 +363,7 @@ async def listar_fondos_condominio(
     status_code=status.HTTP_201_CREATED,
     responses={
         400: {"description": "Sin unidades o configuración de alícuotas/cuota fija inválida"},
+        401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         409: {"description": "Periodo ya facturado, bloqueado por Candado Contable o Idempotency-Key repetida"},
     },
@@ -444,6 +450,7 @@ async def _verificar_acceso_unidad(db: AsyncSession, usuario: Usuario, unidad_id
     "/recibos/{recibo_id}/desglose",
     response_model=ReciboDesgloseResponse,
     responses={
+        401: {"description": "No autenticado"},
         403: {"description": "No autorizado para esta unidad"},
         404: {"description": "Recibo o unidad no encontrada"},
     },
@@ -513,6 +520,7 @@ async def _obtener_deuda_viva_unidad(db: AsyncSession, unidad_id: int) -> Decima
     response_model=CertificadoSolvenciaResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        401: {"description": "No autenticado"},
         403: {"description": "No autorizado para esta unidad"},
         404: {"description": "Unidad no encontrada"},
         409: {"description": "La unidad presenta deuda pendiente o Idempotency-Key repetida"},

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   qa-frontend:
-    name: 🧩 Huérfanos UI, Lint SonarJS, Tipado Vue-TSC, Cobertura ≥ 95% y Build Vite
+    name: 🧩 Huérfanos UI, Lint SonarJS, Unit >= 95%, E2E/A11y/Visual, Lighthouse y Karate UI
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,6 +29,15 @@ jobs:
 
       - name: 🧪 Pruebas Unitarias Vitest (Cobertura V8 ≥ 95%) + Build Vite
         run: make qa-unit
+
+      - name: 🎭 Pruebas E2E Screenplay, Geometría Anti-JSDOM, Axe WCAG 2.1 AA y Regresión Visual
+        run: make qa-e2e
+
+      - name: ⚡ Auditoría de Rendimiento y Core Web Vitals (Lighthouse CI)
+        run: make qa-perf
+
+      - name: 📚 Pruebas BDD de Aceptación UI (Karate Labs + Chrome CDP)
+        run: make qa-bdd
 
       - name: 🧹 Limpieza de contenedores QA
         if: always()

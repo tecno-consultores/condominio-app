@@ -1,4 +1,4 @@
-.PHONY: qa-lint qa-unit qa-parity qa-bdd qa-mutation qa-complexity qa-deps qa-contracts qa-dast qa-chaos qa-infra qa-profile qa-all clean-cache
+.PHONY: qa-lint qa-unit qa-parity qa-bdd qa-mutation qa-complexity qa-deps qa-contracts qa-dast qa-chaos qa-infra qa-profile qa-all wait-api clean-cache
 
 COMPOSE_FILE = docker-compose.qa.yml
 SERVICE_NAME = qa-backend
@@ -26,32 +26,38 @@ qa-deps:
 
 qa-unit:
 	@echo "🧪 Ejecutando Pruebas Unitarias Aisladas (Pytest con cobertura >=95%)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run pytest --cov=src --cov-fail-under=95"
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync && uv run pytest --cov=src --cov-fail-under=95"
 
 qa-parity:
-	@echo "🗄️ Verificando Paridad ORM vs Migraciones Alembic y Motor Real PostgreSQL 17..."
+	@echo "🗄️ Verificando Paridad ORM vs Migraciones Alembic, Motor Real PostgreSQL 17 e Integración RLS..."
 	docker run --rm -v "${HOST_PWD}/..:/workspace:ro" -w /workspace/backend sinfallas/base-python-uv:3.13 python3 /workspace/.agents/scripts/verify_alembic_orm_parity.py
 	docker compose -f $(COMPOSE_FILE) up -d --wait postgres
 	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e POSTGRES_TEST_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync && uv run pytest -o addopts='--import-mode=importlib --strict-markers --cov=src --cov-fail-under=0' tests/test_hito17_4_integridad_rls.unit.py tests/test_bootstrap_cli.unit.py"
+
+wait-api:
+	@docker compose -f $(COMPOSE_FILE) run --rm --no-deps qa-backend bash -c 'for i in $$(seq 1 60); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
 
 qa-bdd:
 	@echo "📚 Ejecutando Pruebas BDD de Caja Negra (Karate Labs API)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
-	@docker compose -f $(COMPOSE_FILE) run --rm --no-deps qa-backend bash -c 'for i in $$(seq 1 60); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
+	$(MAKE) wait-api
 	docker compose -f $(COMPOSE_FILE) run --rm karatelabs mvn clean test
 
 qa-mutation:
 	@echo "👽 Ejecutando Pruebas de Mutación (Mutmut)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run mutmut run"
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync -q && uv run --no-sync python scripts/mutmut_gates.py"
 
 qa-contracts:
 	@echo "📑 Fuzzing y Verificación de Contratos OpenAPI (Schemathesis)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
-	docker compose -f $(COMPOSE_FILE) run --rm $(SERVICE_NAME) bash -c "uv sync && uv run schemathesis run http://api:8000/openapi.json"
+	$(MAKE) wait-api
+	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run schemathesis run http://api:8000/openapi.json"
 
 qa-dast:
 	@echo "🛡️ Escaneo Dinámico de Seguridad (OWASP ZAP)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
+	$(MAKE) wait-api
 	@set +e; docker compose -f $(COMPOSE_FILE) run --rm zap zap-baseline.py -t http://api:8000 -r zap-report.html; \
 	status=$$?; set -e; \
 	if [ $$status -eq 0 ] || [ $$status -eq 2 ]; then \

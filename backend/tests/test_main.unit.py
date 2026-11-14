@@ -15,12 +15,20 @@ def test_health_check(client: TestClient) -> None:
 
 
 def test_options_405_incluye_allow_completo(client: TestClient) -> None:
-    """Un OPTIONS sobre un path con varios verbos devuelve 405 con el header Allow completo."""
+    """Un OPTIONS sobre un path devuelve 405 con Allow exacto sin colisión con rutas parametrizadas."""
     response = client.options("/api/finanzas/tasa")
     assert response.status_code == 405
     allow = response.headers.get("allow", "")
     assert "GET" in allow
     assert "POST" in allow
+
+    exact_static = client.options("/api/accesos/pases/mios")
+    assert exact_static.status_code == 405
+    assert exact_static.headers.get("allow") == "GET"
+
+    delete_static = client.delete("/api/accesos/pases/mios")
+    assert delete_static.status_code == 405
+    assert delete_static.headers.get("allow") == "GET"
 
 
 def test_respuestas_no_cacheables(client: TestClient) -> None:

@@ -14,7 +14,11 @@ from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import IncidenciaCreate, IncidenciaResponse
 from src.worker import encolar_notificacion_correo
 
-router = APIRouter(prefix="/api/incidencias", tags=["Incidencias"])
+router = APIRouter(
+    prefix="/api/incidencias",
+    tags=["Incidencias"],
+    responses={401: {"description": "No autenticado"}},
+)
 
 
 @router.get(
@@ -41,6 +45,7 @@ async def listar_incidencias_abiertas(
     response_model=IncidenciaResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Usuario fantasma sin activar"},
         409: {"description": "Petición duplicada (Idempotency-Key ya utilizada)"},
         500: {"description": "Error interno de base de datos"},

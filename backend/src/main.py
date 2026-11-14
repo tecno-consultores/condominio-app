@@ -168,9 +168,12 @@ Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
 
 def _metodos_permitidos(path: str) -> set[str]:
-    """Métodos HTTP documentados para un path, resolviendo también plantillas con parámetros."""
+    """Métodos HTTP documentados para un path, priorizando coincidencia exacta antes que plantillas."""
+    paths = app.openapi().get("paths", {})
+    if path in paths:
+        return {metodo.upper() for metodo in paths[path] if metodo.lower() in _METODOS_OPENAPI}
     permitidos: set[str] = set()
-    for plantilla, ops_ruta in app.openapi().get("paths", {}).items():
+    for plantilla, ops_ruta in paths.items():
         patron = re.sub(r"\{[^}]+\}", r"[^/]+", plantilla)
         if re.fullmatch(patron, path):
             permitidos.update(metodo.upper() for metodo in ops_ruta if metodo.lower() in _METODOS_OPENAPI)

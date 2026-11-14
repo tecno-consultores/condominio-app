@@ -34,7 +34,11 @@ from src.schemas import (
     ReservaInspeccionarRequest,
 )
 
-router = APIRouter(prefix="/api", tags=["Reservas de Áreas Sociales"])
+router = APIRouter(
+    prefix="/api",
+    tags=["Reservas de Áreas Sociales"],
+    responses={401: {"description": "No autenticado"}},
+)
 
 _ROLES_GESTION_AREAS = ("PRESIDENTE", "TESORERO")
 _ROLES_CANCELACION_JUNTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO")
@@ -138,6 +142,7 @@ def _serializar_reserva(
     status_code=status.HTTP_201_CREATED,
     response_model=AreaSocialResponse,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Solo Presidente o Tesorero pueden configurar áreas sociales"},
         409: {"description": "Nombre de área duplicado o Idempotency-Key repetida"},
     },
@@ -232,6 +237,7 @@ async def listar_reservas_areas(
     status_code=status.HTTP_201_CREATED,
     response_model=ReservaAreaResponse,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Unidad morosa (Candado de Solvencia Estricta) o sin contrato activo"},
         404: {"description": "Área social o unidad no encontrada"},
         409: {"description": "Fecha ya reservada para el área social o Idempotency-Key duplicada"},
@@ -436,6 +442,7 @@ async def cancelar_reserva_area_social(
     "/reservas/{reserva_id}/inspeccionar",
     response_model=ReservaAreaResponse,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Solo Conserje, Presidente o Tesorero pueden registrar la inspección"},
         404: {"description": "Reserva no encontrada"},
         409: {"description": "La inspección post-evento de esta reserva ya fue registrada o fue cancelada"},

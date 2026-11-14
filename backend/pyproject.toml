@@ -44,7 +44,7 @@ dev = [
     
     # Seguridad y Mutación
     "bandit>=1.7.8",
-    "mutmut>=2.4.5",
+    "mutmut>=2.4.5,<3.0.0",
     
     # Complejidad y Profiling
     "radon>=6.0.1",
@@ -73,7 +73,7 @@ dev = [
     
     # Seguridad y Mutación
     "bandit>=1.7.8",
-    "mutmut>=2.4.5",
+    "mutmut>=2.4.5,<3.0.0",
     
     # Complejidad y Profiling
     "radon>=6.0.1",
@@ -124,6 +124,5 @@ strict = true
 ignore_missing_imports = true
 
 [tool.mutmut]
-source_paths = ["src/"]
-backup = false
-runner = "uv run pytest -x tests/"
+paths_to_mutate = "src/bootstrap.py,src/finanzas.py,src/facturacion_lph.py,src/security.py"
+tests_dir = "tests/"

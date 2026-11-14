@@ -216,4 +216,104 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     document.cookie = 'otra_cookie=solo_prueba';
     expect(readCsrfCookie()).toBeNull();
   });
+
+  it('cubre fronteras estrictas de GET sin mutación, cookies CSRF, detail[] vacío y reutilización post-refresh', async () => {
+    // 1. Nombre exacto de ApiError y bordes de extractErrorDetail
+    const customErr = new ApiError(400, 'Detalle');
+    expect(customErr.name).toBe('ApiError');
+
+    document.cookie = '  csrf_token=abc=def=123 ';
+    expect(readCsrfCookie()).toBe('abc=def=123');
+    document.cookie = 'csrf_token=';
+    expect(readCsrfCookie()).toBeNull();
+
+    // 2. GET sin opciones: no adjunta Content-Type, X-CSRF-Token ni Idempotency-Key
+    const getFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+        'x-csrf-token': '  csrf-trimmed-header  ',
+      }),
+      json: async () => ({ status: 'healthy', csrf_token: '   ' }),
+    });
+    vi.stubGlobal('fetch', getFetch);
+
+    await apiRequest<{ status: string }>('/api/health');
+    expect(getFetch).toHaveBeenCalledWith('/api/health', {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+      body: undefined,
+    });
+    expect(getCsrfToken()).toBe('csrf-trimmed-header');
+
+    // Body con csrf_token en blanco NO sobreescribe el token activo ni acepta msg no-string
+    setCsrfToken('csrf-estable');
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 422,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ detail: [], csrf_token: '   ' }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 422,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ detail: [{ msg: 404 }], csrf_token: '  csrf-body-trimmed  ' }),
+        }),
+    );
+    await expect(apiRequest('/api/test')).rejects.toMatchObject({ detail: 'Error HTTP 422' });
+    expect(getCsrfToken()).toBe('csrf-estable');
+    await expect(apiRequest('/api/test')).rejects.toMatchObject({ detail: 'Error HTTP 422' });
+    expect(getCsrfToken()).toBe('csrf-body-trimmed');
+
+    // 3. Verifica argumentos exactos de POST /api/auth/refresh y reinicio de inflightRefresh en ciclos secuenciales
+    setCsrfToken('csrf-para-refresh');
+    let phase = 0;
+    const seqFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/auth/refresh') {
+        expect(init).toEqual({
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+            'X-CSRF-Token': 'csrf-para-refresh',
+          },
+        });
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ok: true }),
+        } as Response;
+      }
+      phase += 1;
+      if (phase % 2 === 1) {
+        return {
+          ok: false,
+          status: 401,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ detail: 'Expirado' }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', seqFetch);
+
+    await expect(apiClient.get('/api/finanzas/resumen')).resolves.toEqual({ ok: true });
+    await expect(apiClient.get('/api/finanzas/resumen')).resolves.toEqual({ ok: true });
+    const refreshCalls = seqFetch.mock.calls.filter(([u]) => u === '/api/auth/refresh');
+    expect(refreshCalls).toHaveLength(2);
+  });
 });

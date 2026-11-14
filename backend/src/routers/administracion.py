@@ -53,6 +53,8 @@ async def listar_unidades(
     response_model=EstructuraGenerarResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         409: {"description": "Idempotencia repetida o identificador de unidad duplicado"},
         500: {"description": "Error interno de base de datos"},
@@ -123,7 +125,10 @@ async def generar_estructura(
 @router.get(
     "/usuarios/pendientes",
     response_model=list[UsuarioResponse],
-    responses={403: {"description": "Permisos insuficientes"}},
+    responses={
+        401: {"description": "No autenticado"},
+        403: {"description": "Permisos insuficientes"},
+    },
 )
 async def listar_usuarios_pendientes(
     db: AsyncSession = Depends(get_db),
@@ -196,6 +201,7 @@ def _aplicar_historico_contratos(
     response_model=UsuarioResponse,
     responses={
         400: {"description": "Inquilino no puede ejercer cargo de Junta Directiva"},
+        401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Usuario o unidad no encontrada"},
     },
@@ -247,6 +253,7 @@ async def asignar_y_activar_usuario(
     response_model=UsuarioResponse,
     responses={
         400: {"description": "El usuario no cumple el requisito de ser propietario activo"},
+        401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Usuario no encontrado"},
     },
@@ -289,6 +296,8 @@ async def asignar_cargo_junta(
     "/estructura/unidades/{unidad_id}/alicuota",
     response_model=UnidadResponse,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Unidad no encontrada"},
         409: {"description": "Idempotencia repetida"},

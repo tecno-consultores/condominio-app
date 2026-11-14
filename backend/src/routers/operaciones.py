@@ -34,7 +34,11 @@ from src.schemas import (
 from src.security import validate_safe_outgoing_url
 from src.worker import generar_tareas_diarias_desde_plantillas
 
-router = APIRouter(prefix="/api", tags=["Operaciones"])
+router = APIRouter(
+    prefix="/api",
+    tags=["Operaciones"],
+    responses={401: {"description": "No autenticado"}},
+)
 
 LIMITE_FOTOS_MENSUAL_VOCEROS = 30
 _ROLES_DIRECTIVA = ("PRESIDENTE", "VICEPRESIDENTE")
@@ -47,7 +51,10 @@ _ROLES_SECRETARIA = ("SECRETARIO", "PRESIDENTE")
     "/tareas/plantillas",
     response_model=PlantillaTareaResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={403: {"description": "Permisos insuficientes"}},
+    responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        403: {"description": "Permisos insuficientes"},
+    },
 )
 async def crear_plantilla_tarea(
     datos: PlantillaTareaCreate,
@@ -73,6 +80,7 @@ async def crear_plantilla_tarea(
     response_model=TareaDiariaResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Incidencia vinculada no encontrada"},
     },
@@ -144,6 +152,7 @@ async def listar_tareas_diarias(
     "/tareas/{tarea_id}/completar",
     response_model=TareaDiariaResponse,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Tarea no encontrada"},
     },
@@ -182,6 +191,7 @@ async def completar_tarea_diaria(
     response_model=FotoVoceroResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Permisos insuficientes"},
         429: {"description": "Límite mensual de 30 fotografías alcanzado"},
     },
@@ -244,7 +254,10 @@ async def listar_galeria_voceros(
     "/bitacora/acta",
     response_model=BitacoraActaResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={403: {"description": "Permisos insuficientes"}},
+    responses={
+        400: {"description": "Cuerpo JSON malformado"},
+        403: {"description": "Permisos insuficientes"},
+    },
 )
 async def crear_acta_bitacora(
     datos: BitacoraActaCreate,

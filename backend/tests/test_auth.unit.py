@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -426,7 +427,8 @@ def test_me_real_orm_usuario_and_revoked_sid(client: TestClient) -> None:
     res_no_sub = client.get("/api/auth/me")
     assert res_no_sub.status_code == 401
 
-    token_revoked = create_access_token(data={"sub": "real@test.com", "id": 22, "sid": "sid-rev-99"})
+    sid_unico = f"sid-rev-{uuid4().hex[:8]}"
+    token_revoked = create_access_token(data={"sub": "real@test.com", "id": 22, "sid": sid_unico})
     mock_session = AsyncMock()
     res_user = MagicMock()
     res_user.scalars().first.return_value = Usuario(
@@ -451,7 +453,7 @@ def test_me_real_orm_usuario_and_revoked_sid(client: TestClient) -> None:
     assert body["cedula"] == "V-12345678"
     assert body["telefono"] == "04141234567"
     assert body["unidad_activa_id"] == 42
-    assert ok_resp.headers.get("x-csrf-token") == generate_csrf_token("sid-rev-99")
+    assert ok_resp.headers.get("x-csrf-token") == generate_csrf_token(sid_unico)
 
     # Revocamos mediante logout y validamos rechazo 401 por SID revocado
     mock_session.execute.side_effect = [res_user, res_unidad]
@@ -469,12 +471,14 @@ def test_login_lockout_429_and_short_idempotency_key(client: TestClient) -> None
     mock_session.execute.return_value = mock_result
     app.dependency_overrides[get_db] = lambda: mock_session
 
-    hdrs = {"X-Forwarded-For": "203.0.113.55"}
+    uid = uuid4()
+    hdrs = {"X-Forwarded-For": f"203.{uid.bytes[0]}.{uid.bytes[1]}.{uid.bytes[2] % 250 + 1}"}
+    correo_brute = f"brute-{uid.hex[:8]}@test.com"
     for _ in range(5):
-        r = client.post("/api/auth/login", json={"correo": "brute@test.com", "password": "wrong"}, headers=hdrs)
+        r = client.post("/api/auth/login", json={"correo": correo_brute, "password": "wrong"}, headers=hdrs)
         assert r.status_code == 401
 
-    blocked = client.post("/api/auth/login", json={"correo": "brute@test.com", "password": "wrong"}, headers=hdrs)
+    blocked = client.post("/api/auth/login", json={"correo": correo_brute, "password": "wrong"}, headers=hdrs)
     assert blocked.status_code == 429
     assert "Demasiados intentos" in blocked.json()["detail"]
 

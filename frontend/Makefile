@@ -37,7 +37,8 @@ qa-orphans:
 
 qa-mutation:
 	@echo "👽 [11X] Ejecutando Pruebas de Mutación Frontend (Stryker)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install && pnpm run mutate"
+	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install"
+	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "./node_modules/.bin/stryker run stryker.conf.json"
 
 qa-perf: build-ui
 	@echo "⚡ [11X] Ejecutando Auditoría de Rendimiento (Lighthouse CI)..."

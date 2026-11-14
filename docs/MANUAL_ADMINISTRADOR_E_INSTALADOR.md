@@ -119,6 +119,15 @@ WORKER_MEDIA_ENABLED=false
 BACKUP_DIR=/var/backups/condominio
 BACKUP_RETENTION_DAYS=30
 BACKUP_PASSPHRASE=
+
+# Bootstrap Inicial Día 0 (opcional)
+BOOTSTRAP_CONDOMINIO_ID=1
+BOOTSTRAP_ADMIN_NOMBRE="Presidente Junta Inicial"
+BOOTSTRAP_ADMIN_CEDULA="V-00000001"
+BOOTSTRAP_ADMIN_CORREO=
+BOOTSTRAP_ADMIN_TELEFONO="+584120000000"
+BOOTSTRAP_ADMIN_PASSWORD=
+BOOTSTRAP_ADMIN_ROL=PRESIDENTE
 ```
 
 > [!IMPORTANT]
@@ -149,7 +158,18 @@ Siguiendo el estándar de calidad corporativo **QA Nivel 11X**, ningún servicio
    ```bash
    docker compose exec api alembic upgrade head
    ```
-4. Compruebe la salud y conectividad de todos los servicios (API, Frontend Nginx y Worker `QA-HEALTH-01`):
+4. Inicialice de forma idempotente el primer usuario administrativo ("Día 0", rol `PRESIDENTE`) evitando pasar la contraseña por argumentos de línea de comandos:
+   ```bash
+   docker compose exec -e BOOTSTRAP_ADMIN_PASSWORD="SU_CONTRASENA_SEGURA_MIN_12" api \
+     python -m src.bootstrap \
+       --condominio-id 1 \
+       --nombre "Presidente Junta Inicial" \
+       --cedula "V-00000001" \
+       --correo "presidente@mi-comunidad.com" \
+       --telefono "+584120000000" \
+       --rol PRESIDENTE
+   ```
+5. Compruebe la salud y conectividad de todos los servicios (API, Frontend Nginx y Worker `QA-HEALTH-01`):
    ```bash
    curl -i http://127.0.0.1:8080/health
    # Debe responder HTTP/1.1 200 OK con cuerpo JSON: {"status": "healthy"}
@@ -195,31 +215,41 @@ server {
     # Límite máximo de carga de comprobantes (2 MB)
     client_max_body_size 2M;
 
-    # Enrutamiento al Frontend SPA Vue 3
+    # Enrutamiento al Gateway Nginx Unificado del Contenedor Frontend (puerto 8080)
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Enrutamiento al Backend API FastAPI
+    # Enrutamiento explícito al Backend API FastAPI (vía gateway frontend:8080)
     location /api/ {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # WebSocket para notificaciones en vivo
+    # Endpoint de salud Liveness (/health -> api:8000 vía gateway)
+    location = /health {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket para notificaciones en vivo (vía gateway frontend:8080)
     location /ws/ {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```

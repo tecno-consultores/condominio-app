@@ -1,14 +1,15 @@
 import os
 from collections.abc import Generator
 
+# Configuramos las variables de entorno ANTES de importar src.main para aislar SQLite en memoria y sin Redis compartido
+# Esto garantiza que las pruebas unitarias y Mutmut en paralelo no lean ni alteren motores externos
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["REDIS_URL"] = "redis://127.0.0.1:1/15"
+
 import pytest
 from fastapi.testclient import TestClient
 
 from src.main import app
-
-# Configuramos la variable de entorno para obligar a FastAPI a usar la base de datos en memoria (SQLite)
-# Esto garantiza que las pruebas no alteren la base de datos de PostgreSQL real, cumpliendo la regla 11X
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest.fixture(scope="module")

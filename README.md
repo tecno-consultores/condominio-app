@@ -22,7 +22,7 @@ Construida con una arquitectura modular **Mobile-First**, resuelve los problemas
 condominio-app/
 ├── .agents/                # Gobernanza IA Nivel 11X (rules, skills y scripts de certificación)
 ├── backend/                # API FastAPI + Seguridad 11X (Fase 1)
-│   ├── src/                # Código fuente (models, schemas, routers, finanzas, security, redis_client, worker)
+│   ├── src/                # Código fuente (models, schemas, routers, finanzas, security, redis_client, worker, bootstrap)
 │   ├── tests/              # Suites unitarias aisladas (test_*.unit.py, cobertura >= 95%)
 │   ├── test/               # Escenarios BDD Gherkin (Karate Labs: api_test.feature)
 │   ├── alembic/            # Migraciones verificadas contra PostgreSQL 17 real
@@ -48,9 +48,10 @@ condominio-app/
 │   ├── actualizar-grafos-graphify.sh # Extractor AST --code-only sin daemons (sinfallas/remote-graphify)
 │   ├── auditar-infra.sh              # Escáner Trivy IaC + FS (HIGH/CRITICAL = 0, caché SHA-256)
 │   ├── backup-diario.sh              # Respaldo diario PG17 + MinIO con .sha256, AES-256 opcional y alerta 75%
+│   ├── generar-sbom-cyclonedx.sh     # Generador de inventario SBOM CycloneDX del lanzamiento
 │   ├── limpieza.sh                   # Purga efímera sin sudo ni docker system prune global
 │   └── verificar-secretos.sh         # Escáner global de credenciales y llaves privadas
-├── Makefile                # Orquestación unificada QA 11X (qa-lint, qa-unit, qa-parity, qa-bdd, qa-infra)
+├── Makefile                # Orquestación unificada QA 11X (qa-lint, qa-unit, qa-parity, qa-bdd, qa-infra, qa-bash)
 ├── .env.example            # Plantilla productiva unificada (API, PG17, KeyDB, MinIO, Worker, SMTP, Backup)
 ├── docker-compose.yml      # Stack productivo no-root endurecido (postgres, keydb, minio, api, worker, frontend)
 ├── limpieza.sh             # Wrapper unificado en la raíz hacia scripts/limpieza.sh
@@ -80,19 +81,25 @@ make -C backend qa-deps         # Auditoría de vulnerabilidades en dependencias
 make -C backend qa-unit         # Pruebas unitarias + cobertura (>= 95%)
 make -C backend qa-parity       # Paridad real Alembic <-> ORM contra PostgreSQL 17
 make -C backend qa-bdd          # Escenarios BDD en Gherkin (Karate Labs)
+make -C backend qa-mutation     # Pruebas de mutación AST multi-core (Mutmut MSI >= 80%)
 make -C backend qa-contracts    # Fuzzing de contratos OpenAPI (Schemathesis)
 make -C backend qa-dast         # Seguridad dinámica (OWASP ZAP)
 make -C backend qa-chaos        # Resiliencia y caos (Pumba + Locust + Prometheus)
+
+# Inicialización idempotente Día 0 (CLI bajo RLS PostgreSQL 17)
+# docker compose run --rm api python -m src.bootstrap --from-env
 
 # Gates del Frontend Vue 3 Mobile-First (desde la raíz o frontend/)
 make -C frontend qa-orphans     # Paridad 100% de componentes Vue sin huérfanos (0 orphans)
 make -C frontend qa-lint        # Prettier + vue-tsc --noEmit + ESLint + SonarJS (complejidad <= 15)
 make -C frontend qa-unit        # Vitest + Cobertura V8 (>= 95%) + Compilación Vite de producción
+make -C frontend qa-mutation    # Pruebas de mutación Frontend (Stryker MSI >= 80%)
 make -C frontend qa-e2e         # Playwright Screenplay E2E, Geometría Anti-JSDOM, Visual & WCAG 2.1 AA
 make -C frontend qa-perf        # Auditoría Lighthouse CI (Performance >= 90%, A11y >= 95%, Best Practices >= 95%)
 make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs + sidecar chrome-cdp)
 
 # Orquestación unificada y limpieza desde la raíz
+make qa-bash                    # shfmt, ShellCheck y suites BATS (limpieza + backup)
 make qa-all
 ./limpieza.sh --quiet          # Purga residuos de pruebas (--deep para pruned local seguro)
 

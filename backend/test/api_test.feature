@@ -686,6 +686,79 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method post
     Then status 403
 
+  Scenario: 25. Bootstrap Día 0 de Presidente inicial, generación de estructura y activación de residente Fantasma
+    # 1. Login con el Presidente creado por python -m src.bootstrap --from-env
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    And match response.rol == 'PRESIDENTE'
+    * def presCsrf = response.csrf_token
+
+    Given path '/api/auth/me'
+    When method get
+    Then status 200
+    And match response.correo == 'presidente.bootstrap@condominio.test'
+    And match response.es_activo == true
+    And match response.rol == 'PRESIDENTE'
+
+    # 2. Presidente crea torre y unidad con Idempotency-Key dinámico
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def unidadIdent = 'D0-' + uid
+    Given path '/api/estructura/generar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request { nombre: "#('Torre Día0 ' + uid)", tipo: 'TORRE', identificadores: ["#('' + unidadIdent)"] }
+    When method post
+    Then status 201
+    And match response.unidades_creadas == 1
+    * def unidadId = response.unidades[0].id
+
+    # 3. Nuevo vecino se registra como Fantasma en la unidad creada
+    * def vecinoEmail = 'vecino.dia0.' + uid + '@condominio.test'
+    * def vecinoCedula = 'V-25' + uid
+    Given path '/api/auth/register'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request
+      """
+      {
+        "nombre": "Vecino Día Cero",
+        "cedula": "#(vecinoCedula)",
+        "correo": "#(vecinoEmail)",
+        "telefono": "+584145550025",
+        "password": "fake-qa-vecino-123456!",
+        "unidad_solicitada_id": #(unidadId),
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    And match response.es_activo == false
+    And match response.rol == 'FANTASMA'
+    * def vecinoId = response.id
+
+    # 4. Presidente aprueba al Usuario Fantasma y lo asigna como PROPIETARIO activo
+    Given path '/api/usuarios/' + vecinoId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request { unidad_id: #(unidadId), tipo_ocupante: 'PROPIETARIO', rol: 'PROPIETARIO' }
+    When method put
+    Then status 200
+    And match response.es_activo == true
+    And match response.rol == 'PROPIETARIO'
+
+    # 5. El vecino recién activado inicia sesión y accede al resumen financiero (HTTP 200)
+    Given path '/api/auth/login'
+    And request { correo: "#(vecinoEmail)", password: 'fake-qa-vecino-123456!' }
+    When method post
+    Then status 200
+    And match response.rol == 'PROPIETARIO'
+
+    Given path '/api/finanzas/resumen'
+    When method get
+    Then status 200
+
+
 
 
 

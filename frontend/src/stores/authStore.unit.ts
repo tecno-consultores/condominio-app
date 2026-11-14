@@ -42,8 +42,16 @@ describe('Store useAuthStore (No Destructivo & Trimodal)', () => {
     expect(store.isAuthenticated).toBe(true);
     expect(store.isActiveUser).toBe(true);
     expect(store.isGhostUser).toBe(false);
+    expect(store.isLoading).toBe(false);
+    expect(store.isStale).toBe(false);
+    expect(store.sessionHydrated).toBe(true);
     expect(store.userRole).toBe('PROPIETARIO');
     expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenNthCalledWith(1, '/api/auth/login', {
+      method: 'POST',
+      body: { correo: 'carlos@condominio.test', password: 'Password123!' },
+    });
+    expect(spy).toHaveBeenNthCalledWith(2, '/api/auth/me');
   });
 
   it('preserva los datos conocidos y marca isStale=true ante micro-cortes de red (Anti-Destructive Catch)', async () => {
@@ -71,31 +79,47 @@ describe('Store useAuthStore (No Destructivo & Trimodal)', () => {
   });
 
   it('registra un Usuario Fantasma con Idempotency-Key y permite cerrar sesión', async () => {
-    vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce(PERFIL_FANTASMA);
+    const regSpy = vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce(PERFIL_FANTASMA);
     const store = useAuthStore();
 
-    const created = await store.register(
-      {
-        nombre: 'Nuevo Vecino',
-        cedula: 'V-99999999',
-        correo: 'fantasma@condominio.test',
-        telefono: '+584149999999',
-        password: 'Password123!',
-        unidad_solicitada_id: 1,
-        tipo_ocupante_solicitado: 'PROPIETARIO',
-      },
-      'idem-reg-001',
-    );
+    const payloadRegistro = {
+      nombre: 'Nuevo Vecino',
+      cedula: 'V-99999999',
+      correo: 'fantasma@condominio.test',
+      telefono: '+584149999999',
+      password: 'Password123!',
+      unidad_solicitada_id: 1,
+      tipo_ocupante_solicitado: 'PROPIETARIO' as const,
+    };
+    const created = await store.register(payloadRegistro, 'idem-reg-001');
 
+    expect(regSpy).toHaveBeenCalledWith('/api/auth/register', {
+      method: 'POST',
+      idempotencyKey: 'idem-reg-001',
+      body: payloadRegistro,
+    });
     expect(created.es_activo).toBe(false);
+    expect(store.isGhostUser).toBe(true);
+    expect(store.isActiveUser).toBe(false);
+    expect(store.isLoading).toBe(false);
+    expect(store.isStale).toBe(false);
+    expect(store.sessionHydrated).toBe(true);
+
+    // Fronteras mixtas de es_activo vs rol FANTASMA
+    store.setProfileForTesting({ ...PERFIL_ACTIVO, rol: 'FANTASMA' });
+    expect(store.isGhostUser).toBe(true);
+    expect(store.isActiveUser).toBe(false);
+    store.setProfileForTesting({ ...PERFIL_ACTIVO, es_activo: false });
     expect(store.isGhostUser).toBe(true);
     expect(store.isActiveUser).toBe(false);
 
     store.logout();
     expect(store.isAuthenticated).toBe(false);
+    expect(store.isStale).toBe(false);
     expect(store.userRole).toBeNull();
     store.setProfileForTesting(null);
     expect(store.lastUpdatedAt).toBeNull();
+    expect(store.sessionHydrated).toBe(true);
   });
 
   it('propaga errores de login, registro y fetchProfile sin sesión previa ni instancia ApiError', async () => {
@@ -105,9 +129,21 @@ describe('Store useAuthStore (No Destructivo & Trimodal)', () => {
     const resNull = await store.fetchProfile();
     expect(resNull).toBeNull();
     expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+    expect(store.errorMessage).toBe('Error inesperado');
+
+    // Recuperación posterior de fetchProfile limpia isStale a false
+    store.setProfileForTesting(PERFIL_ACTIVO);
+    vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new apiClient.ApiError(503, 'Caído'));
+    await store.fetchProfile();
+    expect(store.isStale).toBe(true);
+    vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce(PERFIL_ACTIVO);
+    await store.fetchProfile();
+    expect(store.isStale).toBe(false);
 
     vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new Error('Login no-ApiError'));
     await expect(store.login('mal@test.com', 'bad')).rejects.toThrow('Error al iniciar sesión');
+    expect(store.isLoading).toBe(false);
 
     vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new Error('Reg no-ApiError'));
     await expect(
@@ -124,6 +160,7 @@ describe('Store useAuthStore (No Destructivo & Trimodal)', () => {
         'key-2',
       ),
     ).rejects.toThrow('Error en el registro');
+    expect(store.isLoading).toBe(false);
   });
 
   it('invoca /api/auth/logout al cerrar sesión y redirige a /login en handleUnauthorizedError (Hito 17.2)', async () => {
@@ -149,12 +186,18 @@ describe('Store useAuthStore (No Destructivo & Trimodal)', () => {
     const handled = await store.handleUnauthorizedError(new apiClient.ApiError(401, 'Expirada'));
     expect(handled).toBe(true);
     expect(store.isAuthenticated).toBe(false);
+    expect(store.errorMessage).toBe('Su sesión ha expirado. Inicie sesión nuevamente.');
     expect(mockPush).toHaveBeenCalledWith('/login');
 
-    // 401 cuando ya se encuentra en /login limpia sesión sin navegar de nuevo
+    // 401 cuando ya se encuentra en /login o /registro limpia sesión sin navegar de nuevo
     store.setProfileForTesting(PERFIL_ACTIVO);
     mockPush.mockClear();
     (mockRouter.currentRoute as { value: { path: string } }).value.path = '/login';
+    expect(await store.handleUnauthorizedError(new apiClient.ApiError(401, 'Expirada'))).toBe(true);
+    expect(mockPush).not.toHaveBeenCalled();
+
+    store.setProfileForTesting(PERFIL_ACTIVO);
+    (mockRouter.currentRoute as { value: { path: string } }).value.path = '/registro';
     expect(await store.handleUnauthorizedError(new apiClient.ApiError(401, 'Expirada'))).toBe(true);
     expect(mockPush).not.toHaveBeenCalled();
 

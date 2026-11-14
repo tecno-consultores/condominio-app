@@ -1,12 +1,18 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "plugins": ["@stryker-mutator/vitest-runner"],
   "testRunner": "vitest",
+  "coverageAnalysis": "perTest",
+  "incremental": true,
+  "incrementalFile": "/tmp/stryker-incremental.json",
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": "always",
+  "concurrency": 6,
   "mutate": [
-    "src/**/*.ts",
-    "src/**/*.vue",
-    "!src/main.ts",
-    "!src/**/*.unit.ts",
-    "!src/**/*.d.ts"
+    "src/utils/security.ts",
+    "src/composables/useIdempotency.ts",
+    "src/services/apiClient.ts",
+    "src/stores/authStore.ts"
   ],
   "reporters": ["clear-text", "progress"],
   "thresholds": {

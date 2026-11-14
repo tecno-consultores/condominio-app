@@ -7,12 +7,22 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from src.database import get_db
 from src.dependencies import get_current_user
-from src.finanzas import generar_firma_solvencia
+from src.facturacion_lph import (
+    _anexar_cuota_extraordinaria,
+    _cargos_cuota_fija,
+    _cargos_variables,
+    _crear_recibo_e_items_unidad,
+    calcular_cargos_modalidad,
+    cargar_contexto_facturacion,
+    persistir_lote_facturacion,
+)
+from src.finanzas import ErrorFinanciero, generar_firma_solvencia
 from src.main import app
 from src.models import (
     CertificadoSolvencia,
@@ -754,3 +764,249 @@ def test_emitir_solvencia_con_deuda_pendiente_devuelve_409(client: TestClient) -
     _setup(_mock_session(), redis_new=False)
     assert client.post("/api/finanzas/solvencia/4", headers=HEADERS).status_code == 409
     app.dependency_overrides = {}
+
+
+def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None:
+    """Ataque unitario directo a helpers de facturacion_lph.py para cobertura de mutantes."""
+    import pytest
+
+    from src.schemas import FacturarPeriodoRequest
+
+    u1 = Unidad(
+        id=1,
+        identificador="A-01",
+        estructura_id=1,
+        alicuota=Decimal("60.0000"),
+        cuota_fija_usd=Decimal("40.00"),
+        credito_disponible_usd=Decimal("50.00"),
+    )
+    u2 = Unidad(
+        id=2,
+        identificador="A-02",
+        estructura_id=1,
+        alicuota=Decimal("40.0000"),
+        cuota_fija_usd=Decimal("0.00"),
+        credito_disponible_usd=Decimal("5.00"),
+    )
+
+    req_fija = FacturarPeriodoRequest(periodo="2026-10", modalidad="CUOTA_FIJA", monto_cuota_fija_usd=Decimal("20.00"))
+    items_fija, superavit = _cargos_cuota_fija(req_fija, [u1, u2], Decimal("50.00"))
+    assert items_fija[1][0][0] == "CUOTA_FIJA"
+    assert items_fija[1][0][1] == "Cuota fija mensual (2026-10)"
+    assert items_fija[1][0][2] == Decimal("40.00")
+    assert items_fija[2][0][2] == Decimal("20.00")
+    assert superavit == Decimal("10.00")
+
+    # Si total fijo < total egresos, retorna diferencia negativa sin truncar
+    _, superavit_cero = _cargos_cuota_fija(req_fija, [u1, u2], Decimal("80.00"))
+    assert superavit_cero == Decimal("-20.00")
+
+    # Error si una unidad no tiene cuota individual (>0) ni global
+    req_fija_sin_monto = FacturarPeriodoRequest(periodo="2026-10", modalidad="CUOTA_FIJA", monto_cuota_fija_usd=None)
+    with pytest.raises(ErrorFinanciero, match="CUOTA_FIJA"):
+        _cargos_cuota_fija(req_fija_sin_monto, [u1, u2], Decimal("10.00"))
+
+    # Cargos variables: PARTES_IGUALES sin fondo de reserva (> 0)
+    req_pi = FacturarPeriodoRequest(periodo="2026-10", modalidad="PARTES_IGUALES", incluir_fondo_reserva=False)
+    items_pi = _cargos_variables(req_pi, [u1, u2], Decimal("100.00"), Decimal("0.00"))
+    assert len(items_pi[1]) == 1
+    assert items_pi[1][0][0] == "GASTO_COMUN"
+    assert items_pi[1][0][1] == "Cuota parte de gastos comunes (2026-10)"
+    assert items_pi[1][0][2] == Decimal("50.00")
+    assert items_pi[2][0][2] == Decimal("50.00")
+
+    # Cargos variables: ALICUOTA con reserva > 0 emite GASTO_COMUN y FONDO_RESERVA
+    req_al = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=True)
+    items_al = _cargos_variables(req_al, [u1, u2], Decimal("100.00"), Decimal("10.00"))
+    assert [t[0] for t in items_al[1]] == ["GASTO_COMUN", "FONDO_RESERVA"]
+    assert items_al[1][0][1] == "Cuota parte de gastos comunes (2026-10)"
+    assert items_al[1][1][1] == "Aporte al Fondo de Reserva Legal"
+    assert items_al[1][0][2] == Decimal("60.00")
+    assert items_al[1][1][2] == Decimal("6.00")
+    assert items_al[2][0][2] == Decimal("40.00")
+    assert items_al[2][1][2] == Decimal("4.00")
+
+    # Cuota extraordinaria <= 0 no agrega ítems; > 0 prorratea por alícuota y agrega fallback desc
+    _anexar_cuota_extraordinaria(req_al, [u1, u2], items_al)
+    assert len(items_al[1]) == 2
+
+    req_ext_pi = FacturarPeriodoRequest(
+        periodo="2026-10",
+        modalidad="PARTES_IGUALES",
+        cuota_extraordinaria_total_usd=Decimal("30.00"),
+    )
+    items_ext: dict[int, list[tuple[str, str, Decimal]]] = {1: [], 2: []}
+    _anexar_cuota_extraordinaria(req_ext_pi, [u1, u2], items_ext)
+    assert items_ext[1][0][0] == "CUOTA_EXTRAORDINARIA"
+    assert items_ext[1][0][1] == "Cuota extraordinaria aprobada"
+    assert items_ext[1][0][2] == Decimal("15.00")
+    assert items_ext[2][0][2] == Decimal("15.00")
+
+    # Cuota extraordinaria en ALICUOTA con alícuotas que no suman 100% -> 400
+    req_ext_al = FacturarPeriodoRequest(
+        periodo="2026-10",
+        modalidad="ALICUOTA",
+        cuota_extraordinaria_total_usd=Decimal("30.00"),
+    )
+    u_bad = Unidad(
+        id=3,
+        identificador="A-03",
+        estructura_id=1,
+        alicuota=Decimal("10.0000"),
+        credito_disponible_usd=Decimal("0.00"),
+    )
+    with pytest.raises(ErrorFinanciero, match="100.0000%"):
+        _anexar_cuota_extraordinaria(req_ext_al, [u1, u_bad], {1: [], 3: []})
+
+    # Pruebas directas sobre calcular_cargos_modalidad (CUOTA_FIJA y ALICUOTA con extraordinaria)
+    req_mod_fija = FacturarPeriodoRequest(
+        periodo="2026-10",
+        modalidad="CUOTA_FIJA",
+        monto_cuota_fija_usd=Decimal("20.00"),
+        cuota_extraordinaria_total_usd=Decimal("20.00"),
+    )
+    items_mod_fija, sup_mod = calcular_cargos_modalidad(req_mod_fija, [u1, u2], Decimal("50.00"), Decimal("0.00"))
+    assert sup_mod == Decimal("10.00")
+    assert [t[0] for t in items_mod_fija[1]] == ["CUOTA_FIJA", "CUOTA_EXTRAORDINARIA"]
+
+    req_mod_al = FacturarPeriodoRequest(
+        periodo="2026-10",
+        modalidad="ALICUOTA",
+        incluir_fondo_reserva=True,
+        cuota_extraordinaria_total_usd=Decimal("20.00"),
+    )
+    items_mod_al, sup_mod_al = calcular_cargos_modalidad(req_mod_al, [u1, u2], Decimal("100.00"), Decimal("10.00"))
+    assert sup_mod_al == Decimal("0.00")
+    assert [t[0] for t in items_mod_al[1]] == ["GASTO_COMUN", "FONDO_RESERVA", "CUOTA_EXTRAORDINARIA"]
+    assert items_mod_al[1][2][2] == Decimal("12.00")
+    assert items_mod_al[2][2][2] == Decimal("8.00")
+
+    # _crear_recibo_e_items_unidad: crédito cubre total -> PAGADO y abono negativo
+    recibo_pagado, r_items, bruto_1, cred_1 = _crear_recibo_e_items_unidad(
+        u1,
+        "2026-10",
+        [("CUOTA_FIJA", "Cuota", Decimal("40.00"))],
+    )
+    assert bruto_1 == Decimal("40.00")
+    assert cred_1 == Decimal("40.00")
+    assert recibo_pagado.monto_usd == Decimal("40.00")
+    assert recibo_pagado.monto_pagado_usd == Decimal("40.00")
+    assert recibo_pagado.estado == "PAGADO"
+    assert recibo_pagado.bloqueado is False
+    assert u1.credito_disponible_usd == Decimal("10.00")
+    assert r_items[-1].tipo_item == "ABONO_CREDITO_PREVIO"
+    assert r_items[-1].descripcion == "Abono automático de saldo a favor disponible"
+    assert r_items[-1].monto_usd == Decimal("-40.00")
+
+    # Cargo bruto cero produce recibo en 0.00 marcado como PAGADO sin abono
+    recibo_cero, items_cero, bruto_cero, cred_cero = _crear_recibo_e_items_unidad(u1, "2026-10", [])
+    assert bruto_cero == Decimal("0.00")
+    assert cred_cero == Decimal("0.00")
+    assert recibo_cero.monto_usd == Decimal("0.00")
+    assert recibo_cero.monto_pagado_usd == Decimal("0.00")
+    assert recibo_cero.estado == "PAGADO"
+    assert items_cero == []
+
+    # Crédito parcial deja recibo PENDIENTE y consume todo el crédito
+    recibo_pend, r_items2, bruto_2, cred_2 = _crear_recibo_e_items_unidad(
+        u2,
+        "2026-10",
+        [("GASTO_COMUN", "Gasto", Decimal("25.00"))],
+    )
+    assert bruto_2 == Decimal("25.00")
+    assert cred_2 == Decimal("5.00")
+    assert recibo_pend.monto_usd == Decimal("20.00")
+    assert recibo_pend.estado == "PENDIENTE"
+    assert u2.credito_disponible_usd == Decimal("0.00")
+    assert len(r_items2) == 2
+
+
+async def test_cargar_contexto_facturacion_respaldo_diez_por_ciento() -> None:
+    """Sin fondo RESERVA_LEGAL activo, cargar_contexto_facturacion aplica 10.00% por defecto."""
+    from src.schemas import FacturarPeriodoRequest
+
+    u = Unidad(id=1, identificador="A-01", estructura_id=1, alicuota=Decimal("100.0000"))
+    egreso = Egreso(
+        id=1,
+        periodo="2026-10",
+        categoria="MANT",
+        descripcion="Bomba",
+        monto=Decimal("200.00"),
+        moneda="USD",
+        monto_usd=Decimal("200.00"),
+        tasa_cambio=Decimal("36.5000"),
+        es_gasto_comun=True,
+    )
+    session = _mock_session(_result_list([u]), _result_list([egreso]), _result(None))
+    req = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=True)
+    unidades, total_eg, fondo, recargo = await cargar_contexto_facturacion(session, req)
+    assert len(unidades) == 1
+    assert total_eg == Decimal("200.00")
+    assert fondo is None
+    assert recargo == Decimal("20.00")
+
+
+async def test_persistir_lote_facturacion_actualiza_fondos_y_recibos() -> None:
+    """Verifica actualización de fondo según modalidad, flush, recibo_id en ítems y totales netos."""
+    u1 = Unidad(
+        id=1,
+        identificador="A-01",
+        estructura_id=1,
+        alicuota=Decimal("100.0000"),
+        credito_disponible_usd=Decimal("10.00"),
+    )
+    fondo_fija = FondoCondominio(
+        id=1,
+        nombre="Reserva",
+        tipo="RESERVA_LEGAL",
+        porcentaje_recargo=Decimal("10.00"),
+        saldo_actual_usd=Decimal("100.00"),
+        es_activo=True,
+    )
+    session_fija = _mock_session()
+    tot_bruto, tot_cred, tot_neto = await persistir_lote_facturacion(
+        session_fija,
+        [u1],
+        "2026-10",
+        "CUOTA_FIJA",
+        {1: [("CUOTA_FIJA", "Cuota fija mensual (2026-10)", Decimal("40.00"))]},
+        fondo_fija,
+        Decimal("5.00"),
+        Decimal("12.00"),
+    )
+    assert (tot_bruto, tot_cred, tot_neto) == (Decimal("40.00"), Decimal("10.00"), Decimal("30.00"))
+    assert fondo_fija.saldo_actual_usd == Decimal("112.00")
+    session_fija.flush.assert_awaited_once()
+    session_fija.commit.assert_awaited_once()
+    items_fija_add = [c.args[0] for c in session_fija.add.call_args_list if isinstance(c.args[0], ReciboItem)]
+    assert len(items_fija_add) == 2
+    assert all(it.recibo_id == 1 for it in items_fija_add)
+
+    u2 = Unidad(
+        id=2,
+        identificador="A-02",
+        estructura_id=1,
+        alicuota=Decimal("100.0000"),
+        credito_disponible_usd=Decimal("0.00"),
+    )
+    fondo_al = FondoCondominio(
+        id=2,
+        nombre="Reserva 2",
+        tipo="RESERVA_LEGAL",
+        porcentaje_recargo=Decimal("10.00"),
+        saldo_actual_usd=Decimal("50.00"),
+        es_activo=True,
+    )
+    session_al = _mock_session()
+    b2, c2, n2 = await persistir_lote_facturacion(
+        session_al,
+        [u2],
+        "2026-11",
+        "ALICUOTA",
+        {2: [("GASTO_COMUN", "Cuota parte", Decimal("60.00"))]},
+        fondo_al,
+        Decimal("6.00"),
+        Decimal("99.00"),
+    )
+    assert (b2, c2, n2) == (Decimal("60.00"), Decimal("0.00"), Decimal("60.00"))
+    assert fondo_al.saldo_actual_usd == Decimal("56.00")

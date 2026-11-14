@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   qa-backend:
-    name: 🧪 Lint, Complejidad, Dependencias, Cobertura, Paridad y BDD
+    name: 🧪 Lint, Complejidad, Dependencias, Cobertura, Paridad, BDD y Contratos
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -37,11 +37,14 @@ jobs:
       - name: 🧪 Pruebas Unitarias con Cobertura ≥ 95%
         run: make qa-unit
 
-      - name: 🗄️ Paridad Real Alembic ↔ ORM en PostgreSQL 17
+      - name: 🗄️ Paridad Real Alembic ↔ ORM e Integridad RLS en PostgreSQL 17
         run: make qa-parity
 
       - name: 📚 Pruebas BDD de Caja Negra (Karate Labs API)
         run: make qa-bdd
+
+      - name: 📑 Fuzzing de Contratos OpenAPI (Schemathesis)
+        run: make qa-contracts
 
       - name: 🧹 Limpieza de contenedores QA
         if: always()

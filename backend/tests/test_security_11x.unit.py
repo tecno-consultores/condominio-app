@@ -45,13 +45,21 @@ from src.schemas import (
     UsuarioCreate,
 )
 from src.security import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    ALGORITHM,
     DEFAULT_INSECURE_SECRET_KEY,
+    FORBIDDEN_CONTAINER_HOSTS,
+    MAX_UPLOAD_SIZE_BYTES,
+    PBKDF2_ITERATIONS,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+    UPLOAD_CHUNK_SIZE,
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
     decode_token_unverified_exp,
     generate_csrf_token,
     get_password_hash,
+    is_csrf_enforced,
     read_uploaded_file_safely,
     should_use_secure_cookie,
     validate_csrf_token,
@@ -382,11 +390,11 @@ def test_validate_production_security_settings_fail_fast(monkeypatch: pytest.Mon
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
         validate_production_security_settings()
 
-    monkeypatch.setenv("SECRET_KEY", "corta")
+    monkeypatch.setenv("SECRET_KEY", "a" * 31)
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
         validate_production_security_settings()
 
-    monkeypatch.setenv("SECRET_KEY", "super-clave-produccion-32-caracteres-ok!")
+    monkeypatch.setenv("SECRET_KEY", "a" * 32)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
         validate_production_security_settings()
@@ -534,3 +542,287 @@ async def test_get_current_user_rejects_revoked_sid(monkeypatch: pytest.MonkeyPa
         await get_current_user(req, db=mock_db, redis_conn=mock_redis)
     assert exc.value.status_code == 401
     assert "Sesión revocada" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_security_constants_jwt_magic_bytes_and_upload_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pruebas de frontera directas en constantes, CSRF, JWT refresh, magic bytes y uploads (mutación 11X)."""
+    from datetime import timedelta
+
+    import jwt
+
+    assert ALGORITHM == "HS256"
+    assert ACCESS_TOKEN_EXPIRE_MINUTES == 30
+    assert REFRESH_TOKEN_EXPIRE_DAYS == 7
+    assert PBKDF2_ITERATIONS == 100_000
+    assert MAX_UPLOAD_SIZE_BYTES == 2 * 1024 * 1024
+    assert UPLOAD_CHUNK_SIZE == 64 * 1024
+    assert "localhost" in FORBIDDEN_CONTAINER_HOSTS
+    assert "postgres" in FORBIDDEN_CONTAINER_HOSTS
+    assert "keydb" in FORBIDDEN_CONTAINER_HOSTS
+
+    hashed = get_password_hash("ClaveBoundary123!")
+    parts_hash = hashed.split("$")
+    assert len(parts_hash) == 3
+    assert parts_hash[0] == "pbkdf2_sha256"
+    assert len(parts_hash[1]) == 32
+    assert len(parts_hash[2]) == 64
+    assert verify_password("ClaveBoundary123!", "pbkdf2_sha256$not_int$salt$digest") is False
+    assert verify_password("ClaveBoundary123!", "pbkdf2_sha256$10$salt$a$b") is False
+    assert verify_password("ClaveBoundary123!", "pbkdf2_sha256$salt$bad_digest") is False
+
+    # COOKIE_SECURE e is_csrf_enforced solo aceptan "true" explícito (case/espacios normalizados)
+    for truthy in ("true", " TRUE "):
+        monkeypatch.setenv("COOKIE_SECURE", truthy)
+        monkeypatch.setenv("APP_ENV", "development")
+        assert should_use_secure_cookie() is True
+        monkeypatch.setenv("CSRF_ENFORCE", truthy)
+        assert is_csrf_enforced() is True
+    for falsy in ("0", "1", "false", "no"):
+        monkeypatch.setenv("COOKIE_SECURE", falsy)
+        monkeypatch.setenv("APP_ENV", "production")
+        assert should_use_secure_cookie() is False
+        monkeypatch.setenv("CSRF_ENFORCE", falsy)
+        assert is_csrf_enforced() is True
+        monkeypatch.setenv("APP_ENV", "development")
+        assert is_csrf_enforced() is False
+
+    monkeypatch.delenv("CSRF_ENFORCE", raising=False)
+    monkeypatch.setenv("APP_ENV", "production")
+    assert is_csrf_enforced() is True
+    monkeypatch.setenv("APP_ENV", "development")
+    assert is_csrf_enforced() is False
+
+    # Refresh token expirado, tipo inválido ("access") y token malformado -> InvalidTokenError
+    access_only = create_access_token({"sub": "a@b.com", "id": 1}, expires_delta=timedelta(minutes=5))
+    payload_access = decode_token_unverified_exp(access_only)
+    assert payload_access is not None and isinstance(payload_access["exp"], int) and payload_access["exp"] > 0
+
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_refresh_token(access_only)
+
+    expired_refresh = create_refresh_token({"sub": "a@b.com", "id": 1}, expires_delta=timedelta(seconds=-10))
+    payload_exp = decode_token_unverified_exp(expired_refresh)
+    assert payload_exp is not None and isinstance(payload_exp["exp"], int)
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_refresh_token(expired_refresh)
+
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_refresh_token("no.jwt.valido")
+
+    rt_fijo = create_refresh_token({"sub": "a@b.com", "jti": "jti-fijo"})
+    assert decode_refresh_token(rt_fijo)["jti"] == "jti-fijo"
+    rt_auto = create_refresh_token({"sub": "a@b.com"})
+    assert len(str(decode_refresh_token(rt_auto)["jti"])) >= 16
+
+    # Magic bytes límites exactos (WEBP len<12, AVI, AVIF variants, JPEG, PDF, PNG truncado)
+    assert validate_file_magic_bytes(b"\x89PNG") == "image/png"
+    assert validate_file_magic_bytes(b"\x00\x00\x00\x1cftypavis\x00\x00") == "image/avif"
+    assert validate_file_magic_bytes(b"\x00\x00\x00\x1cftypmif1\x00\x00") == "image/avif"
+    for invalid_bytes in (
+        b"",
+        b"\x89PN",
+        b"RIFF\x24\x00\x00\x00WEB",
+        b"RIFF\x24\x00\x00\x00AVI ",
+        b"\x00\x00\x00\x1cftypavi",
+        b"\x00\x00\x00\x1cftypheic\x00\x00",
+    ):
+        with pytest.raises(HTTPException) as exc_m:
+            validate_file_magic_bytes(invalid_bytes)
+        assert exc_m.value.status_code == 415
+        assert "Magic Bytes" in exc_m.value.detail
+
+    # Carga en múltiples chunks justo en el límite (exacto == max_bytes pasa, +1 byte -> 413)
+    exact_payload = b"%PDF-1.7" + b"X" * 92
+    assert (
+        await read_uploaded_file_safely(
+            _DummyUpload([exact_payload[:50], exact_payload[50:]]),
+            max_bytes=100,
+            verify_magic_bytes=True,
+        )
+        == exact_payload
+    )
+    with pytest.raises(HTTPException) as exc_413:
+        await read_uploaded_file_safely(_DummyUpload([exact_payload, b"Z"]), max_bytes=100, verify_magic_bytes=False)
+    assert exc_413.value.status_code == 413
+    assert "tamaño" in exc_413.value.detail.lower() or "mb" in exc_413.value.detail.lower()
+
+    # SSRF IPv6 loopback / link-local y puerto explícito público
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port: [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 0, 0, 0))],
+    )
+    with pytest.raises(ValueError, match="prohibido"):
+        validate_safe_outgoing_url("https://ipv6-local.example.com:8443/hook")
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))],
+    )
+    assert validate_safe_outgoing_url("https://cdn.example.com:8443/a.png") == "https://cdn.example.com:8443/a.png"
+
+    # WebSocket origin por defecto con ALLOWED_ORIGINS con espacios
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("ALLOWED_ORIGINS", " https://a.com ,  https://b.com ")
+    assert verify_websocket_origin("https://a.com") is True
+    assert verify_websocket_origin("https://b.com") is True
+    assert verify_websocket_origin("https://c.com") is False
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    assert verify_websocket_origin("http://localhost:8080") is True
+    assert verify_websocket_origin("http://localhost:5173") is True
+    assert verify_websocket_origin("   ") is False
+
+
+@pytest.mark.asyncio
+async def test_security_survivor_contracts_and_exact_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifica contratos exactos de mensajes, normalización, tiempos constantes y límites Magic Bytes."""
+    import os
+
+    from fastapi import status as http_status
+    import jwt
+
+    from src import security as security_mod
+
+    # Constantes centinela y clave fallback exacta
+    assert DEFAULT_INSECURE_SECRET_KEY == "qa-blueprint-11x-secret-key-super-secure-32bytes"
+    assert security_mod._FALLBACK_DEV_SENTINEL == DEFAULT_INSECURE_SECRET_KEY
+    assert security_mod.SECRET_KEY == os.getenv("SECRET_KEY", DEFAULT_INSECURE_SECRET_KEY)
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.setattr(security_mod, "SECRET_KEY", "fallback-temporal-32-chars-seguro")
+    assert security_mod._get_secret_key() == "fallback-temporal-32-chars-seguro"
+
+    # Normalización de APP_ENV / COOKIE_SECURE / CSRF_ENFORCE con espacios y valores por defecto
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("CSRF_ENFORCE", raising=False)
+    assert should_use_secure_cookie() is False
+    assert is_csrf_enforced() is False
+    validate_production_security_settings()  # No debe fallar fuera de production
+
+    monkeypatch.setenv("APP_ENV", "  PRODUCTION  ")
+    assert should_use_secure_cookie() is True
+    assert is_csrf_enforced() is True
+    monkeypatch.setenv("CSRF_ENFORCE", "  TRUE  ")
+    monkeypatch.delenv("APP_ENV", raising=False)
+    assert is_csrf_enforced() is True
+
+    # Fail-fast en producción: espacios en SECRET_KEY / DATABASE_URL y mensajes exactos
+    monkeypatch.setenv("APP_ENV", "  PRODUCTION  ")
+    monkeypatch.setenv("SECRET_KEY", "a" * 30 + "   ")
+    with pytest.raises(
+        RuntimeError,
+        match=r"^Configuración insegura en APP_ENV=production: defina SECRET_KEY criptográfica \(>= 32 caracteres\)\.$",
+    ):
+        validate_production_security_settings()
+
+    monkeypatch.setenv("SECRET_KEY", "c" * 32)
+    for bad_db in ("   ", "sqlite+aiosqlite:///:memory:"):
+        monkeypatch.setenv("DATABASE_URL", bad_db)
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                r"^Configuración insegura en APP_ENV=production: "
+                r"DATABASE_URL no puede estar vacía ni usar SQLite :memory:\.$"
+            ),
+        ):
+            validate_production_security_settings()
+
+    # Lista completa de hosts internos bloqueados por Anti-SSRF
+    expected_hosts = frozenset(
+        {
+            "localhost",
+            "api",
+            "postgres",
+            "keydb",
+            "redis",
+            "worker",
+            "minio",
+            "condominio_backend_api",
+            "condominio_backend_redis",
+            "condominio_backend_postgres",
+        }
+    )
+    assert FORBIDDEN_CONTAINER_HOSTS == expected_hosts
+    for host in expected_hosts:
+        with pytest.raises(ValueError, match=r"^Acceso prohibido a recursos internos de infraestructura$"):
+            validate_safe_outgoing_url(f"https://{host}/webhook")
+
+    # Anti-SSRF errores exactos, esquema http/https y resolución DNS privada
+    with pytest.raises(ValueError, match=r"^Esquema no permitido: ftp$"):
+        validate_safe_outgoing_url("ftp://public.example.com/archivo.pdf")
+    with pytest.raises(ValueError, match=r"^URL sin hostname válido$"):
+        validate_safe_outgoing_url("https:///ruta-sin-host")
+
+    def _raise_gai(_host: str, _port: Any) -> list[Any]:
+        raise socket.gaierror("fail")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _raise_gai)
+    with pytest.raises(ValueError, match=r"^No se pudo resolver el host: bad\.example$"):
+        validate_safe_outgoing_url("https://bad.example/hook")
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda _host, _port: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 0))],
+    )
+    with pytest.raises(ValueError, match=r"^Destino prohibido en red privada o reservada \(10\.0\.0\.5\)$"):
+        validate_safe_outgoing_url("https://privado.example/hook")
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda _host, _port: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))],
+    )
+    assert validate_safe_outgoing_url("  http://cdn.example.com/recurso  ") == "http://cdn.example.com/recurso"
+
+    # Anti-enumeración en tiempo constante para hashes inválidos
+    digest_calls: list[tuple[str, str]] = []
+    real_digest = security_mod._pbkdf2_digest
+
+    def _spy_digest(pw: str, salt: str) -> str:
+        digest_calls.append((pw, salt))
+        return real_digest(pw, salt)
+
+    monkeypatch.setattr(security_mod, "_pbkdf2_digest", _spy_digest)
+    assert verify_password("ClaveDemo123!", "hash-legacy-sin-prefijo") is False
+    assert digest_calls == [("ClaveDemo123!", "0" * 32)]
+
+    # Refresh token jti fallback para cadena vacía y coerción str(jti)
+    rt_empty_jti = create_refresh_token({"sub": "a@b.com", "jti": ""})
+    assert len(str(decode_refresh_token(rt_empty_jti)["jti"])) >= 16
+    rt_num_jti = create_refresh_token({"sub": "a@b.com", "jti": 98765})
+    assert decode_refresh_token(rt_num_jti)["jti"] == "98765"
+
+    acc_tok = create_access_token({"sub": "a@b.com"})
+    with pytest.raises(jwt.InvalidTokenError, match=r"^Tipo de token inválido para renovación\.$"):
+        decode_refresh_token(acc_tok)
+
+    # CSRF requiere token Y session_id no vacíos (ni HMAC válido con session_id vacío pasa)
+    assert validate_csrf_token(generate_csrf_token(""), "") is False
+    assert validate_csrf_token("", "session-abc") is False
+
+    # Magic bytes exactamente en longitud mínima 12 y detalles HTTP exactos
+    assert validate_file_magic_bytes(b"RIFF\x00\x00\x00\x00WEBP") == "image/webp"
+    assert validate_file_magic_bytes(b"\x00\x00\x00\x1cftypavif") == "image/avif"
+    assert validate_file_magic_bytes(b"\x00\x00\x00\x1cftypavis") == "image/avif"
+    assert validate_file_magic_bytes(b"\x00\x00\x00\x1cftypmif1") == "image/avif"
+    assert validate_file_magic_bytes(b"\xff\xd8\xff\xe0\x00\x10JFIF") == "image/jpeg"
+
+    with pytest.raises(HTTPException) as exc_bad_magic:
+        await read_uploaded_file_safely(_DummyUpload([b"INVALIDO_BINARIO_16"]), verify_magic_bytes=True)
+    assert exc_bad_magic.value.status_code == http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+    assert exc_bad_magic.value.detail == "Formato binario de archivo no permitido (Magic Bytes inválidos)."
+
+    with pytest.raises(HTTPException) as exc_too_large:
+        await read_uploaded_file_safely(_DummyUpload([b"a" * 11]), max_bytes=10, verify_magic_bytes=False)
+    assert exc_too_large.value.status_code == http_status.HTTP_413_CONTENT_TOO_LARGE
+    assert exc_too_large.value.detail == "El archivo excede el tamaño máximo permitido de 2 MB."
+
+    # WebSocket Origin vacío o None en desarrollo vs producción
+    monkeypatch.delenv("APP_ENV", raising=False)
+    assert verify_websocket_origin(None) is True
+    assert verify_websocket_origin("") is True
+    monkeypatch.setenv("APP_ENV", "production")
+    assert verify_websocket_origin(None) is False
