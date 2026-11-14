@@ -21,10 +21,10 @@ defineProps<{
   gap: 0.75rem;
   padding: 0.625rem 1rem;
   margin-bottom: 1rem;
-  border-radius: 0.5rem;
-  background-color: #fff8e1;
-  border: 1px solid #f59e0b;
-  color: #78350f;
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--status-warn-bg, #fff8e1);
+  border: 1px solid var(--status-warn-border, #f59e0b);
+  color: var(--status-warn-text, #78350f);
   font-size: 0.875rem;
 }
 
@@ -33,7 +33,9 @@ defineProps<{
   text-transform: uppercase;
   font-size: 0.75rem;
   padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  background-color: #fde68a;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--status-warn-border, #f59e0b);
+  color: var(--status-warn-text, #78350f);
 }
 </style>

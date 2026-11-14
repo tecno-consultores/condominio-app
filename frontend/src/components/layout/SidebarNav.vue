@@ -340,9 +340,7 @@ const visibleSections = computed<SidebarSection[]>(() => {
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .sidebar__link:hover {

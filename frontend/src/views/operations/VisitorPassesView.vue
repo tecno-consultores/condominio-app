@@ -234,28 +234,29 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 .passes-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0;
 }
 
 .passes-view__subtitle {
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
 
 .card {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.75rem;
+  background: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md, 0.75rem);
   padding: 1.25rem;
+  box-shadow: var(--shadow-card);
 }
 
 .card__title,
 .section-heading {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0 0 0.75rem;
 }
 
@@ -277,17 +278,17 @@ async function handleRevocarPase(paseId: number): Promise<void> {
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .field input,
 .field select {
   padding: 0.6rem 0.75rem;
-  border: 1px solid #94a3b8;
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-control, #94a3b8);
+  border-radius: var(--radius-sm, 0.5rem);
   font-size: 0.92rem;
-  color: #0f172a;
-  background: #ffffff;
+  color: var(--text-primary, #0f172a);
+  background: var(--surface-card, #ffffff);
 }
 
 .cards-grid {
@@ -311,19 +312,19 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 
 .pass-card__visitor {
   font-size: 1rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .pass-card__meta {
   margin: 0.2rem 0 0;
   font-size: 0.83rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .pass-card__token-box {
-  background: #f8fafc;
-  border: 1px dashed #94a3b8;
-  border-radius: 0.5rem;
+  background: var(--surface-subtle, #f8fafc);
+  border: 1px dashed var(--border-control, #94a3b8);
+  border-radius: var(--radius-sm, 0.5rem);
   padding: 0.6rem;
   display: flex;
   flex-direction: column;
@@ -333,12 +334,12 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 .token-label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .token-value {
   font-size: 0.78rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   word-break: break-all;
 }
 
@@ -352,41 +353,42 @@ async function handleRevocarPase(paseId: number): Promise<void> {
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill, 9999px);
 }
 
 .badge--activo {
-  background: #dcfce7;
-  color: #14532d;
+  background: var(--status-ok-bg, #dcfce7);
+  color: var(--status-ok-text, #14532d);
 }
 
 .badge--usado {
-  background: #e0f2fe;
-  color: #0c4a6e;
+  background: var(--brand-tint, #e0f2fe);
+  color: var(--brand-accent, #0c4a6e);
 }
 
 .badge--revocado,
 .badge--expirado {
-  background: #fee2e2;
-  color: #7f1d1d;
+  background: var(--status-danger-bg, #fee2e2);
+  color: var(--status-danger-text, #7f1d1d);
 }
 
 .btn {
   padding: 0.6rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   font-weight: 600;
   cursor: pointer;
   border: none;
 }
 
 .btn--primary {
-  background: #0369a1;
+  background: var(--brand-600, #0369a1);
   color: #ffffff;
 }
 
 .btn--secondary {
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--surface-subtle, #e2e8f0);
+  border: 1px solid var(--border-control, #cbd5e1);
+  color: var(--text-primary, #0f172a);
 }
 
 .btn--danger {
@@ -396,24 +398,24 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 
 .alert {
   padding: 0.8rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   font-weight: 600;
 }
 
 .alert--error {
-  background: #fef2f2;
-  border: 1px solid #ef4444;
-  color: #991b1b;
+  background: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #ef4444);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .alert--success {
-  background: #f0fdf4;
-  border: 1px solid #22c55e;
-  color: #14532d;
+  background: var(--status-ok-bg, #f0fdf4);
+  border: 1px solid var(--status-ok-border, #22c55e);
+  color: var(--status-ok-text, #14532d);
 }
 
 .empty-state {
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.9rem;
 }
 </style>

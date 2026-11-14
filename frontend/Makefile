@@ -21,7 +21,7 @@ PNPM_STORE_SETUP = if [ -w /pnpm ]; then export pnpm_config_store_dir=/pnpm; els
 build-ui:
 	@echo "🏗️ Compilando aplicación Vue 3 / Vite para entorno E2E/Producción..."
 	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install && pnpm run build"
-	docker compose -f $(COMPOSE_FILE) up -d ui-prod
+	docker compose -f $(COMPOSE_FILE) up -d --force-recreate ui-prod chrome-cdp
 
 qa-lint:
 	@echo "🔍 [11X] Ejecutando Auditoría de CVEs, Type-Check, Prettier y ESLint (SonarJS)..."
@@ -41,13 +41,13 @@ qa-mutation:
 
 qa-perf: build-ui
 	@echo "⚡ [11X] Ejecutando Auditoría de Rendimiento (Lighthouse CI)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && pnpm install && pnpm run test:perf"
+	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/lhci autorun"
 
 qa-lighthouse: qa-perf
 
 qa-e2e: build-ui
 	@echo "🎭 [11X] Ejecutando Regresión Visual, Geometría Anti-JSDOM y Accesibilidad WCAG 2.1 AA..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && pnpm install && pnpm exec playwright test"
+	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/playwright test"
 
 qa-a11y: qa-e2e
 

@@ -93,22 +93,22 @@ const emit = defineEmits<{
 }
 
 .task-item__area {
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .task-item__linked {
   padding: 0.15rem 0.5rem;
-  border-radius: 9999px;
-  background-color: #e0f2fe;
-  color: #0369a1;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--brand-tint, #e0f2fe);
+  color: var(--brand-accent, #0369a1);
   font-weight: 700;
 }
 
 .task-item__badge {
   padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
-  background-color: #f1f5f9;
-  color: #334155;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--surface-subtle, #f1f5f9);
+  color: var(--text-secondary, #334155);
   font-weight: 700;
 }
 

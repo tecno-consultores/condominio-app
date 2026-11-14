@@ -140,7 +140,7 @@ async function handleLogout(): Promise<void> {
   container-type: inline-size;
   container-name: main-canvas;
   padding: clamp(0.75rem, 2vw, 1.5rem) clamp(1rem, 3vw, 2.5rem)
-    calc(4.5rem + env(safe-area-inset-bottom, 0px));
+    calc(9.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 .app-main__body {
@@ -177,8 +177,8 @@ async function handleLogout(): Promise<void> {
   cursor: pointer;
   box-shadow: var(--shadow-card);
   transition:
-    background-color 0.15s ease-in-out,
-    border-color 0.15s ease-in-out;
+    border-color 0.15s ease-in-out,
+    box-shadow 0.15s ease-in-out;
 }
 
 .contextual-help-trigger:hover {
@@ -234,7 +234,7 @@ async function handleLogout(): Promise<void> {
 
 @media (min-width: 768px) {
   .app-main {
-    padding: clamp(1rem, 2vw, 2rem) clamp(1.5rem, 3vw, 3rem);
+    padding: clamp(1rem, 2vw, 2rem) clamp(1.5rem, 3vw, 3rem) 6rem;
   }
 }
 </style>

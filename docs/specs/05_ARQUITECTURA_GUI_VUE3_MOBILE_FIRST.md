@@ -220,3 +220,26 @@ El repositorio mantiene dos manuales independientes en formato Markdown puro (`.
 La especificación completa del sistema de tokens perceptuales (`frontend/src/assets/tokens.css`), soporte de modo claro/oscuro (`light-dark()` + `useThemeMode.ts`), navegación agrupada con iconos SVG (`SidebarNav.vue` y `BottomNavBar.vue`), Dashboard Contextual con cuadrícula de 4 acciones rápidas en la zona del pulgar, estados vacíos ilustrados (`EmptyStateCard.vue`), esqueletos de carga (`SkeletonCard.vue`), transiciones espaciales SPA (`document.startViewTransition` en `useViewTransition.ts`), animaciones de entrada/salida en el Top Layer (`@starting-style` + `transition-behavior: allow-discrete` + `overlay` + Bottom Sheet móvil en `<dialog>`) y animaciones hacia tamaños intrínsecos (`interpolate-size: allow-keywords` + `calc-size(auto, size)`) se encuentra formalizada en:
 
 - **[`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)**
+
+---
+
+## 8. Certificación E2E Screenplay, Geometría Anti-JSDOM, WCAG 2.1 AA y Performance (Hito 8)
+
+La fase final de certificación del frontend (`frontend/e2e/`, `frontend/test/ui_business_flow.feature` y `frontend/lighthouserc.cjs`) valida de extremo a extremo la aplicación compilada (`vite build`) servida por Nginx QA (`frontend/nginx.qa.conf`) bajo cuatro pilares ejecutados 100% en contenedores efímeros:
+
+### 8.1. Patrón Screenplay y Entorno Determinista (`frontend/e2e/`)
+- **Núcleo Screenplay (`frontend/e2e/screenplay/`):** Abstracción en `core.ts` (`Actor`, `BrowseTheWeb`, `Task`, `Question`, `waitForDialogSettled`), tareas de negocio orientadas al rol (`tasks.ts`: registro fantasma, login, alternancia de tema claro/oscuro con espera de animaciones CSS/WAAPI, reporte idempotente de pagos, aprobación en tesorería, cierre contable, facturación LPH + desglose, solvencia `HMAC-SHA256`, incidencias, conserjería, activación por Presidencia, votación `HMAC`, pases QR, garita anti-replay y reserva/cancelación) y preguntas de verificación (`questions.ts`).
+- **Mock API Stateful (`frontend/e2e/fixtures/condominioApiMock.ts`) y `nginx.qa.conf`:** Intercepta `**/api/**` preservando estado mutado en sesión (pagos, unidades, votos, quema anti-replay `UNICO_USO`, candado contable `409`, morosidad estricta `403`, captura de cabeceras `Idempotency-Key`) y complementa el fallback determinista de `/api/estructura/unidades` en `frontend/nginx.qa.conf` para `/register` y escenarios sin mocking de Playwright (Karate UI y Lighthouse CI).
+
+### 8.2. Matriz Multi-Viewport, Geometría Visual Anti-JSDOM y Regresión Visual
+- **Tres Viewports Activos (`frontend/playwright.config.ts`):** `mobile-375x667` ($375 \times 667$), `mobile-390x844` ($390 \times 844$) y `desktop-chromium` ($1440 \times 900$).
+- **Auditoría Geométrica Real (`ViewportGeometryAudit`):** Inspecciona mediante `getBoundingClientRect()` y `document.elementsFromPoint()` ausencia de desbordamiento horizontal (`scrollWidth <= innerWidth`), alcance táctil ($\ge 44\times 44\text{ px}$), visibilidad en viewport del CTA primario y ausencia de oclusión de `#fab-reportar-pago`, botones de acción y `#app-inflow-footer` tras `BottomNavBar.vue`.
+- **Regresión Visual (`frontend/e2e/visual-regression.e2e.ts`):** `15` baselines PNG generadas y verificadas en Linux (`maxDiffPixelRatio: 0.02`, animación desactivada en captura) cubriendo `/login` (claro/oscuro), `/dashboard` (claro/oscuro) y `/consultas/1` (claro) en los tres viewports.
+
+### 8.3. Accesibilidad WCAG 2.1 AA en Modo Claro y Oscuro (`@axe-core/playwright`)
+- **`frontend/e2e/accessibility.e2e.ts`:** Valida `0` violaciones `critical` o `serious` (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) en rutas públicas, pantalla de contención Fantasma (`/espera-aprobacion`), flujos financieros, operativos, gobernanza, accesos, administración y diálogos `<dialog>` en Top Layer (`#modal-recibo-desglose`, `#modal-vote-receipt`, `#dialog-contextual-help`) alternando explícitamente `.theme-light` y `.theme-dark` (`light-dark()` + tokens `OKLCH`).
+- **Transición de Tema Atómica:** En `AppShellLayout.vue` (`.contextual-help-trigger`) y `SidebarNav.vue` (`.sidebar__link`), los cambios de `color` y `background-color` entre esquemas claro/oscuro operan de forma atómica sin animar luminancias desincronizadas, garantizando $\ge 4.5:1$ en todo instante de la conmutación.
+
+### 8.4. Karate UI BDD via Sidecar `chrome-cdp` y Lighthouse CI
+- **Karate UI BDD (`frontend/test/ui_business_flow.feature`):** El servicio `chrome-cdp` (`mcr.microsoft.com/playwright:v1.64.1-jammy` headless en `127.0.0.1:9222`) comparte espacio de red con `karatelabs` (`network_mode: "service:chrome-cdp"`), permitiendo ejecutar los `12/12` escenarios BDD UI directamente contra `ui-prod`, incluyendo validación geométrica DOM de `/login` y `/register` (Escenario 12).
+- **Lighthouse CI (`frontend/lighthouserc.cjs`):** Evalúa `/login` y `/register` contra `ui-prod` exigiendo Performance $\ge 90\%$, Accessibility $\ge 95\%$ y Best Practices $\ge 95\%$ (excluyendo únicamente `is-on-https` y `redirects-http` en la red interna HTTP `http://ui-prod:80` donde el TLS termina en el ingress de producción).

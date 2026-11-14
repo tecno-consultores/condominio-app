@@ -84,9 +84,10 @@ const slices = computed<CategorySlice[]>(() => {
 <style scoped>
 .expenses-card {
   padding: 1.25rem;
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  box-shadow: var(--shadow-card);
 }
 
 .expenses-card__header {
@@ -99,12 +100,12 @@ const slices = computed<CategorySlice[]>(() => {
 .expenses-card__title {
   margin: 0;
   font-size: 1rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .expenses-card__total {
   font-size: 0.9rem;
-  color: #0369a1;
+  color: var(--brand-accent, #0369a1);
 }
 
 .expenses-card__grid {
@@ -134,7 +135,7 @@ const slices = computed<CategorySlice[]>(() => {
   gap: 0.5rem;
   padding: 0.35rem 0;
   font-size: 0.85rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
 }
 
 .expenses-legend__dot {
@@ -146,16 +147,16 @@ const slices = computed<CategorySlice[]>(() => {
 
 .expenses-legend__name {
   flex: 1;
-  color: #334155;
+  color: var(--text-secondary, #334155);
 }
 
 .expenses-legend__val {
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .expenses-card__empty {
   margin: 0;
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--text-secondary, #64748b);
 }
 </style>

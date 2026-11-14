@@ -27,7 +27,7 @@
 | **Hito 17** | Endurecimiento `--no-dev`, Seguridad Real, Concurrencia LPH y Sesión/Modales (Fase 5) | `11_ENDURECIMIENTO_BACKEND...` | ✅ Completado | `100%` |
 | **Hito 18** | Infraestructura Productiva Docker No-Root, Worker Real y Respaldos (Fase 5) | `12_GOBERNANZA_DESPLIEGUE...` | ✅ Completado | `100%` |
 | **Hito 15** | Rediseño UX/UI "Hospitalidad Residencial", Tokens `OKLCH` y Transiciones (Fase 4) | `10_DISENO_UX_UI_AMIGABLE...` | ✅ Completado | `100%` |
-| **Hito 8** | Certificación Integral E2E, Geometría Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Fase 6) | `05_ARQUITECTURA_GUI...` | ⏳ Pendiente | `0%` |
+| **Hito 8** | Certificación Integral E2E, Geometría Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Fase 6) | `05_ARQUITECTURA_GUI...` | ✅ Completado | `100%` |
 
 - **Leyenda:**
   - `✅ Completado` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
@@ -215,11 +215,11 @@
 
 ---
 
-> **🏆 FASE 6: Certificación Integral E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI — `[PENDIENTE]`**
+> **🏆 FASE 6: Certificación Integral E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI — `[100% COMPLETADA]`**
 
-## ⏳ Hito 8: Certificación E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Cobertura Total Fases 1..5)
+## ✅ Hito 8: Certificación E2E, Geometría Visual Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Cobertura Total Fases 1..5)
 - **Especificación:** [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Secciones 3, 7 y 8) y [`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)
 - **Sub-tareas de Certificación:**
-  - [ ] **Sub-tarea 8.1 (Playwright E2E, Entorno Conectado y Geometría Visual Anti-JSDOM):** Configurar proxy `/api` o fixtures deterministas en `ui-prod`/`ui-e2e`, añadir viewports `375x667` y `390x844` en `playwright.config.ts`, ejecutar `.e2e.ts` cubriendo flujos autenticados de los Hitos 5 al 17 y verificar con `getBoundingClientRect()` que ningún botón primario, FAB o `AppFooter` quede oculto tras `BottomNavBar`.
-  - [ ] **Sub-tarea 8.2 (Auditoría WCAG 2.1 AA y Regresión Visual):** Certificar **0 violaciones** `critical` o `serious` con `@axe-core/playwright` en tema claro y tema oscuro (`light-dark()`), y validar snapshots visuales (`maxDiffPixelRatio: 0.02`).
-  - [ ] **Sub-tarea 8.3 (Karate UI y Lighthouse CI):** Certificar `make -C frontend qa-bdd` (`ui-bdd` sobre `frontend/test/ui_business_flow.feature`) y `make -C frontend qa-perf` (`lighthouserc.cjs`: Performance $\ge 90\%$, Accessibility $\ge 95\%$, Best Practices $\ge 95\%`).
+  - [x] **Sub-tarea 8.1 (Playwright Screenplay E2E, Entorno Determinista y Geometría Visual Anti-JSDOM):** Configurado `frontend/nginx.qa.conf` (`/health`, CSP/OSHP, fallback `/api/estructura/unidades`) y mock stateful (`frontend/e2e/fixtures/condominioApiMock.ts`), viewports `375x667`, `390x844` y `1440x900` en `frontend/playwright.config.ts`, arquitectura Screenplay (`frontend/e2e/screenplay/`), flujos autenticados completos de Hitos 5 al 17.4 (`frontend/e2e/authenticated-flows.e2e.ts`) y auditoría `getBoundingClientRect()` / `elementsFromPoint()` verificando `0` desbordamientos horizontales y `0` oclusiones sobre controles primarios, `#fab-reportar-pago` y `#app-inflow-footer`.
+  - [x] **Sub-tarea 8.2 (Auditoría WCAG 2.1 AA, Contraste Oscuro Atómico y Regresión Visual):** Reparada asimetría transicional de contraste en tema oscuro (`AppShellLayout.vue`, `SidebarNav.vue`), certificados **`0` hallazgos `critical` o `serious`** con `@axe-core/playwright` en rutas públicas, `/espera-aprobacion`, vistas autenticadas y modales Top Layer en claro/oscuro (`light-dark()`), y generados/verificados `15` baselines PNG Linux (`maxDiffPixelRatio: 0.02`, **`51/51` pass** en Playwright).
+  - [x] **Sub-tarea 8.3 (Karate UI BDD vía `chrome-cdp` y Lighthouse CI):** Sidecar `chrome-cdp` headless (`127.0.0.1:9222`) habilitado en `frontend/docker-compose.qa.yml` certificando `frontend/test/ui_business_flow.feature` (**`12/12` pass**), y `make -C frontend qa-perf` (`frontend/lighthouserc.cjs`) aprobado sobre `/login` y `/register` con **99% Performance, 100% Accessibility y 100% Best Practices** (excluyendo auditorías TLS en red interna HTTP).

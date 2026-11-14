@@ -68,10 +68,11 @@ function nextSlide(): void {
 <style scoped>
 .carousel-card {
   padding: 1.125rem;
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-card);
 }
 
 .carousel-card__header {
@@ -85,7 +86,7 @@ function nextSlide(): void {
 .carousel-card__title {
   margin: 0;
   font-size: 0.95rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .carousel-card__controls {
@@ -97,10 +98,10 @@ function nextSlide(): void {
 .carousel-card__btn {
   min-height: 36px;
   padding: 0.25rem 0.625rem;
-  border-radius: 0.375rem;
-  border: 1px solid #cbd5e1;
-  background-color: #f8fafc;
-  color: #0f172a;
+  border-radius: var(--radius-sm, 0.375rem);
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-subtle, #f8fafc);
+  color: var(--text-primary, #0f172a);
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
@@ -108,25 +109,25 @@ function nextSlide(): void {
 
 .carousel-card__counter {
   font-size: 0.75rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-weight: 600;
 }
 
 .carousel-card__item-title {
   margin: 0 0 0.25rem;
   font-size: 1rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .carousel-card__item-text {
   margin: 0;
   font-size: 0.875rem;
-  color: #334155;
+  color: var(--text-secondary, #334155);
 }
 
 .carousel-card__empty {
   margin: 0;
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--text-secondary, #64748b);
 }
 </style>

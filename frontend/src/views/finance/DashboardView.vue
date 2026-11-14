@@ -419,7 +419,7 @@ async function switchTab(tab: 'cobranza' | 'gastos'): Promise<void> {
 
 .fab-button {
   position: fixed;
-  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
   right: clamp(1rem, 3vw, 2rem);
   z-index: 30;
   min-block-size: 3rem;

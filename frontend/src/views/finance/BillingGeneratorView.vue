@@ -368,39 +368,39 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
   margin: 0;
   font-size: clamp(1.25rem, 3cqi, 1.5rem);
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   text-wrap: balance;
 }
 
 .billing-view__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
   max-inline-size: 65ch;
 }
 
 .billing-view__alert {
   padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
+  border-radius: var(--radius-md, 0.75rem);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .billing-view__alert--warning {
-  background-color: #fffbeb;
-  border: 1px solid #f59e0b;
-  color: #92400e;
+  background-color: var(--status-warn-bg, #fffbeb);
+  border: 1px solid var(--status-warn-border, #f59e0b);
+  color: var(--status-warn-text, #92400e);
 }
 
 .billing-view__alert--success {
-  background-color: #ecfdf5;
-  border: 1px solid #10b981;
-  color: #065f46;
+  background-color: var(--status-ok-bg, #ecfdf5);
+  border: 1px solid var(--status-ok-border, #10b981);
+  color: var(--status-ok-text, #065f46);
 }
 
 .billing-view__error {
   margin: 0;
-  color: #b91c1c;
+  color: var(--status-danger-text, #b91c1c);
   font-size: 0.85rem;
   font-weight: 700;
 }
@@ -412,20 +412,21 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
 }
 
 .billing-view__card {
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.875rem;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md, 0.875rem);
   padding: clamp(1rem, 2.5cqi, 1.25rem);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  box-shadow: var(--shadow-card);
 }
 
 .billing-view__card-title {
   margin: 0;
   font-size: 1rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .billing-view__grid {
@@ -443,13 +444,15 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
 .billing-view__label {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #334155;
+  color: var(--text-secondary, #334155);
 }
 
 .billing-view__input {
   padding: 0.55rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid #94a3b8;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #94a3b8);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.875rem;
 }
 
@@ -458,16 +461,16 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: #334155;
+  color: var(--text-secondary, #334155);
   font-weight: 600;
 }
 
 .billing-view__submit {
   align-self: flex-start;
   padding: 0.6rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
@@ -488,9 +491,10 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.6rem 0.75rem;
-  border-radius: 0.5rem;
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--surface-subtle, #f8fafc);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  color: var(--text-primary, #0f172a);
   font-size: 0.85rem;
 }
 
@@ -506,16 +510,17 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
   flex-direction: column;
   gap: 0.15rem;
   padding: 0.6rem;
-  border-radius: 0.5rem;
-  background-color: #f8fafc;
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--surface-subtle, #f8fafc);
+  color: var(--text-primary, #0f172a);
 }
 
 .billing-view__inspect-btn {
   padding: 0.375rem 0.75rem;
-  border-radius: 0.45rem;
-  border: 1px solid #0369a1;
-  background-color: #f0f9ff;
-  color: #0369a1;
+  border-radius: var(--radius-sm, 0.45rem);
+  border: 1px solid var(--brand-accent, #0369a1);
+  background-color: var(--brand-tint, #f0f9ff);
+  color: var(--brand-accent, #0369a1);
   font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;

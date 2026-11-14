@@ -51,16 +51,16 @@ const shouldRender = computed(
 .closing-banner {
   padding: 0.875rem 1rem;
   margin-bottom: 1.25rem;
-  border-radius: 0.75rem;
-  background-color: #eff6ff;
-  border: 1px solid #93c5fd;
-  color: #1e3a8a;
+  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--status-info-bg, #eff6ff);
+  border: 1px solid var(--status-info-border, #93c5fd);
+  color: var(--status-info-text, #1e3a8a);
 }
 
 .closing-banner--locked {
-  background-color: #fef3c7;
-  border-color: #f59e0b;
-  color: #78350f;
+  background-color: var(--status-warn-bg, #fef3c7);
+  border-color: var(--status-warn-border, #f59e0b);
+  color: var(--status-warn-text, #78350f);
 }
 
 .closing-banner__title {

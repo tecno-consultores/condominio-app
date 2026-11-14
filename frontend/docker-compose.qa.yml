@@ -8,11 +8,10 @@ services:
       TZ: 'America/Caracas'
     volumes:
       - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.qa.conf:/etc/nginx/conf.d/default.conf:ro
       - nginx-logs:/var/log/nginx
     ports:
       - "${UI_HOST_PORT:-0}:80"
-    command: >
-      sh -c "printf 'server { listen 80; root /usr/share/nginx/html; index index.html; location / { try_files \$$uri \$$uri/ /index.html; } }\n' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
 
   qa-vue3:
     image: sinfallas/base-node-ionic:26
@@ -42,15 +41,27 @@ services:
     working_dir: /app
     command: bash -c "echo 'Contenedor E2E listo'; sleep infinity"
 
+  chrome-cdp:
+    image: mcr.microsoft.com/playwright:v1.64.1-jammy
+    container_name: condominio_ui_chrome_cdp
+    hostname: chrome-cdp
+    pull_policy: if_not_present
+    environment:
+      TZ: 'America/Caracas'
+    command: >
+      bash -c "CHROME_SHELL=$$(find /ms-playwright -name chrome-headless-shell -type f | head -n 1); exec \"$$CHROME_SHELL\" --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 about:blank"
+
   karatelabs:
     image: sinfallas/karatelabs:latest
     container_name: condominio_ui_karate
-    hostname: karatelabs
     pull_policy: if_not_present
+    network_mode: "service:chrome-cdp"
     depends_on:
       - ui-prod
+      - chrome-cdp
     environment:
       - UI_BASE_URL=http://ui-prod:80
+      - CHROME_CDP_URL=http://127.0.0.1:9222
     volumes:
       - ./test:/app/src/test/java/examples/test
     command: bash -c "echo 'Contenedor Karate UI listo'; sleep infinity"

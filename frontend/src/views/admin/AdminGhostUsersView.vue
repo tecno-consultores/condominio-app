@@ -177,13 +177,13 @@ async function handleActivateGhost(userId: number): Promise<void> {
   margin: 0;
   font-size: 1.35rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .ghost-users__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .ghost-users__alert {
@@ -194,24 +194,24 @@ async function handleActivateGhost(userId: number): Promise<void> {
 }
 
 .ghost-users__alert--warning {
-  background-color: #fffbeb;
-  border: 1px solid #f59e0b;
-  color: #92400e;
+  background-color: var(--status-warn-bg, #fffbeb);
+  border: 1px solid var(--status-warn-border, #f59e0b);
+  color: var(--status-warn-text, #92400e);
 }
 
 .ghost-users__alert--success {
-  background-color: #ecfdf5;
-  border: 1px solid #10b981;
-  color: #065f46;
+  background-color: var(--status-ok-bg, #ecfdf5);
+  border: 1px solid var(--status-ok-border, #10b981);
+  color: var(--status-ok-text, #065f46);
 }
 
 .ghost-users__empty {
   margin: 0;
   padding: 1.25rem;
   border-radius: 0.875rem;
-  background-color: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  color: #64748b;
+  background-color: var(--surface-subtle, #f8fafc);
+  border: 1px dashed var(--border-subtle, #cbd5e1);
+  color: var(--text-secondary, #64748b);
   text-align: center;
 }
 
@@ -222,8 +222,8 @@ async function handleActivateGhost(userId: number): Promise<void> {
 }
 
 .ghost-users__card {
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   border-radius: 0.875rem;
   padding: 1rem;
   display: flex;
@@ -235,13 +235,13 @@ async function handleActivateGhost(userId: number): Promise<void> {
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .ghost-users__meta {
   margin: 0.25rem 0 0;
   font-size: 0.825rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .ghost-users__controls {
@@ -257,13 +257,15 @@ async function handleActivateGhost(userId: number): Promise<void> {
   gap: 0.25rem;
   font-size: 0.775rem;
   font-weight: 700;
-  color: #334155;
+  color: var(--text-primary, #334155);
 }
 
 .ghost-users__select {
   padding: 0.5rem 0.65rem;
   border-radius: 0.5rem;
-  border: 1px solid #94a3b8;
+  border: 1px solid var(--border-control, #94a3b8);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.85rem;
 }
 
@@ -271,7 +273,7 @@ async function handleActivateGhost(userId: number): Promise<void> {
   padding: 0.55rem 0.95rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-weight: 700;
   font-size: 0.85rem;

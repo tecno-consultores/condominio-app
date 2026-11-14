@@ -190,19 +190,19 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 .parcels-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0;
 }
 
 .parcels-view__subtitle {
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
 
 .card {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   border-radius: 0.75rem;
   padding: 1.25rem;
 }
@@ -211,7 +211,7 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 .section-heading {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0 0 0.75rem;
 }
 
@@ -233,17 +233,17 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .field input,
 .field select {
   padding: 0.6rem 0.75rem;
-  border: 1px solid #94a3b8;
+  border: 1px solid var(--border-control, #94a3b8);
   border-radius: 0.5rem;
   font-size: 0.92rem;
-  color: #0f172a;
-  background: #ffffff;
+  color: var(--text-primary, #0f172a);
+  background: var(--surface-card, #ffffff);
 }
 
 .cards-grid {
@@ -267,13 +267,13 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 
 .parcel-card__courier {
   font-size: 0.98rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .parcel-card__desc {
   margin: 0.25rem 0 0;
   font-size: 0.86rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .badge {
@@ -284,13 +284,13 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 }
 
 .badge--en_garita {
-  background: #fef3c7;
-  color: #78350f;
+  background: var(--status-warn-bg, #fef3c7);
+  color: var(--status-warn-text, #78350f);
 }
 
 .badge--entregado {
-  background: #dcfce7;
-  color: #14532d;
+  background: var(--status-ok-bg, #dcfce7);
+  color: var(--status-ok-text, #14532d);
 }
 
 .btn {
@@ -302,7 +302,7 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 }
 
 .btn--primary {
-  background: #0369a1;
+  background: var(--brand-600, #0369a1);
   color: #ffffff;
 }
 
@@ -313,19 +313,19 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 }
 
 .alert--error {
-  background: #fef2f2;
-  border: 1px solid #ef4444;
-  color: #991b1b;
+  background: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #ef4444);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .alert--success {
-  background: #f0fdf4;
-  border: 1px solid #22c55e;
-  color: #14532d;
+  background: var(--status-ok-bg, #f0fdf4);
+  border: 1px solid var(--status-ok-border, #22c55e);
+  color: var(--status-ok-text, #14532d);
 }
 
 .empty-state {
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.9rem;
 }
 </style>

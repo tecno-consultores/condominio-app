@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 Condominio App Contributors
 
-Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH, Gobernanza Digital, Accesos QR / Paquetería, Reservas de Áreas Sociales y Ayuda Contextual (Hitos 5 al 14)
+@parallel=false
+Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, Administración, Facturación LPH, Gobernanza Digital, Accesos QR / Paquetería, Reservas de Áreas Sociales y Ayuda Contextual (Hitos 5 al 15 y 8)
 
   Background:
-    * configure driver = { type: 'chrome', headless: true, addOptions: ['--no-sandbox', '--disable-dev-shm-usage'] }
+    * def cdpUrl = karate.properties['CHROME_CDP_URL'] || java.lang.System.getenv('CHROME_CDP_URL') || 'http://127.0.0.1:9222'
+    * url cdpUrl + '/json/new?about:blank'
+    * method put
+    * status 200
+    * configure driver = { type: 'chrome', start: false, host: '127.0.0.1', port: 9222 }
     * def envBaseUrl = java.lang.System.getenv('UI_BASE_URL')
     * def baseUrl = karate.properties['UI_BASE_URL'] || envBaseUrl || 'http://ui-prod:80'
 
@@ -110,6 +115,16 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     When click('#btn-theme-toggle')
     Then waitUntil("document.documentElement.classList.contains('theme-dark') === false")
     And waitUntil("document.querySelector('meta[name=\"color-scheme\"]')?.getAttribute('content') === 'light dark'")
+
+  Scenario: 12. Validación de geometría responsiva (0 overflow horizontal y touch target >= 44px en /login y /register) (Hito 8)
+    Given driver baseUrl + '/login'
+    And waitFor('#btn-login-submit')
+    Then match script("document.documentElement.scrollWidth <= window.innerWidth") == true
+    And match script("document.querySelector('#btn-login-submit').getBoundingClientRect().height >= 44") == true
+    Given driver baseUrl + '/register'
+    And waitFor('#btn-register-submit')
+    Then match script("document.documentElement.scrollWidth <= window.innerWidth") == true
+    And match script("document.querySelector('#btn-register-submit').getBoundingClientRect().height >= 44") == true
 
 
 

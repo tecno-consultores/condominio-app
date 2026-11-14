@@ -192,13 +192,12 @@ dialog::backdrop,
   max-block-size: min(85dvh, 40rem);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background-color: #ffffff;
-  border-radius: 1rem;
+  background-color: var(--surface-elevated, #ffffff);
+  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-lg, 1rem);
   padding: clamp(1rem, 3cqi, 1.5rem);
-  border: 1px solid #cbd5e1;
-  box-shadow:
-    0 20px 25px -5px rgba(15, 23, 42, 0.18),
-    0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  box-shadow: var(--shadow-modal);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -215,7 +214,7 @@ dialog::backdrop,
   display: block;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #0369a1;
+  color: var(--brand-accent, #0369a1);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -224,7 +223,7 @@ dialog::backdrop,
   margin: 0.2rem 0 0;
   font-size: clamp(1rem, 2.5cqi, 1.15rem);
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   text-wrap: balance;
 }
 
@@ -232,9 +231,9 @@ dialog::backdrop,
   font-size: 0.725rem;
   font-weight: 700;
   padding: 0.25rem 0.6rem;
-  border-radius: 9999px;
-  background-color: #ecfdf5;
-  color: #047857;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--status-ok-bg, #ecfdf5);
+  color: var(--status-ok-text, #047857);
 }
 
 .vote-receipt-modal__details {
@@ -250,19 +249,19 @@ dialog::backdrop,
   align-items: baseline;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--surface-subtle, #f8fafc);
+  border: 1px solid var(--border-subtle, #e2e8f0);
   font-size: 0.875rem;
 }
 
 .vote-receipt-modal__row dt {
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .vote-receipt-modal__row dd {
   margin: 0;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .vote-receipt-modal__signature-box {
@@ -302,9 +301,9 @@ dialog::backdrop,
 
 .vote-receipt-modal__close {
   padding: 0.55rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
-  background-color: #0f172a;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--brand-600, #0369a1);
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;

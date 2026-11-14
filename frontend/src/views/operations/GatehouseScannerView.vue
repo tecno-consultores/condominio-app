@@ -88,19 +88,19 @@ async function handleVerificarQR(): Promise<void> {
 .scanner-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0;
 }
 
 .scanner-view__subtitle {
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
 
 .card {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   border-radius: 0.75rem;
   padding: 1.25rem;
 }
@@ -117,15 +117,16 @@ async function handleVerificarQR(): Promise<void> {
   gap: 0.35rem;
   font-size: 0.88rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .field input {
   padding: 0.65rem 0.8rem;
-  border: 1px solid #94a3b8;
+  border: 1px solid var(--border-control, #94a3b8);
+  background: var(--surface-card, #ffffff);
   border-radius: 0.5rem;
   font-size: 0.95rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .btn {
@@ -137,20 +138,20 @@ async function handleVerificarQR(): Promise<void> {
 }
 
 .btn--primary {
-  background: #0369a1;
+  background: var(--brand-600, #0369a1);
   color: #ffffff;
 }
 
 .alert--error {
   padding: 0.9rem 1rem;
   border-radius: 0.6rem;
-  background: #fef2f2;
-  border: 1px solid #ef4444;
-  color: #991b1b;
+  background: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #ef4444);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .result-card {
-  border-left: 4px solid #16a34a;
+  border-left: 4px solid var(--status-ok-border, #16a34a);
 }
 
 .result-card__header {
@@ -162,8 +163,8 @@ async function handleVerificarQR(): Promise<void> {
 }
 
 .badge--authorized {
-  background: #dcfce7;
-  color: #14532d;
+  background: var(--status-ok-bg, #dcfce7);
+  color: var(--status-ok-text, #14532d);
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0.2rem 0.6rem;
@@ -172,25 +173,25 @@ async function handleVerificarQR(): Promise<void> {
 
 .result-card__jti {
   font-size: 0.75rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-family: monospace;
 }
 
 .result-card__visitor {
   margin: 0 0 0.35rem;
   font-size: 1.15rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .result-card__detail {
   margin: 0.2rem 0;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
   font-size: 0.9rem;
 }
 
 .result-card__message {
   margin: 0.5rem 0 0;
   font-weight: 600;
-  color: #14532d;
+  color: var(--status-ok-text, #14532d);
 }
 </style>

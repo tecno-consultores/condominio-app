@@ -255,13 +255,13 @@ async function handleUpdateAlicuota(): Promise<void> {
   margin: 0;
   font-size: 1.35rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .admin-structure__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .admin-structure__alert {
@@ -272,20 +272,20 @@ async function handleUpdateAlicuota(): Promise<void> {
 }
 
 .admin-structure__alert--warning {
-  background-color: #fffbeb;
-  border: 1px solid #f59e0b;
-  color: #92400e;
+  background-color: var(--status-warn-bg, #fffbeb);
+  border: 1px solid var(--status-warn-border, #f59e0b);
+  color: var(--status-warn-text, #92400e);
 }
 
 .admin-structure__alert--success {
-  background-color: #ecfdf5;
-  border: 1px solid #10b981;
-  color: #065f46;
+  background-color: var(--status-ok-bg, #ecfdf5);
+  border: 1px solid var(--status-ok-border, #10b981);
+  color: var(--status-ok-text, #065f46);
 }
 
 .admin-structure__form {
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   border-radius: 0.875rem;
   padding: 1rem;
   display: flex;
@@ -308,19 +308,21 @@ async function handleUpdateAlicuota(): Promise<void> {
 .admin-structure__label {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #334155;
+  color: var(--text-primary, #334155);
 }
 
 .admin-structure__input {
   padding: 0.55rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid #94a3b8;
+  border: 1px solid var(--border-control, #94a3b8);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.875rem;
 }
 
 .admin-structure__error {
   margin: 0;
-  color: #b91c1c;
+  color: var(--status-danger-text, #b91c1c);
   font-size: 0.825rem;
   font-weight: 600;
 }
@@ -330,7 +332,7 @@ async function handleUpdateAlicuota(): Promise<void> {
   padding: 0.625rem 1rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
@@ -340,7 +342,7 @@ async function handleUpdateAlicuota(): Promise<void> {
   margin: 0 0 0.5rem;
   font-size: 1rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .admin-structure__unit-list {
@@ -355,9 +357,9 @@ async function handleUpdateAlicuota(): Promise<void> {
 .admin-structure__unit-chip {
   padding: 0.4rem 0.75rem;
   border-radius: 9999px;
-  background-color: #f1f5f9;
-  border: 1px solid #cbd5e1;
+  background-color: var(--surface-subtle, #f1f5f9);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   font-size: 0.825rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 </style>

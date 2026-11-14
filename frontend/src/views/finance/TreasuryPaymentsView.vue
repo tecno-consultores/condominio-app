@@ -132,40 +132,40 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
 .page-header__title {
   margin: 0;
   font-size: 1.3rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .page-header__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .banner {
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   margin-bottom: 1rem;
   font-size: 0.875rem;
 }
 
 .banner--error {
-  background-color: #fef2f2;
-  border: 1px solid #f87171;
-  color: #991b1b;
+  background-color: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #f87171);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .banner--success {
-  background-color: #f0fdf4;
-  border: 1px solid #4ade80;
-  color: #166534;
+  background-color: var(--status-ok-bg, #f0fdf4);
+  border: 1px solid var(--status-ok-border, #4ade80);
+  color: var(--status-ok-text, #166534);
 }
 
 .empty-state {
   padding: 1.5rem;
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #475569;
+  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  color: var(--text-secondary, #475569);
 }
 
 .payment-grid {
@@ -175,9 +175,10 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
 
 .payment-card {
   padding: 1.25rem;
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  box-shadow: var(--shadow-card);
 }
 
 .payment-card__header {
@@ -189,9 +190,9 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
 
 .payment-card__method {
   padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
-  background-color: #e0f2fe;
-  color: #0369a1;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--brand-tint, #e0f2fe);
+  color: var(--brand-accent, #0369a1);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -200,7 +201,7 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
 .payment-card__ref {
   margin: 0.25rem 0;
   font-size: 0.9rem;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .payment-card__actions {
@@ -212,9 +213,9 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
 .btn-approve-payment {
   min-height: 44px;
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   border: none;
-  background-color: #16a34a;
+  background-color: #15803d;
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
@@ -223,10 +224,10 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
 .btn-reject-payment {
   min-height: 44px;
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid #dc2626;
-  background-color: #ffffff;
-  color: #dc2626;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--status-danger-border, #dc2626);
+  background-color: var(--status-danger-bg, #ffffff);
+  color: var(--status-danger-text, #991b1b);
   font-weight: 700;
   cursor: pointer;
 }

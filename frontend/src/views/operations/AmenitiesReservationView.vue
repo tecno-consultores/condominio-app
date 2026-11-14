@@ -367,12 +367,12 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
 .amenities-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0;
 }
 
 .amenities-view__subtitle {
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
@@ -381,26 +381,27 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  background: #f0f9ff;
-  border: 1px solid #0369a1;
-  color: #0c4a6e;
-  border-radius: 0.75rem;
+  background: var(--status-info-bg, #f0f9ff);
+  border: 1px solid var(--status-info-border, #0369a1);
+  color: var(--status-info-text, #0c4a6e);
+  border-radius: var(--radius-md, 0.75rem);
   padding: 0.9rem 1.1rem;
   font-size: 0.88rem;
 }
 
 .card {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.75rem;
+  background: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md, 0.75rem);
   padding: 1.25rem;
+  box-shadow: var(--shadow-card);
 }
 
 .card__title,
 .section-heading {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0 0 0.75rem;
 }
 
@@ -428,17 +429,17 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .field input,
 .field select {
   padding: 0.6rem 0.75rem;
-  border: 1px solid #94a3b8;
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-control, #94a3b8);
+  border-radius: var(--radius-sm, 0.5rem);
   font-size: 0.92rem;
-  color: #0f172a;
-  background: #ffffff;
+  color: var(--text-primary, #0f172a);
+  background: var(--surface-card, #ffffff);
 }
 
 .cards-grid {
@@ -463,20 +464,20 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
 
 .amenity-card__name {
   font-size: 0.98rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .amenity-card__meta {
   margin: 0.2rem 0 0;
   font-size: 0.85rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .reservation-card__notes {
   margin: 0;
   font-size: 0.84rem;
-  color: #334155;
-  background: #f8fafc;
+  color: var(--text-secondary, #334155);
+  background: var(--surface-subtle, #f8fafc);
   padding: 0.45rem 0.65rem;
   border-radius: 0.4rem;
 }
@@ -491,45 +492,45 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill, 9999px);
 }
 
 .badge--solvencia,
 .badge--confirmada {
-  background: #e0f2fe;
-  color: #075985;
+  background: var(--brand-tint, #e0f2fe);
+  color: var(--brand-accent, #075985);
 }
 
 .badge--finalizada_sin_danos {
-  background: #dcfce7;
-  color: #14532d;
+  background: var(--status-ok-bg, #dcfce7);
+  color: var(--status-ok-text, #14532d);
 }
 
 .badge--finalizada_con_danos {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--status-danger-bg, #fee2e2);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .badge--cancelada {
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--surface-subtle, #e2e8f0);
+  color: var(--text-secondary, #334155);
 }
 
 .btn {
   padding: 0.6rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   font-weight: 600;
   cursor: pointer;
   border: none;
 }
 
 .btn--primary {
-  background: #0369a1;
+  background: var(--brand-600, #0369a1);
   color: #ffffff;
 }
 
 .btn--secondary {
-  background: #0f172a;
+  background: var(--brand-600, #0369a1);
   color: #ffffff;
 }
 
@@ -540,24 +541,24 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
 
 .alert {
   padding: 0.8rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   font-weight: 600;
 }
 
 .alert--error {
-  background: #fef2f2;
-  border: 1px solid #ef4444;
-  color: #991b1b;
+  background: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #ef4444);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .alert--success {
-  background: #f0fdf4;
-  border: 1px solid #22c55e;
-  color: #14532d;
+  background: var(--status-ok-bg, #f0fdf4);
+  border: 1px solid var(--status-ok-border, #22c55e);
+  color: var(--status-ok-text, #14532d);
 }
 
 .empty-state {
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.9rem;
 }
 </style>

@@ -88,8 +88,9 @@ make -C backend qa-chaos        # Resiliencia y caos (Pumba + Locust + Prometheu
 make -C frontend qa-orphans     # Paridad 100% de componentes Vue sin huérfanos (0 orphans)
 make -C frontend qa-lint        # Prettier + vue-tsc --noEmit + ESLint + SonarJS (complejidad <= 15)
 make -C frontend qa-unit        # Vitest + Cobertura V8 (>= 95%) + Compilación Vite de producción
-make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs)
-make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-core/playwright)
+make -C frontend qa-e2e         # Playwright Screenplay E2E, Geometría Anti-JSDOM, Visual & WCAG 2.1 AA
+make -C frontend qa-perf        # Auditoría Lighthouse CI (Performance >= 90%, A11y >= 95%, Best Practices >= 95%)
+make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs + sidecar chrome-cdp)
 
 # Orquestación unificada y limpieza desde la raíz
 make qa-all

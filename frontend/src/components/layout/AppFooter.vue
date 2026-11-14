@@ -16,8 +16,8 @@ defineProps<{
 .app-footer {
   margin-top: auto;
   padding: 1.25rem 1rem;
-  border-top: 1px solid #e2e8f0;
-  color: #475569;
+  border-top: 1px solid var(--border-subtle, #e2e8f0);
+  color: var(--text-secondary, #475569);
   font-size: 0.75rem;
   text-align: center;
 }

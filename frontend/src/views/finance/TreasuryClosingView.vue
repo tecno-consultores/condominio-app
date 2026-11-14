@@ -271,32 +271,32 @@ dialog::backdrop {
 .page-header__title {
   margin: 0;
   font-size: 1.3rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .page-header__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .banner {
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   margin-bottom: 1rem;
   font-size: 0.875rem;
 }
 
 .banner--error {
-  background-color: #fef2f2;
-  border: 1px solid #f87171;
-  color: #991b1b;
+  background-color: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #f87171);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .banner--success {
-  background-color: #f0fdf4;
-  border: 1px solid #4ade80;
-  color: #166534;
+  background-color: var(--status-ok-bg, #f0fdf4);
+  border: 1px solid var(--status-ok-border, #4ade80);
+  color: var(--status-ok-text, #166534);
 }
 
 .treasury-grid {
@@ -308,24 +308,27 @@ dialog::backdrop {
 
 .panel-card {
   padding: clamp(1rem, 2.5cqi, 1.5rem);
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  box-shadow:
-    0 1px 3px 0 rgba(15, 23, 42, 0.06),
-    0 1px 2px -1px rgba(15, 23, 42, 0.06);
+  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  box-shadow: var(--shadow-card);
 }
 
 .panel-card--warning {
-  border-color: #f59e0b;
-  background-color: #fffbeb;
+  border-color: var(--status-warn-border, #f59e0b);
+  background-color: var(--status-warn-bg, #fffbeb);
+  color: var(--status-warn-text, #78350f);
 }
 
 .panel-card__title {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;
   text-wrap: balance;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
+}
+
+.panel-card--warning .panel-card__title {
+  color: var(--status-warn-text, #78350f);
 }
 
 .panel-card__desc {
@@ -333,7 +336,7 @@ dialog::backdrop {
   max-inline-size: 65ch;
   text-wrap: pretty;
   font-size: 0.85rem;
-  color: #78350f;
+  color: var(--status-warn-text, #78350f);
 }
 
 .panel-form {
@@ -345,13 +348,15 @@ dialog::backdrop {
 .field-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .field-input {
   padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.95rem;
   font-variant-numeric: tabular-nums;
 }
@@ -378,9 +383,9 @@ dialog::backdrop {
 .btn-primary {
   margin-top: 0.5rem;
   padding: 0.625rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
@@ -389,7 +394,7 @@ dialog::backdrop {
 .btn-danger {
   margin-top: 0.5rem;
   padding: 0.625rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   border: none;
   background-color: #dc2626;
   color: #ffffff;
@@ -399,10 +404,10 @@ dialog::backdrop {
 
 .btn-secondary {
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
-  background-color: #f8fafc;
-  color: #0f172a;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-subtle, #f8fafc);
+  color: var(--text-primary, #0f172a);
   font-weight: 600;
   cursor: pointer;
 }
@@ -420,14 +425,12 @@ dialog::backdrop {
   inline-size: min(100% - 1.5rem, 28.75rem);
   max-block-size: min(85dvh, 38rem);
   overflow-y: auto;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.75rem;
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md, 0.75rem);
   padding: clamp(1rem, 3vw, 1.5rem);
-  background-color: #ffffff;
-  color: #0f172a;
-  box-shadow:
-    0 20px 25px -5px rgba(15, 23, 42, 0.18),
-    0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  background-color: var(--surface-elevated, #ffffff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: var(--shadow-modal);
 }
 
 .closing-dialog__title {
@@ -441,7 +444,7 @@ dialog::backdrop {
   max-inline-size: 65ch;
   text-wrap: pretty;
   font-size: 0.9rem;
-  color: #334155;
+  color: var(--text-secondary, #334155);
 }
 
 .closing-dialog__actions {

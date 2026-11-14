@@ -1,5 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { installCondominioApiMock } from './fixtures/condominioApiMock';
+import { Actor, BrowseTheWeb } from './screenplay/core';
+import { AxeCriticalOrSeriousViolations } from './screenplay/questions';
+import {
+  EmitBillingAndInspectBreakdown,
+  NavigateTo,
+  ToggleColorTheme,
+  VoteInConsultation,
+} from './screenplay/tasks';
 
 test.describe('Hitos 5, 6, 10 y 11 — Accesibilidad WCAG 2.1 AA y Geometría Visual Anti-JSDOM', () => {
   test('Vista /login cumple 0 violaciones WCAG 2.1 AA críticas o serias', async ({ page }) => {
@@ -151,5 +160,67 @@ test.describe('Hitos 5, 6, 10 y 11 — Accesibilidad WCAG 2.1 AA y Geometría Vi
     expect(
       registerDarkAxe.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious'),
     ).toEqual([]);
+  });
+});
+
+async function assertZeroAxeCriticalOrSerious(actor: Actor, path: string): Promise<void> {
+  await actor.attemptsTo(NavigateTo.path(path));
+  await actor.attemptsTo(ToggleColorTheme.to('light'));
+  expect(await actor.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+  await actor.attemptsTo(ToggleColorTheme.to('dark'));
+  expect(await actor.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+}
+
+test.describe('Auditoría WCAG 2.1 AA en Vistas Autenticadas Claro/Oscuro (Hito 8)', () => {
+  test('1. Contención Fantasma (/espera-aprobacion) cumple WCAG 2.1 AA en claro y oscuro', async ({
+    page,
+  }) => {
+    await installCondominioApiMock(page, { initialProfile: 'FANTASMA' });
+    const fantasma = Actor.named('A11yFantasma').whoCan(BrowseTheWeb.using(page));
+    await assertZeroAxeCriticalOrSerious(fantasma, '/espera-aprobacion');
+  });
+
+  test('2. Vistas Financieras y Desglose Top-Layer cumplen WCAG 2.1 AA en claro y oscuro', async ({
+    page,
+  }) => {
+    await installCondominioApiMock(page, { initialProfile: 'TESORERO' });
+    const tesorero = Actor.named('A11yTesorero').whoCan(BrowseTheWeb.using(page));
+
+    for (const path of ['/dashboard', '/finanzas/reportar-pago', '/finanzas/solvencia']) {
+      await assertZeroAxeCriticalOrSerious(tesorero, path);
+    }
+
+    await tesorero.attemptsTo(EmitBillingAndInspectBreakdown.forDefaultPeriod());
+    await tesorero.attemptsTo(ToggleColorTheme.to('light'));
+    expect(await tesorero.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+    await tesorero.attemptsTo(ToggleColorTheme.to('dark'));
+    expect(await tesorero.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+    await page.locator('#btn-close-desglose').click();
+  });
+
+  test('3. Vistas Operativas, Gobernanza (+ VoteReceiptModal), Accesos y Admin cumplen WCAG 2.1 AA en claro y oscuro', async ({
+    page,
+  }) => {
+    await installCondominioApiMock(page, { initialProfile: 'PRESIDENTE' });
+    const presidente = Actor.named('A11yPresidente').whoCan(BrowseTheWeb.using(page));
+
+    const routes = [
+      '/incidencias',
+      '/operaciones/tareas',
+      '/accesos/pases',
+      '/operaciones/paqueteria',
+      '/reservas/areas',
+      '/admin/usuarios',
+    ];
+    for (const path of routes) {
+      await assertZeroAxeCriticalOrSerious(presidente, path);
+    }
+
+    await presidente.attemptsTo(VoteInConsultation.firstOpenOption());
+    await presidente.attemptsTo(ToggleColorTheme.to('light'));
+    expect(await presidente.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+    await presidente.attemptsTo(ToggleColorTheme.to('dark'));
+    expect(await presidente.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+    await page.locator('#btn-close-vote-receipt').click();
   });
 });

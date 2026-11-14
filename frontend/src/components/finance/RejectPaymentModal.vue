@@ -162,23 +162,25 @@ dialog::backdrop {
   max-inline-size: 65ch;
   text-wrap: pretty;
   font-size: 0.775rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .field-textarea {
   padding: 0.625rem 0.75rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-control, #cbd5e1);
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.9rem;
 }
 
 .field-textarea:user-invalid {
-  border-color: #dc2626;
-  background-color: #fef2f2;
+  border-color: var(--status-danger-border, #dc2626);
+  background-color: var(--status-danger-bg, #fef2f2);
 }
 
 .field-textarea:user-valid {
-  border-color: #16a34a;
+  border-color: var(--status-ok-border, #16a34a);
 }
 
 .reject-dialog__actions {
@@ -190,10 +192,10 @@ dialog::backdrop {
 .btn-secondary {
   min-height: 44px;
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
-  background-color: #f8fafc;
-  color: #0f172a;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-subtle, #f8fafc);
+  color: var(--text-primary, #0f172a);
   font-weight: 600;
   cursor: pointer;
 }

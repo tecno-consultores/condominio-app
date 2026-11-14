@@ -115,13 +115,13 @@ async function handleSaveActa(): Promise<void> {
 .page-header__title {
   margin: 0;
   font-size: 1.3rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .page-header__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .banner {
@@ -132,22 +132,22 @@ async function handleSaveActa(): Promise<void> {
 }
 
 .banner--error {
-  background-color: #fef2f2;
-  border: 1px solid #f87171;
-  color: #991b1b;
+  background-color: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #f87171);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .banner--success {
-  background-color: #f0fdf4;
-  border: 1px solid #4ade80;
-  color: #166534;
+  background-color: var(--status-ok-bg, #f0fdf4);
+  border: 1px solid var(--status-ok-border, #4ade80);
+  color: var(--status-ok-text, #166534);
 }
 
 .acta-form {
   padding: 1.25rem;
   border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   margin-bottom: 1.25rem;
 }
 
@@ -167,13 +167,16 @@ async function handleSaveActa(): Promise<void> {
 .field-label {
   font-size: 0.85rem;
   font-weight: 600;
+  color: var(--text-primary, #0f172a);
 }
 
 .field-input {
   min-height: 44px;
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
 }
 
 .btn-primary {
@@ -181,7 +184,7 @@ async function handleSaveActa(): Promise<void> {
   padding: 0.625rem 1rem;
   border-radius: 0.5rem;
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
@@ -195,32 +198,33 @@ async function handleSaveActa(): Promise<void> {
 .acta-card {
   padding: 1rem;
   border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
 }
 
 .acta-card__header {
   display: flex;
   justify-content: space-between;
   margin-bottom: 0.35rem;
+  color: var(--text-primary, #0f172a);
 }
 
 .acta-card__loc {
   font-size: 0.8rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .acta-card__content {
   margin: 0;
   font-size: 0.9rem;
-  color: #334155;
+  color: var(--text-secondary, #334155);
 }
 
 .empty-state {
   padding: 1.25rem;
   border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #475569;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  color: var(--text-secondary, #475569);
 }
 </style>

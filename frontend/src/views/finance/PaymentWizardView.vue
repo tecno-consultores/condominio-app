@@ -387,21 +387,21 @@ async function submitPayment(): Promise<void> {
 
 .banner {
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   margin-bottom: 1rem;
   font-size: 0.875rem;
 }
 
 .banner--error {
-  background-color: #fef2f2;
-  border: 1px solid #f87171;
-  color: #991b1b;
+  background-color: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #f87171);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .banner--success {
-  background-color: #f0fdf4;
-  border: 1px solid #4ade80;
-  color: #166534;
+  background-color: var(--status-ok-bg, #f0fdf4);
+  border: 1px solid var(--status-ok-border, #4ade80);
+  color: var(--status-ok-text, #166534);
 }
 
 .field-group {
@@ -414,28 +414,31 @@ async function submitPayment(): Promise<void> {
 .field-label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
 }
 
 .field-hint {
   margin: 0;
   font-size: 0.775rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .field-input {
   min-height: 44px;
   padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.95rem;
 }
 
 .coverage-badge {
   padding: 0.75rem;
-  border-radius: 0.5rem;
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--surface-subtle, #f8fafc);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  color: var(--text-primary, #0f172a);
   font-size: 0.875rem;
   margin-bottom: 1rem;
 }
@@ -449,8 +452,9 @@ async function submitPayment(): Promise<void> {
   display: flex;
   justify-content: space-between;
   padding: 0.5rem 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
   font-size: 0.875rem;
+  color: var(--text-primary, #0f172a);
 }
 
 .wizard-actions {
@@ -462,9 +466,9 @@ async function submitPayment(): Promise<void> {
 .btn-primary {
   min-height: 44px;
   padding: 0.625rem 1.25rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
@@ -473,10 +477,10 @@ async function submitPayment(): Promise<void> {
 .btn-secondary {
   min-height: 44px;
   padding: 0.625rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
-  background-color: #f8fafc;
-  color: #0f172a;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-subtle, #f8fafc);
+  color: var(--text-primary, #0f172a);
   font-weight: 600;
   cursor: pointer;
 }

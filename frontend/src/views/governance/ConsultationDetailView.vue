@@ -245,8 +245,8 @@ async function handleCloseConsultation(): Promise<void> {
 }
 
 .consultation-detail__card {
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   border-radius: 1rem;
   padding: clamp(1rem, 2.5cqi, 1.5rem);
   box-shadow:
@@ -267,14 +267,14 @@ async function handleCloseConsultation(): Promise<void> {
 .consultation-detail__type {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #0369a1;
+  color: var(--brand-accent, #0369a1);
 }
 
 .consultation-detail__title {
   margin: 0.2rem 0 0;
   font-size: clamp(1.25rem, 3cqi, 1.6rem);
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   text-wrap: balance;
 }
 
@@ -283,14 +283,14 @@ async function handleCloseConsultation(): Promise<void> {
   font-weight: 700;
   padding: 0.25rem 0.65rem;
   border-radius: 9999px;
-  background-color: #e0f2fe;
-  color: #0369a1;
+  background-color: var(--status-info-bg, #e0f2fe);
+  color: var(--status-info-text, #0369a1);
 }
 
 .consultation-detail__desc {
   margin: 0;
   font-size: 0.925rem;
-  color: #334155;
+  color: var(--text-secondary, #334155);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
@@ -307,7 +307,7 @@ async function handleCloseConsultation(): Promise<void> {
   flex-wrap: wrap;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 progress.quorum-progress {
@@ -318,8 +318,8 @@ progress.quorum-progress {
   inline-size: 100%;
   block-size: 0.75rem;
   --progress-bar-radius: 1e5px;
-  --progress-bar-track: #e2e8f0;
-  --progress-bar-fill: #0369a1;
+  --progress-bar-track: var(--border-subtle, #e2e8f0);
+  --progress-bar-fill: var(--brand-600, #0369a1);
   --progress-bar-indeterminate-size: 30%;
   --progress-bar-indeterminate-animation-duration: 1.5s;
   border-radius: var(--progress-bar-radius);
@@ -380,9 +380,9 @@ progress.quorum-progress::-moz-progress-bar {
 .consultation-detail__acta-banner {
   padding: 0.65rem 0.85rem;
   border-radius: 0.5rem;
-  background-color: #f0f9ff;
-  border: 1px solid #bae6fd;
-  color: #0369a1;
+  background-color: var(--status-info-bg, #f0f9ff);
+  border: 1px solid var(--status-info-border, #bae6fd);
+  color: var(--status-info-text, #0369a1);
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -391,7 +391,7 @@ progress.quorum-progress::-moz-progress-bar {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .consultation-detail__options {
@@ -406,14 +406,14 @@ progress.quorum-progress::-moz-progress-bar {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
-  border: 1px solid #cbd5e1;
-  background-color: #f8fafc;
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  background-color: var(--surface-subtle, #f8fafc);
   cursor: pointer;
 }
 
 .option-radio-card--selected {
-  border-color: #0369a1;
-  background-color: #f0f9ff;
+  border-color: var(--brand-600, #0369a1);
+  background-color: var(--brand-tint, #f0f9ff);
 }
 
 .option-radio-card__body {
@@ -435,13 +435,13 @@ progress.quorum-progress::-moz-progress-bar {
   font-weight: 700;
   padding: 0.15rem 0.5rem;
   border-radius: 9999px;
-  background-color: #dcfce7;
-  color: #166534;
+  background-color: var(--status-ok-bg, #dcfce7);
+  color: var(--status-ok-text, #166534);
 }
 
 .option-radio-card__stats {
   font-size: 0.8rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
 }
 
 .consultation-detail__vote-form {
@@ -461,13 +461,15 @@ progress.quorum-progress::-moz-progress-bar {
 .field label {
   font-size: 0.825rem;
   font-weight: 600;
-  color: #334155;
+  color: var(--text-secondary, #334155);
 }
 
 .field input {
   padding: 0.55rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.9rem;
   inline-size: 9rem;
 }
@@ -480,14 +482,14 @@ progress.quorum-progress::-moz-progress-bar {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
-  background-color: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  color: #065f46;
+  background-color: var(--status-ok-bg, #ecfdf5);
+  border: 1px solid var(--status-ok-border, #a7f3d0);
+  color: var(--status-ok-text, #065f46);
   font-size: 0.875rem;
 }
 
 .consultation-detail__admin-footer {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--border-subtle, #e2e8f0);
   padding-top: 0.85rem;
   display: flex;
   justify-content: flex-end;
@@ -504,12 +506,12 @@ progress.quorum-progress::-moz-progress-bar {
 }
 
 .btn-primary {
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
 }
 
 .btn-secondary {
-  background-color: #0f172a;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
 }
 
@@ -526,15 +528,15 @@ progress.quorum-progress::-moz-progress-bar {
 }
 
 .banner--error {
-  background-color: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #fca5a5;
+  background-color: var(--status-danger-bg, #fee2e2);
+  color: var(--status-danger-text, #991b1b);
+  border: 1px solid var(--status-danger-border, #fca5a5);
 }
 
 .banner--success {
-  background-color: #dcfce7;
-  color: #166534;
-  border: 1px solid #86efac;
+  background-color: var(--status-ok-bg, #dcfce7);
+  color: var(--status-ok-text, #166534);
+  border: 1px solid var(--status-ok-border, #86efac);
 }
 
 .tabular-num {
