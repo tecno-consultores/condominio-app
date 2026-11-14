@@ -100,5 +100,16 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     * assert !bodyText.contains('alicuota')
     * assert !bodyText.contains('credito_disponible_usd')
 
+  Scenario: 11. Conmutación de tema claro/oscuro OKLCH mediante #btn-theme-toggle y actualización de meta color-scheme (Hito 15)
+    Given driver baseUrl + '/login'
+    And waitFor('#btn-theme-toggle')
+    And waitUntil("document.querySelector('meta[name=\"color-scheme\"]')?.getAttribute('content') === 'light dark'")
+    When click('#btn-theme-toggle')
+    Then waitUntil("document.documentElement.classList.contains('theme-dark') === true")
+    And waitUntil("document.querySelector('meta[name=\"color-scheme\"]')?.getAttribute('content') === 'dark'")
+    When click('#btn-theme-toggle')
+    Then waitUntil("document.documentElement.classList.contains('theme-dark') === false")
+    And waitUntil("document.querySelector('meta[name=\"color-scheme\"]')?.getAttribute('content') === 'light dark'")
+
 
 

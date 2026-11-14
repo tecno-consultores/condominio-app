@@ -7,6 +7,10 @@ import {
   type RouteRecordRaw,
 } from 'vue-router';
 import { registerAuthRouter, useAuthStore, type RolUsuario } from '../stores/authStore';
+import {
+  getActiveConsultationTransition,
+  setActiveConsultationTransition,
+} from '../composables/useViewTransition';
 import AdminBoardRolesView from '../views/admin/AdminBoardRolesView.vue';
 import AdminGhostUsersView from '../views/admin/AdminGhostUsersView.vue';
 import AdminStructureView from '../views/admin/AdminStructureView.vue';
@@ -256,6 +260,23 @@ export function buildAppRouter(useMemory = false): Router {
     }
 
     return decision;
+  });
+
+  router.afterEach(() => {
+    if (getActiveConsultationTransition() !== null) {
+      queueMicrotask(() => setActiveConsultationTransition(null));
+    }
+    if (typeof document !== 'undefined' && document.activeElement === document.body) {
+      const target = document.querySelector<HTMLElement>('#app-main-content, main, h1');
+      if (target) {
+        if (!target.hasAttribute('tabindex')) {
+          target.setAttribute('tabindex', '-1');
+        }
+        if (typeof target.focus === 'function') {
+          target.focus({ preventScroll: true });
+        }
+      }
+    }
   });
 
   return router;

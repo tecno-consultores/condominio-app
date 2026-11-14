@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { closeTopLayerDialog } from '../../composables/useViewTransition';
 
 const props = defineProps<{
   open: boolean;
@@ -31,8 +32,8 @@ watch(
       return;
     }
     const el = dialogRef.value;
-    if (el?.open && typeof el.close === 'function') {
-      el.close();
+    if (el?.open) {
+      await closeTopLayerDialog(el);
     }
   },
   { immediate: true },
@@ -66,7 +67,8 @@ function handleConfirm(): void {
     id="modal-reject-reason"
     ref="dialogRef"
     aria-labelledby="reject-modal-title"
-    class="reject-dialog"
+    class="reject-dialog top-layer-dialog"
+    @cancel.prevent="handleCancel"
     @close="handleNativeClose"
   >
     <h2 id="reject-modal-title" class="reject-dialog__title">
@@ -128,21 +130,19 @@ dialog::backdrop {
   inline-size: min(100% - 1.5rem, 28.75rem);
   max-block-size: min(85dvh, 38rem);
   overflow-y: auto;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.75rem;
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md, 0.75rem);
   padding: clamp(1rem, 3vw, 1.5rem);
-  background-color: #ffffff;
-  color: #0f172a;
-  box-shadow:
-    0 20px 25px -5px rgba(15, 23, 42, 0.18),
-    0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  background-color: var(--surface-elevated, #ffffff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: var(--shadow-modal);
 }
 
 .reject-dialog__title {
   margin: 0 0 0.875rem;
   font-size: clamp(1rem, 2.5vw, 1.15rem);
   text-wrap: balance;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .field-group {

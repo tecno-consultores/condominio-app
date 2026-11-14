@@ -1,0 +1,441 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (C) 2026 Condominio App Contributors */
+
+:root {
+  color-scheme: light dark;
+  interpolate-size: allow-keywords;
+
+  /* --- Paleta Base OKLCH (Modo Claro) --- */
+  --surface-canvas-light: oklch(0.985 0.004 85);
+  --surface-card-light: oklch(1 0 0);
+  --surface-elevated-light: oklch(1 0 0);
+  --surface-subtle-light: oklch(0.96 0.008 220);
+
+  --text-primary-light: oklch(0.21 0.02 255);
+  --text-secondary-light: oklch(0.41 0.025 250);
+  --text-tertiary-light: oklch(0.47 0.02 250);
+
+  --border-subtle-light: oklch(0.9 0.01 250);
+  --border-control-light: oklch(0.56 0.02 250);
+
+  --brand-500-light: oklch(0.55 0.14 235);
+  --brand-600-light: oklch(0.46 0.14 235);
+  --brand-700-light: oklch(0.38 0.13 235);
+  --brand-accent-light: oklch(0.44 0.14 235);
+
+  --status-ok-bg-light: oklch(0.95 0.04 155);
+  --status-ok-text-light: oklch(0.33 0.1 155);
+  --status-ok-border-light: oklch(0.58 0.13 155);
+
+  --status-warn-bg-light: oklch(0.95 0.05 80);
+  --status-warn-text-light: oklch(0.36 0.1 65);
+  --status-warn-border-light: oklch(0.66 0.15 75);
+
+  --status-danger-bg-light: oklch(0.95 0.04 25);
+  --status-danger-text-light: oklch(0.41 0.16 25);
+  --status-danger-border-light: oklch(0.58 0.18 25);
+
+  --status-info-bg-light: oklch(0.95 0.04 235);
+  --status-info-text-light: oklch(0.37 0.12 235);
+  --status-info-border-light: oklch(0.58 0.13 235);
+
+  /* --- Paleta Base OKLCH (Modo Oscuro) --- */
+  --surface-canvas-dark: oklch(0.16 0.02 255);
+  --surface-card-dark: oklch(0.21 0.022 255);
+  --surface-elevated-dark: oklch(0.25 0.024 255);
+  --surface-subtle-dark: oklch(0.24 0.02 255);
+
+  --text-primary-dark: oklch(0.96 0.008 250);
+  --text-secondary-dark: oklch(0.84 0.015 250);
+  --text-tertiary-dark: oklch(0.74 0.015 250);
+
+  --border-subtle-dark: oklch(0.33 0.02 255);
+  --border-control-dark: oklch(0.56 0.025 255);
+
+  --brand-500-dark: oklch(0.55 0.14 235);
+  --brand-600-dark: oklch(0.46 0.14 235);
+  --brand-700-dark: oklch(0.39 0.13 235);
+  --brand-accent-dark: oklch(0.76 0.13 220);
+
+  --status-ok-bg-dark: oklch(0.26 0.06 155);
+  --status-ok-text-dark: oklch(0.86 0.11 155);
+  --status-ok-border-dark: oklch(0.66 0.14 155);
+
+  --status-warn-bg-dark: oklch(0.28 0.06 75);
+  --status-warn-text-dark: oklch(0.88 0.12 80);
+  --status-warn-border-dark: oklch(0.72 0.14 80);
+
+  --status-danger-bg-dark: oklch(0.27 0.08 25);
+  --status-danger-text-dark: oklch(0.87 0.12 25);
+  --status-danger-border-dark: oklch(0.68 0.17 25);
+
+  --status-info-bg-dark: oklch(0.27 0.06 235);
+  --status-info-text-dark: oklch(0.87 0.11 225);
+  --status-info-border-dark: oklch(0.68 0.14 225);
+
+  /* --- Tokens Semánticos por Defecto (Fallback pre-light-dark) --- */
+  --surface-canvas: var(--surface-canvas-light);
+  --surface-card: var(--surface-card-light);
+  --surface-elevated: var(--surface-elevated-light);
+  --surface-subtle: var(--surface-subtle-light);
+
+  --text-primary: var(--text-primary-light);
+  --text-secondary: var(--text-secondary-light);
+  --text-tertiary: var(--text-tertiary-light);
+
+  --border-subtle: var(--border-subtle-light);
+  --border-control: var(--border-control-light);
+
+  --brand-500: var(--brand-500-light);
+  --brand-600: var(--brand-600-light);
+  --brand-700: var(--brand-700-light);
+  --brand-accent: var(--brand-accent-light);
+
+  --status-ok-bg: var(--status-ok-bg-light);
+  --status-ok-text: var(--status-ok-text-light);
+  --status-ok-border: var(--status-ok-border-light);
+
+  --status-warn-bg: var(--status-warn-bg-light);
+  --status-warn-text: var(--status-warn-text-light);
+  --status-warn-border: var(--status-warn-border-light);
+
+  --status-danger-bg: var(--status-danger-bg-light);
+  --status-danger-text: var(--status-danger-text-light);
+  --status-danger-border: var(--status-danger-border-light);
+
+  --status-info-bg: var(--status-info-bg-light);
+  --status-info-text: var(--status-info-text-light);
+  --status-info-border: var(--status-info-border-light);
+
+  /* --- Tintes seguros vía color-mix() --- */
+  --brand-tint: color-mix(in oklab, var(--brand-accent) 12%, var(--surface-card));
+  --status-ok-tint: color-mix(in oklab, var(--status-ok-border) 10%, var(--surface-card));
+  --status-warn-tint: color-mix(in oklab, var(--status-warn-border) 10%, var(--surface-card));
+  --status-danger-tint: color-mix(in oklab, var(--status-danger-border) 10%, var(--surface-card));
+
+  /* --- Tipografía, Radios Concéntricos y Elevación 2-Capas --- */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 9999px;
+
+  --shadow-card: 0 1px 2px oklch(0.2 0.02 250 / 0.06), 0 4px 12px oklch(0.2 0.02 250 / 0.04);
+  --shadow-elevated: 0 4px 12px oklch(0.2 0.02 250 / 0.1), 0 12px 28px oklch(0.2 0.02 250 / 0.08);
+  --shadow-modal: 0 12px 32px oklch(0.12 0.02 250 / 0.28), 0 2px 8px oklch(0.12 0.02 250 / 0.16);
+  --card-ring: 0 0 0 1px var(--border-subtle);
+}
+
+/* Override manual propagado de <meta name="color-scheme"> / .theme-* hacia :root */
+:root:is(.theme-dark, :has(> head > meta[name='color-scheme'][content='dark'])) {
+  color-scheme: dark;
+  --surface-canvas: var(--surface-canvas-dark);
+  --surface-card: var(--surface-card-dark);
+  --surface-elevated: var(--surface-elevated-dark);
+  --surface-subtle: var(--surface-subtle-dark);
+  --text-primary: var(--text-primary-dark);
+  --text-secondary: var(--text-secondary-dark);
+  --text-tertiary: var(--text-tertiary-dark);
+  --border-subtle: var(--border-subtle-dark);
+  --border-control: var(--border-control-dark);
+  --brand-500: var(--brand-500-dark);
+  --brand-600: var(--brand-600-dark);
+  --brand-700: var(--brand-700-dark);
+  --brand-accent: var(--brand-accent-dark);
+  --status-ok-bg: var(--status-ok-bg-dark);
+  --status-ok-text: var(--status-ok-text-dark);
+  --status-ok-border: var(--status-ok-border-dark);
+  --status-warn-bg: var(--status-warn-bg-dark);
+  --status-warn-text: var(--status-warn-text-dark);
+  --status-warn-border: var(--status-warn-border-dark);
+  --status-danger-bg: var(--status-danger-bg-dark);
+  --status-danger-text: var(--status-danger-text-dark);
+  --status-danger-border: var(--status-danger-border-dark);
+  --status-info-bg: var(--status-info-bg-dark);
+  --status-info-text: var(--status-info-text-dark);
+  --status-info-border: var(--status-info-border-dark);
+}
+
+:root:is(.theme-light, :has(> head > meta[name='color-scheme'][content='light'])) {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light):not(:has(> head > meta[name='color-scheme'][content='light'])) {
+    --surface-canvas: var(--surface-canvas-dark);
+    --surface-card: var(--surface-card-dark);
+    --surface-elevated: var(--surface-elevated-dark);
+    --surface-subtle: var(--surface-subtle-dark);
+    --text-primary: var(--text-primary-dark);
+    --text-secondary: var(--text-secondary-dark);
+    --text-tertiary: var(--text-tertiary-dark);
+    --border-subtle: var(--border-subtle-dark);
+    --border-control: var(--border-control-dark);
+    --brand-500: var(--brand-500-dark);
+    --brand-600: var(--brand-600-dark);
+    --brand-700: var(--brand-700-dark);
+    --brand-accent: var(--brand-accent-dark);
+    --status-ok-bg: var(--status-ok-bg-dark);
+    --status-ok-text: var(--status-ok-text-dark);
+    --status-ok-border: var(--status-ok-border-dark);
+    --status-warn-bg: var(--status-warn-bg-dark);
+    --status-warn-text: var(--status-warn-text-dark);
+    --status-warn-border: var(--status-warn-border-dark);
+    --status-danger-bg: var(--status-danger-bg-dark);
+    --status-danger-text: var(--status-danger-text-dark);
+    --status-danger-border: var(--status-danger-border-dark);
+    --status-info-bg: var(--status-info-bg-dark);
+    --status-info-text: var(--status-info-text-dark);
+    --status-info-border: var(--status-info-border-dark);
+  }
+}
+
+@supports (color: light-dark(white, black)) {
+  :root {
+    --surface-canvas: light-dark(var(--surface-canvas-light), var(--surface-canvas-dark));
+    --surface-card: light-dark(var(--surface-card-light), var(--surface-card-dark));
+    --surface-elevated: light-dark(var(--surface-elevated-light), var(--surface-elevated-dark));
+    --surface-subtle: light-dark(var(--surface-subtle-light), var(--surface-subtle-dark));
+
+    --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
+    --text-secondary: light-dark(var(--text-secondary-light), var(--text-secondary-dark));
+    --text-tertiary: light-dark(var(--text-tertiary-light), var(--text-tertiary-dark));
+
+    --border-subtle: light-dark(var(--border-subtle-light), var(--border-subtle-dark));
+    --border-control: light-dark(var(--border-control-light), var(--border-control-dark));
+
+    --brand-500: light-dark(var(--brand-500-light), var(--brand-500-dark));
+    --brand-600: light-dark(var(--brand-600-light), var(--brand-600-dark));
+    --brand-700: light-dark(var(--brand-700-light), var(--brand-700-dark));
+    --brand-accent: light-dark(var(--brand-accent-light), var(--brand-accent-dark));
+
+    --status-ok-bg: light-dark(var(--status-ok-bg-light), var(--status-ok-bg-dark));
+    --status-ok-text: light-dark(var(--status-ok-text-light), var(--status-ok-text-dark));
+    --status-ok-border: light-dark(var(--status-ok-border-light), var(--status-ok-border-dark));
+
+    --status-warn-bg: light-dark(var(--status-warn-bg-light), var(--status-warn-bg-dark));
+    --status-warn-text: light-dark(var(--status-warn-text-light), var(--status-warn-text-dark));
+    --status-warn-border: light-dark(
+      var(--status-warn-border-light),
+      var(--status-warn-border-dark)
+    );
+
+    --status-danger-bg: light-dark(var(--status-danger-bg-light), var(--status-danger-bg-dark));
+    --status-danger-text: light-dark(
+      var(--status-danger-text-light),
+      var(--status-danger-text-dark)
+    );
+    --status-danger-border: light-dark(
+      var(--status-danger-border-light),
+      var(--status-danger-border-dark)
+    );
+
+    --status-info-bg: light-dark(var(--status-info-bg-light), var(--status-info-bg-dark));
+    --status-info-text: light-dark(var(--status-info-text-light), var(--status-info-text-dark));
+    --status-info-border: light-dark(
+      var(--status-info-border-light),
+      var(--status-info-border-dark)
+    );
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--surface-canvas);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Tarjetas seleccionables (:has() scoped + fallback) --- */
+.selectable-card {
+  border: 1.5px solid var(--border-subtle);
+  background-color: var(--surface-card);
+  border-radius: var(--radius-md);
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.selectable-card:has(input:checked) {
+  border-color: var(--brand-accent);
+  background-color: var(--brand-tint);
+  box-shadow: 0 0 0 1px var(--brand-accent);
+}
+
+@supports not selector(:has(*)) {
+  .selectable-card.is-selected {
+    border-color: var(--brand-accent);
+    background-color: var(--brand-tint);
+    box-shadow: 0 0 0 1px var(--brand-accent);
+  }
+}
+
+/* --- Expansión a tamaño intrínseco con calc-size(auto, size) --- */
+.collapsible-panel {
+  overflow: clip;
+  block-size: 0;
+  opacity: 0;
+  transition:
+    block-size 0.25s cubic-bezier(0.2, 0, 0, 1),
+    opacity 0.2s ease;
+}
+
+.collapsible-panel[data-expanded='true'] {
+  block-size: auto;
+  block-size: calc-size(auto, size);
+  opacity: 1;
+}
+
+/* --- Top Layer <dialog> (@starting-style + allow-discrete + Bottom Sheet móvil) --- */
+dialog.top-layer-dialog {
+  border: 1px solid var(--border-subtle);
+  background-color: var(--surface-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-modal);
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  transition-behavior: allow-discrete;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.top-layer-dialog {
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+dialog.top-layer-dialog:is([open]):where(:not([data-closing])) {
+  opacity: 1;
+  transform: none;
+}
+
+@starting-style {
+  dialog.top-layer-dialog:is([open]):where(:not([data-closing])) {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @starting-style {
+    dialog.top-layer-dialog:is([open]):where(:not([data-closing])) {
+      transform: translateY(12px) scale(0.98);
+    }
+  }
+}
+
+dialog.top-layer-dialog::backdrop {
+  background-color: oklch(0.15 0.02 255 / 0.55);
+  transition-property: opacity, display, overlay;
+  transition-duration: 0.22s;
+  transition-behavior: allow-discrete;
+  opacity: 0;
+}
+
+dialog.top-layer-dialog:is([open]):where(:not([data-closing]))::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  dialog.top-layer-dialog:is([open]):where(:not([data-closing]))::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  dialog.top-layer-dialog {
+    margin: auto 0 0 0;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    max-block-size: 88dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: none;
+  }
+}
+
+@media (max-width: 639px) and (prefers-reduced-motion: no-preference) {
+  dialog.top-layer-dialog {
+    transform: translateY(100%);
+  }
+
+  dialog.top-layer-dialog:is([open]):where(:not([data-closing])) {
+    transform: translateY(0);
+  }
+
+  @starting-style {
+    dialog.top-layer-dialog:is([open]):where(:not([data-closing])) {
+      transform: translateY(100%);
+    }
+  }
+}
+
+/* --- Transiciones de pasos de formulario (sin retrasar montaje) --- */
+@media (prefers-reduced-motion: no-preference) {
+  .fade-slide-enter-active {
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .fade-slide-enter-from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+/* --- Accesibilidad Movimiento Reducido y Alto Contraste --- */
+@media (prefers-reduced-motion: reduce) {
+  .collapsible-panel {
+    transition: opacity 0.1s linear;
+  }
+
+  dialog.top-layer-dialog,
+  dialog.top-layer-dialog::backdrop {
+    transition-duration: 0.1s;
+    transform: none;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .card-elevated,
+  .auth-card,
+  .selectable-card,
+  .empty-state-card,
+  dialog[open] {
+    outline: 1px solid transparent;
+  }
+}

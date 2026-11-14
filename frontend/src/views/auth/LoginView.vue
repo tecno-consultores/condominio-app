@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ContextualHelpModal from '../../components/layout/ContextualHelpModal.vue';
+import ThemeToggleButton from '../../components/layout/ThemeToggleButton.vue';
 import { useAuthStore } from '../../stores/authStore';
 import { isSafeRedirectUrl } from '../../utils/security';
 
@@ -53,15 +54,18 @@ async function onSubmit(): Promise<void> {
     <section class="auth-card" aria-labelledby="login-heading">
       <div class="auth-card__header-row">
         <h1 id="login-heading" class="auth-card__title">Iniciar Sesión — Condominio App</h1>
-        <button
-          id="btn-contextual-help"
-          type="button"
-          class="auth-card__help-btn"
-          aria-label="Abrir ayuda de inicio de sesión"
-          @click="isHelpOpen = true"
-        >
-          ?
-        </button>
+        <div class="auth-card__header-actions">
+          <ThemeToggleButton button-id="btn-theme-toggle" compact />
+          <button
+            id="btn-contextual-help"
+            type="button"
+            class="auth-card__help-btn"
+            aria-label="Abrir ayuda de inicio de sesión"
+            @click="isHelpOpen = true"
+          >
+            ?
+          </button>
+        </div>
       </div>
       <p class="auth-card__subtitle">
         Acceda al estado de cobranza, reporte de pagos e incidencias de su comunidad.
@@ -148,38 +152,41 @@ async function onSubmit(): Promise<void> {
   align-items: center;
   justify-content: center;
   padding: 1.5rem 1rem;
-  background-color: #0f172a;
-  color: #f8fafc;
+  background-color: var(--surface-canvas, #f8fafc);
+  color: var(--text-primary, #0f172a);
 }
 
 .auth-card {
   width: 100%;
   max-width: 420px;
-  background-color: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: var(--radius-lg, 1rem);
+  box-shadow: var(--shadow-elevated);
   padding: 1.75rem 1.5rem;
 }
 
 .auth-card__title {
   font-size: 1.35rem;
   margin: 0 0 0.5rem;
-  color: #f8fafc;
+  color: var(--text-primary, #0f172a);
+  text-wrap: balance;
 }
 
 .auth-card__subtitle {
   font-size: 0.875rem;
-  color: #cbd5e1;
+  color: var(--text-secondary, #475569);
   margin: 0 0 1.25rem;
+  text-wrap: pretty;
 }
 
 .banner--error {
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
-  border-radius: 0.5rem;
-  background-color: #450a0a;
-  border: 1px solid #f87171;
-  color: #fecaca;
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--status-danger-bg, #fef2f2);
+  border: 1px solid var(--status-danger-border, #f87171);
+  color: var(--status-danger-text, #991b1b);
   font-size: 0.875rem;
   font-weight: 600;
 }
@@ -204,51 +211,52 @@ async function onSubmit(): Promise<void> {
 .field__label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary, #0f172a);
   margin-bottom: 0.25rem;
 }
 
 .field__hint {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-tertiary, #475569);
   margin-bottom: 0.35rem;
 }
 
 .field__toggle {
   background: transparent;
   border: none;
-  color: #38bdf8;
-  font-size: 0.75rem;
+  color: var(--brand-accent, #0369a1);
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
-  padding: 0.25rem;
+  min-block-size: 2.25rem;
+  padding: 0.25rem 0.5rem;
 }
 
 .field__input {
   padding: 0.65rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid #475569;
-  background-color: #0f172a;
-  color: #f8fafc;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #64748b);
+  background-color: var(--surface-subtle, #f8fafc);
+  color: var(--text-primary, #0f172a);
   font-size: 0.95rem;
 }
 
 .field__input:user-invalid {
-  border-color: #f87171;
-  background-color: #2a1215;
+  border-color: var(--status-danger-border, #dc2626);
+  background-color: var(--status-danger-tint, #fef2f2);
 }
 
 .field__input:user-valid {
-  border-color: #34d399;
+  border-color: var(--status-ok-border, #16a34a);
 }
 
 .btn-primary {
   margin-top: 0.5rem;
   min-height: 48px;
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-size: 1rem;
   font-weight: 700;
@@ -263,12 +271,12 @@ async function onSubmit(): Promise<void> {
 .auth-card__footer {
   margin-top: 1.25rem;
   font-size: 0.85rem;
-  color: #cbd5e1;
+  color: var(--text-secondary, #475569);
   text-align: center;
 }
 
 .auth-card__link {
-  color: #38bdf8;
+  color: var(--brand-accent, #0369a1);
   font-weight: 600;
 }
 
@@ -279,33 +287,36 @@ async function onSubmit(): Promise<void> {
   gap: 0.75rem;
 }
 
+.auth-card__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 .auth-card__help-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  inline-size: 2rem;
-  block-size: 2rem;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
   border-radius: 50%;
-  border: 1px solid #334155;
-  background-color: #1e293b;
-  color: #38bdf8;
-  font-size: 0.875rem;
+  border: 1px solid var(--border-control, #64748b);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--brand-accent, #0369a1);
+  font-size: 0.9375rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
   flex-shrink: 0;
 }
 
 .auth-card__help-btn:hover {
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
-  border-color: #0369a1;
-}
-
-@media (pointer: coarse) {
-  .auth-card__help-btn {
-    inline-size: 2.75rem;
-    block-size: 2.75rem;
-  }
+  border-color: var(--brand-600, #0369a1);
 }
 </style>

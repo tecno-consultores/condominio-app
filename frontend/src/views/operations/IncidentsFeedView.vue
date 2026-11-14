@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import EmptyStateCard from '../../components/common/EmptyStateCard.vue';
+import SkeletonCard from '../../components/common/SkeletonCard.vue';
 import AppShellLayout from '../../components/layout/AppShellLayout.vue';
 import IncidentCard from '../../components/operations/IncidentCard.vue';
 import { useIdempotency } from '../../composables/useIdempotency';
@@ -65,6 +67,8 @@ async function handleAdherir(incidenciaId: number): Promise<void> {
         id="btn-open-new-incident"
         type="button"
         class="btn-primary"
+        :aria-expanded="showNewForm ? 'true' : 'false'"
+        aria-controls="new-incident-panel"
         @click="showNewForm = !showNewForm"
       >
         {{ showNewForm ? 'Cerrar Formulario' : 'Reportar Nueva Falla' }}
@@ -78,53 +82,71 @@ async function handleAdherir(incidenciaId: number): Promise<void> {
       {{ statusBanner }}
     </div>
 
-    <form
-      v-if="showNewForm"
-      id="new-incident-form"
-      class="incident-form"
-      @submit.prevent="handleCreateIncident"
+    <div
+      id="new-incident-panel"
+      class="collapsible-panel"
+      :data-expanded="showNewForm ? 'true' : 'false'"
     >
-      <div class="field-group">
-        <label for="input-inc-area" class="field-label">Área afectada</label>
-        <select id="input-inc-area" v-model="area" class="field-input">
-          <option value="Bombas de Agua">Bombas de Agua</option>
-          <option value="Ascensores">Ascensores</option>
-          <option value="Portón Eléctrico">Portón Eléctrico</option>
-          <option value="Iluminación y Pasillos">Iluminación y Pasillos</option>
-        </select>
-      </div>
-
-      <div class="field-group">
-        <label for="input-inc-descripcion" class="field-label">Descripción detallada</label>
-        <p id="inc-desc-hint" class="field-hint">
-          Mínimo 5 caracteres indicando piso, torre o síntoma observado.
-        </p>
-        <textarea
-          id="input-inc-descripcion"
-          v-model="descripcion"
-          rows="3"
-          required
-          minlength="5"
-          aria-describedby="inc-desc-hint"
-          class="field-input"
-        />
-      </div>
-
-      <button
-        id="btn-submit-incident"
-        type="submit"
-        class="btn-primary"
-        :disabled="isSubmitting"
-        :aria-busy="isSubmitting ? 'true' : 'false'"
+      <form
+        v-if="showNewForm"
+        id="new-incident-form"
+        class="incident-form"
+        @submit.prevent="handleCreateIncident"
       >
-        Publicar Incidencia
-      </button>
-    </form>
+        <div class="field-group">
+          <label for="input-inc-area" class="field-label">Área afectada</label>
+          <select id="input-inc-area" v-model="area" class="field-input">
+            <option value="Bombas de Agua">Bombas de Agua</option>
+            <option value="Ascensores">Ascensores</option>
+            <option value="Portón Eléctrico">Portón Eléctrico</option>
+            <option value="Iluminación y Pasillos">Iluminación y Pasillos</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="input-inc-descripcion" class="field-label">Descripción detallada</label>
+          <p id="inc-desc-hint" class="field-hint">
+            Mínimo 5 caracteres indicando piso, torre o síntoma observado.
+          </p>
+          <textarea
+            id="input-inc-descripcion"
+            v-model="descripcion"
+            rows="3"
+            required
+            minlength="5"
+            aria-describedby="inc-desc-hint"
+            class="field-input"
+          />
+        </div>
+
+        <button
+          id="btn-submit-incident"
+          type="submit"
+          class="btn-primary"
+          :disabled="isSubmitting"
+          :aria-busy="isSubmitting ? 'true' : 'false'"
+        >
+          Publicar Incidencia
+        </button>
+      </form>
+    </div>
 
     <section aria-label="Incidencias activas por prioridad">
-      <p v-if="operationsStore.data.incidencias.length === 0" class="empty-state">
-        No hay incidencias abiertas en el condominio.
-      </p>
+      <SkeletonCard
+        v-if="operationsStore.isLoading && operationsStore.data.incidencias.length === 0"
+        :lines="3"
+        height="120px"
+        label="Cargando incidencias abiertas..."
+      />
+      <EmptyStateCard
+        v-else-if="operationsStore.data.incidencias.length === 0"
+        class="empty-state"
+        title="Todo en orden en la comunidad"
+        description="No hay incidencias abiertas en el condominio."
+        icon="check"
+        action-label="Reportar Nueva Falla"
+        @action="showNewForm = true"
+      />
       <div v-else class="incident-list">
         <IncidentCard
           v-for="inc in operationsStore.data.incidencias"

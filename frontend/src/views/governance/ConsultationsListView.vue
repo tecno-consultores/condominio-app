@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import EmptyStateCard from '../../components/common/EmptyStateCard.vue';
+import SkeletonCard from '../../components/common/SkeletonCard.vue';
+import {
+  runWithViewTransition,
+  setActiveConsultationTransition,
+} from '../../composables/useViewTransition';
 import { useAuthStore } from '../../stores/authStore';
 import {
   useGovernanceStore,
@@ -11,6 +17,7 @@ import {
 const authStore = useAuthStore();
 const govStore = useGovernanceStore();
 const router = useRouter();
+const transitionCardId = ref<number | null>(null);
 
 const titulo = ref('');
 const descripcionLegal = ref('');
@@ -53,7 +60,11 @@ async function handleCreateConsulta(): Promise<void> {
 }
 
 async function openConsultationDetail(id: number): Promise<void> {
-  await router.push(`/consultas/${id}`);
+  transitionCardId.value = id;
+  setActiveConsultationTransition(id);
+  await runWithViewTransition(() => router.push(`/consultas/${id}`), {
+    focusSelector: '#detail-heading',
+  });
 }
 </script>
 
@@ -164,11 +175,22 @@ async function openConsultationDetail(id: number): Promise<void> {
     </form>
 
     <div class="consultations-view__list">
+      <SkeletonCard
+        v-if="govStore.isLoading && !govStore.consultas.length"
+        :lines="3"
+        height="140px"
+        label="Cargando cartas consulta..."
+      />
       <article
         v-for="(consulta, idx) in govStore.consultas"
         :key="consulta.id"
         :data-testid="`consultation-card-${consulta.id}`"
         class="consultation-card"
+        :style="
+          transitionCardId === consulta.id
+            ? { viewTransitionName: 'active-consultation-card' }
+            : undefined
+        "
       >
         <div class="consultation-card__top">
           <div>
@@ -179,6 +201,7 @@ async function openConsultationDetail(id: number): Promise<void> {
             class="consultation-card__badge"
             :class="`consultation-card__badge--${consulta.estado.toLowerCase()}`"
           >
+            <span aria-hidden="true">{{ consulta.estado === 'ABIERTA' ? '● ' : '✓ ' }}</span>
             {{ consulta.estado }}
           </span>
         </div>
@@ -223,9 +246,13 @@ async function openConsultationDetail(id: number): Promise<void> {
         </footer>
       </article>
 
-      <p v-if="!govStore.consultas.length && !govStore.isLoading" class="consultations-view__empty">
-        No existen Cartas Consulta ni Asambleas registradas actualmente.
-      </p>
+      <EmptyStateCard
+        v-if="!govStore.consultas.length && !govStore.isLoading"
+        class="consultations-view__empty empty-state"
+        title="Sin Cartas Consulta activas"
+        description="No existen Cartas Consulta ni Asambleas registradas actualmente."
+        icon="doc"
+      />
     </div>
   </section>
 </template>

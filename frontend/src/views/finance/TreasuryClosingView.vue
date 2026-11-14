@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
 import AppShellLayout from '../../components/layout/AppShellLayout.vue';
+import { closeTopLayerDialog } from '../../composables/useViewTransition';
 import { useFinanceStore, type MonedaPago } from '../../stores/financeStore';
 
 const financeStore = useFinanceStore();
@@ -55,8 +56,8 @@ watch(confirmModalOpen, async (isOpen) => {
     return;
   }
   const el = dialogRef.value;
-  if (el?.open && typeof el.close === 'function') {
-    el.close();
+  if (el?.open) {
+    await closeTopLayerDialog(el);
   }
 });
 
@@ -217,7 +218,8 @@ async function confirmMonthlyClosing(): Promise<void> {
       id="modal-confirm-closing"
       ref="dialogRef"
       aria-labelledby="closing-modal-title"
-      class="closing-dialog"
+      class="closing-dialog top-layer-dialog"
+      @cancel.prevent="closeClosingModal"
       @close="handleNativeClose"
     >
       <h2 id="closing-modal-title" class="closing-dialog__title">

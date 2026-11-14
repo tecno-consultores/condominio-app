@@ -121,8 +121,35 @@ async function submitPayment(): Promise<void> {
     <section class="wizard-card" aria-labelledby="wizard-title">
       <header class="wizard-card__header">
         <h1 id="wizard-title" class="wizard-card__title">Reportar Pago de Condominio</h1>
-        <span class="wizard-card__step-indicator">Paso {{ currentStep }} de 3</span>
+        <span class="wizard-card__step-indicator tabular-nums">Paso {{ currentStep }} de 3</span>
       </header>
+
+      <ol id="wizard-stepper" class="wizard-stepper" aria-label="Progreso de reporte de pago">
+        <li
+          class="wizard-stepper__item"
+          :class="{
+            'wizard-stepper__item--active': currentStep === 1,
+            'wizard-stepper__item--done': currentStep > 1,
+          }"
+        >
+          1. Monto y Recibo
+        </li>
+        <li
+          class="wizard-stepper__item"
+          :class="{
+            'wizard-stepper__item--active': currentStep === 2,
+            'wizard-stepper__item--done': currentStep > 2,
+          }"
+        >
+          2. Método y Soporte
+        </li>
+        <li
+          class="wizard-stepper__item"
+          :class="{ 'wizard-stepper__item--active': currentStep === 3 }"
+        >
+          3. Confirmar Envío
+        </li>
+      </ol>
 
       <div v-if="validationError" class="banner banner--error" role="alert">
         {{ validationError }}
@@ -131,150 +158,164 @@ async function submitPayment(): Promise<void> {
         {{ successBanner }}
       </div>
 
-      <!-- PASO 1: Monto, Moneda y Cobertura -->
-      <div v-if="currentStep === 1" class="wizard-step">
-        <div class="field-group">
-          <label for="select-recibo" class="field-label">Recibo a abonar</label>
-          <select id="select-recibo" v-model.number="reciboId" class="field-input">
-            <option :value="1">Recibo #1 — Octubre 2026 (Saldo: {{ saldoReciboUsd }} USD)</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <label for="select-moneda" class="field-label">Moneda del pago</label>
-          <select id="select-moneda" v-model="moneda" class="field-input">
-            <option value="VES">
-              Bolívares (VES — Tasa BCV {{ financeStore.activeRateValue }})
-            </option>
-            <option value="USD">Dólares (USD)</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <label for="step-1-monto" class="field-label">Monto exacto pagado</label>
-          <p id="monto-hint" class="field-hint">
-            Equivalente calculado: <strong>{{ equivalentUsd }} USD</strong> ({{ equivalentVes }}
-            VES)
-          </p>
-          <input
-            id="step-1-monto"
-            v-model="monto"
-            type="number"
-            step="0.01"
-            min="0.01"
-            required
-            aria-describedby="monto-hint"
-            class="field-input"
-          />
-        </div>
-
-        <div id="badge-tipo-cobertura" class="coverage-badge">
-          Modalidad detectada:
-          <strong>{{ coverageType === 'PAGO_TOTAL' ? 'PAGO TOTAL' : 'ABONO PARCIAL' }}</strong>
-        </div>
-
-        <div class="wizard-actions">
-          <button id="btn-step-1-next" type="button" class="btn-primary" @click="goToStep2">
-            Continuar al Paso 2
-          </button>
-        </div>
-      </div>
-
-      <!-- PASO 2: Método, Referencia y Comprobante (<= 2 MB) -->
-      <div v-else-if="currentStep === 2" class="wizard-step">
-        <div class="field-group">
-          <label for="step-2-metodo" class="field-label">Método de pago utilizado</label>
-          <select id="step-2-metodo" v-model="metodoPago" class="field-input">
-            <option value="PAGO_MOVIL">Pago Móvil</option>
-            <option value="TRANSFERENCIA">Transferencia Bancaria</option>
-            <option value="ZELLE">Zelle (USD)</option>
-            <option value="EFECTIVO">Efectivo en Taquilla</option>
-          </select>
-        </div>
-
-        <div v-if="requiresReference" class="field-group">
-          <label for="input-referencia" class="field-label">Número de referencia bancaria</label>
-          <p id="referencia-hint" class="field-hint">
-            Ingresa los últimos dígitos o código de confirmación (mínimo 4 caracteres).
-          </p>
-          <input
-            id="input-referencia"
-            v-model="numeroReferencia"
-            type="text"
-            required
-            minlength="4"
-            aria-describedby="referencia-hint"
-            class="field-input"
-          />
-        </div>
-
-        <div class="field-group">
-          <label for="step-3-comprobante" class="field-label">
-            Comprobante digital (JPG, PNG, WEBP, AVIF o PDF — máx. 2 MB)
-          </label>
-          <input
-            id="step-3-comprobante"
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/avif,application/pdf"
-            class="field-input"
-            @change="handleFileChange"
-          />
-          <p v-if="selectedFileName" class="field-hint">Archivo validado: {{ selectedFileName }}</p>
-        </div>
-
-        <div class="wizard-actions">
-          <button id="btn-step-2-back" type="button" class="btn-secondary" @click="currentStep = 1">
-            Atrás
-          </button>
-          <button id="btn-step-2-next" type="button" class="btn-primary" @click="goToStep3">
-            Revisar y Confirmar
-          </button>
-        </div>
-      </div>
-
-      <!-- PASO 3: Resumen Inmutable y Envío Idempotente -->
-      <div v-else class="wizard-step">
-        <dl class="summary-list">
-          <div class="summary-list__row">
-            <dt>Recibo:</dt>
-            <dd>#{{ reciboId }}</dd>
+      <Transition name="fade-slide">
+        <!-- PASO 1: Monto, Moneda y Cobertura -->
+        <div v-if="currentStep === 1" key="step-1" class="wizard-step">
+          <div class="field-group">
+            <label for="select-recibo" class="field-label">Recibo a abonar</label>
+            <select id="select-recibo" v-model.number="reciboId" class="field-input">
+              <option :value="1">Recibo #1 — Octubre 2026 (Saldo: {{ saldoReciboUsd }} USD)</option>
+            </select>
           </div>
-          <div class="summary-list__row">
-            <dt>Monto reportado:</dt>
-            <dd>{{ monto }} {{ moneda }} ({{ equivalentUsd }} USD)</dd>
-          </div>
-          <div class="summary-list__row">
-            <dt>Cobertura:</dt>
-            <dd>{{ coverageType }}</dd>
-          </div>
-          <div class="summary-list__row">
-            <dt>Método y Referencia:</dt>
-            <dd>
-              {{ metodoPago }} — {{ requiresReference ? numeroReferencia : 'N/A (Efectivo)' }}
-            </dd>
-          </div>
-          <div class="summary-list__row">
-            <dt>Llave de Idempotencia:</dt>
-            <dd id="idempotency-key-preview">{{ currentKey }}</dd>
-          </div>
-        </dl>
 
-        <div class="wizard-actions">
-          <button id="btn-step-3-back" type="button" class="btn-secondary" @click="currentStep = 2">
-            Atrás
-          </button>
-          <button
-            id="btn-submit-pago"
-            type="button"
-            class="btn-primary"
-            :disabled="isSubmitting"
-            :aria-busy="isSubmitting ? 'true' : 'false'"
-            @click="submitPayment"
-          >
-            {{ isSubmitting ? 'Enviando...' : 'Confirmar y Enviar Pago' }}
-          </button>
+          <div class="field-group">
+            <label for="select-moneda" class="field-label">Moneda del pago</label>
+            <select id="select-moneda" v-model="moneda" class="field-input">
+              <option value="VES">
+                Bolívares (VES — Tasa BCV {{ financeStore.activeRateValue }})
+              </option>
+              <option value="USD">Dólares (USD)</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label for="step-1-monto" class="field-label">Monto exacto pagado</label>
+            <p id="monto-hint" class="field-hint">
+              Equivalente calculado: <strong>{{ equivalentUsd }} USD</strong> ({{ equivalentVes }}
+              VES)
+            </p>
+            <input
+              id="step-1-monto"
+              v-model="monto"
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              aria-describedby="monto-hint"
+              class="field-input"
+            />
+          </div>
+
+          <div id="badge-tipo-cobertura" class="coverage-badge">
+            Modalidad detectada:
+            <strong>{{ coverageType === 'PAGO_TOTAL' ? 'PAGO TOTAL' : 'ABONO PARCIAL' }}</strong>
+          </div>
+
+          <div class="wizard-actions">
+            <button id="btn-step-1-next" type="button" class="btn-primary" @click="goToStep2">
+              Continuar al Paso 2
+            </button>
+          </div>
         </div>
-      </div>
+
+        <!-- PASO 2: Método, Referencia y Comprobante (<= 2 MB) -->
+        <div v-else-if="currentStep === 2" key="step-2" class="wizard-step">
+          <div class="field-group">
+            <label for="step-2-metodo" class="field-label">Método de pago utilizado</label>
+            <select id="step-2-metodo" v-model="metodoPago" class="field-input">
+              <option value="PAGO_MOVIL">Pago Móvil</option>
+              <option value="TRANSFERENCIA">Transferencia Bancaria</option>
+              <option value="ZELLE">Zelle (USD)</option>
+              <option value="EFECTIVO">Efectivo en Taquilla</option>
+            </select>
+          </div>
+
+          <div v-if="requiresReference" class="field-group">
+            <label for="input-referencia" class="field-label">Número de referencia bancaria</label>
+            <p id="referencia-hint" class="field-hint">
+              Ingresa los últimos dígitos o código de confirmación (mínimo 4 caracteres).
+            </p>
+            <input
+              id="input-referencia"
+              v-model="numeroReferencia"
+              type="text"
+              required
+              minlength="4"
+              aria-describedby="referencia-hint"
+              class="field-input"
+            />
+          </div>
+
+          <div class="field-group">
+            <label for="step-3-comprobante" class="field-label">
+              Comprobante digital (JPG, PNG, WEBP, AVIF o PDF — máx. 2 MB)
+            </label>
+            <input
+              id="step-3-comprobante"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/avif,application/pdf"
+              class="field-input"
+              @change="handleFileChange"
+            />
+            <p v-if="selectedFileName" class="field-hint">
+              Archivo validado: {{ selectedFileName }}
+            </p>
+          </div>
+
+          <div class="wizard-actions">
+            <button
+              id="btn-step-2-back"
+              type="button"
+              class="btn-secondary"
+              @click="currentStep = 1"
+            >
+              Atrás
+            </button>
+            <button id="btn-step-2-next" type="button" class="btn-primary" @click="goToStep3">
+              Revisar y Confirmar
+            </button>
+          </div>
+        </div>
+
+        <!-- PASO 3: Resumen Inmutable y Envío Idempotente -->
+        <div v-else key="step-3" class="wizard-step">
+          <dl class="summary-list">
+            <div class="summary-list__row">
+              <dt>Recibo:</dt>
+              <dd>#{{ reciboId }}</dd>
+            </div>
+            <div class="summary-list__row">
+              <dt>Monto reportado:</dt>
+              <dd>{{ monto }} {{ moneda }} ({{ equivalentUsd }} USD)</dd>
+            </div>
+            <div class="summary-list__row">
+              <dt>Cobertura:</dt>
+              <dd>{{ coverageType }}</dd>
+            </div>
+            <div class="summary-list__row">
+              <dt>Método y Referencia:</dt>
+              <dd>
+                {{ metodoPago }} — {{ requiresReference ? numeroReferencia : 'N/A (Efectivo)' }}
+              </dd>
+            </div>
+            <div class="summary-list__row">
+              <dt>Llave de Idempotencia:</dt>
+              <dd id="idempotency-key-preview">{{ currentKey }}</dd>
+            </div>
+          </dl>
+
+          <div class="wizard-actions">
+            <button
+              id="btn-step-3-back"
+              type="button"
+              class="btn-secondary"
+              @click="currentStep = 2"
+            >
+              Atrás
+            </button>
+            <button
+              id="btn-submit-pago"
+              type="button"
+              class="btn-primary"
+              :disabled="isSubmitting"
+              :aria-busy="isSubmitting ? 'true' : 'false'"
+              @click="submitPayment"
+            >
+              {{ isSubmitting ? 'Enviando...' : 'Confirmar y Enviar Pago' }}
+            </button>
+          </div>
+        </div>
+      </Transition>
     </section>
   </AppShellLayout>
 </template>
@@ -284,31 +325,64 @@ async function submitPayment(): Promise<void> {
   max-width: 560px;
   margin: 0 auto;
   padding: 1.5rem;
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-lg, 1rem);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  box-shadow: var(--shadow-card);
 }
 
 .wizard-card__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
 }
 
 .wizard-card__title {
   margin: 0;
   font-size: 1.2rem;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .wizard-card__step-indicator {
   padding: 0.25rem 0.65rem;
-  border-radius: 9999px;
-  background-color: #e0f2fe;
-  color: #0369a1;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--brand-tint, #e0f2fe);
+  color: var(--brand-accent, #0369a1);
   font-size: 0.8rem;
   font-weight: 700;
+}
+
+.wizard-stepper {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.wizard-stepper__item {
+  text-align: center;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  background-color: var(--surface-subtle, #f1f5f9);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+}
+
+.wizard-stepper__item--active {
+  background-color: var(--brand-600, #0369a1);
+  border-color: var(--brand-600, #0369a1);
+  color: #ffffff;
+}
+
+.wizard-stepper__item--done {
+  background-color: var(--status-ok-bg, #dcfce7);
+  border-color: var(--status-ok-border, #86efac);
+  color: var(--status-ok-text, #166534);
 }
 
 .banner {

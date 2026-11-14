@@ -195,6 +195,9 @@ async function handleVerifySolvency(): Promise<void> {
             class="solvency-view__certificate"
           >
             <strong>
+              <span aria-hidden="true">{{
+                financeStore.data.verificacionSolvencia.valido ? '✓ ' : '✕ '
+              }}</span>
               {{
                 financeStore.data.verificacionSolvencia.valido
                   ? 'CERTIFICADO AUTÉNTICO'

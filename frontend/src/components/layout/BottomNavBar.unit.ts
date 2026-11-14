@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import BottomNavBar from './BottomNavBar.vue';
 
-describe('BottomNavBar.vue (Ergonomía Mobile-First <= 4 ítems por rol)', () => {
-  it('renderiza máximo 4 ítems adaptados al rol y emite navigate al hacer clic', async () => {
+describe('BottomNavBar.vue (Ergonomía Mobile-First <= 4 ítems por rol + SVG)', () => {
+  it('renderiza máximo 4 ítems adaptados al rol con iconos SVG y emite navigate al hacer clic', async () => {
     const propWrapper = mount(BottomNavBar, {
       props: { role: 'PROPIETARIO', currentPath: '/dashboard' },
     });
     const buttons = propWrapper.findAll('button');
     expect(buttons.length).toBe(4);
     expect(buttons[0].attributes('aria-current')).toBe('page');
+    expect(propWrapper.findAll('svg[aria-hidden="true"]').length).toBe(4);
+    expect(propWrapper.find('.bottom-nav__btn--active .bottom-nav__pill').exists()).toBe(true);
 
     await buttons[1].trigger('click');
     expect(propWrapper.emitted('navigate')?.[0]).toEqual(['/finanzas/reportar-pago']);

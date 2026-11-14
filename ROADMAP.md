@@ -26,7 +26,7 @@
 | **Hito 16** | Gobernanza Thin-Repo v2.20.3, Grafo AST `--code-only`, Saneamiento QA/CI y Docs (Fase 5) | `12_GOBERNANZA_DESPLIEGUE...` | ✅ Completado | `100%` |
 | **Hito 17** | Endurecimiento `--no-dev`, Seguridad Real, Concurrencia LPH y Sesión/Modales (Fase 5) | `11_ENDURECIMIENTO_BACKEND...` | ✅ Completado | `100%` |
 | **Hito 18** | Infraestructura Productiva Docker No-Root, Worker Real y Respaldos (Fase 5) | `12_GOBERNANZA_DESPLIEGUE...` | ✅ Completado | `100%` |
-| **Hito 15** | Rediseño UX/UI "Hospitalidad Residencial", Tokens `OKLCH` y Transiciones (Fase 4) | `10_DISENO_UX_UI_AMIGABLE...` | ⏳ Pendiente | `0%` |
+| **Hito 15** | Rediseño UX/UI "Hospitalidad Residencial", Tokens `OKLCH` y Transiciones (Fase 4) | `10_DISENO_UX_UI_AMIGABLE...` | ✅ Completado | `100%` |
 | **Hito 8** | Certificación Integral E2E, Geometría Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Fase 6) | `05_ARQUITECTURA_GUI...` | ⏳ Pendiente | `0%` |
 
 - **Leyenda:**
@@ -173,7 +173,7 @@
 
 ---
 
-> **🔧 FASE 5: Saneamiento de Gobernanza, Endurecimiento Real y Despliegue Productivo (Hitos 16, 17 y 18 — Specs 11 y 12) — `[EN EJECUCIÓN]`**
+> **🔧 FASE 5: Saneamiento de Gobernanza, Endurecimiento Real y Despliegue Productivo (Hitos 16, 17 y 18 — Specs 11 y 12) — `[100% COMPLETADA]`**
 
 ## ✅ Hito 16: Gobernanza Thin-Repo v2.20.3, Higiene AST `--code-only`, Bloqueadores 11X y Saneamiento CI/Scripts
 - **Especificación:** [`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md) (Sección 1)
@@ -202,16 +202,16 @@
 
 ---
 
-> **✨ CONTINUACIÓN FASE 4: UX/UI Amigable — `[PENDIENTE]`**
+> **✨ CONTINUACIÓN FASE 4: UX/UI Amigable — `[100% COMPLETADA]`**
 
-## ⏳ Hito 15: Rediseño UX/UI Amigable ("Hospitalidad Residencial"), Sistema de Tokens `OKLCH`, Modo Oscuro (`light-dark()`) y Micro-Transiciones Modernas
+## ✅ Hito 15: Rediseño UX/UI Amigable ("Hospitalidad Residencial"), Sistema de Tokens `OKLCH`, Modo Oscuro (`light-dark()`) y Micro-Transiciones Modernas
 - **Especificación:** [`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md) y [`docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md`](./docs/specs/05_ARQUITECTURA_GUI_VUE3_MOBILE_FIRST.md) (Sección 7)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 15.1 (Sistema Centralizado de Tokens `OKLCH`, Modo Claro/Oscuro `light-dark()` y Sombras de 2 Capas):** Crear `frontend/src/assets/tokens.css`, importarlo en `main.ts`, implementar `useThemeMode.ts` (`useThemeMode.unit.ts`) y añadir `#btn-theme-toggle`.
-  - [ ] **Sub-tarea 15.2 (Navegación Amigable con Iconos SVG, Agrupación Semántica y Píldora Activa):** Rediseñar `SidebarNav.vue` (3 bloques semánticos con iconos SVG `stroke-width: 1.75`) y `BottomNavBar.vue` (iconos SVG + píldora activa).
-  - [ ] **Sub-tarea 15.3 (Dashboard Contextual "Tu Hogar Hoy", Estados Vacíos Ilustrados y Esqueletos de Carga):** Implementar `EmptyStateCard.vue`, `SkeletonCard.vue` (`CLS = 0`), Tarjeta Hero de Solvencia y `#dashboard-quick-actions` en `DashboardView.vue`, y glifos para daltónicos en `CollectionTrafficLight.vue`.
-  - [ ] **Sub-tarea 15.4 (Motor de Transiciones SPA, Modales `<dialog>` en Top-Layer con `@starting-style` + Bottom Sheet Móvil y `calc-size()`):** Implementar `useViewTransition.ts` (`runWithViewTransition` y `closeTopLayerDialog` con `data-closing`), aplicar `@starting-style` + `allow-discrete` + `overlay` + Bottom Sheet móvil en todos los `<dialog>`, tarjetas `:has(input:checked)` y respeto estricto a `@media (prefers-reduced-motion: reduce)`.
-  - [ ] **Sub-tarea 15.5 (Certificación QA 11X del Hito 15):** Pruebas Vitest (`>= 95%`), `make -C frontend qa-orphans` (0 huérfanos), refresco del Grafo AST y escenarios BDD en `frontend/test/ui_business_flow.feature`.
+  - [x] **Sub-tarea 15.1 (Sistema Centralizado de Tokens `OKLCH`, Modo Claro/Oscuro `light-dark()` y Sombras de 2 Capas):** Creado `frontend/src/assets/tokens.css`, importado en `main.ts`, implementado `useThemeMode.ts` (`useThemeMode.unit.ts`), `<meta name="color-scheme" content="light dark">` en `index.html` y `ThemeToggleButton.vue` (`#btn-theme-toggle`) en `AppShellLayout.vue`, `LoginView.vue` y `RegisterView.vue`.
+  - [x] **Sub-tarea 15.2 (Navegación Amigable con Iconos SVG, Agrupación Semántica y Píldora Activa):** Rediseñado `SidebarNav.vue` (3 bloques semánticos con `navIcons.ts` SVG `stroke-width: 1.75` y `#btn-sidebar-theme-toggle`) y `BottomNavBar.vue` (iconos SVG + píldora activa `.bottom-nav__pill`).
+  - [x] **Sub-tarea 15.3 (Dashboard Contextual "Tu Hogar Hoy", Estados Vacíos Ilustrados y Esqueletos de Carga):** Implementados `EmptyStateCard.vue`, `SkeletonCard.vue` (`CLS = 0`), Tarjeta Hero de Solvencia (`#deuda-card` + `#hero-solvencia-badge`) y `#dashboard-quick-actions` en `DashboardView.vue`, más glifos para daltónicos en `CollectionTrafficLight.vue` y `SolvencyCertificateView.vue`.
+  - [x] **Sub-tarea 15.4 (Motor de Transiciones SPA, Modales `<dialog>` en Top-Layer con `@starting-style` + Bottom Sheet Móvil y `calc-size()`):** Implementado `useViewTransition.ts` (`runWithViewTransition`, detección de bug Firefox `1882408` en `canTransitionDisplay()` y `closeTopLayerDialog` con `data-closing`), restauración de foco en `router/index.ts`, `@starting-style` + `allow-discrete` + `overlay` + *Bottom Sheet* `< 640px` en los 5 `<dialog>`, tarjetas `:has(input:checked)` + fallback `.is-selected`, expansión `calc-size(auto, size)`, stepper de `PaymentWizardView.vue` y respeto estricto a `@media (prefers-reduced-motion: reduce)`.
+  - [x] **Sub-tarea 15.5 (Certificación QA 11X del Hito 15):** Remediado `GHSA-7mvr-c777-76hp` actualizando `@playwright/test@1.64.1` y `ui-e2e` a `mcr.microsoft.com/playwright:v1.64.1-jammy`; certificados **`53` suites (`126/126` unitarias, `99.22%` líneas / `98.94%` sentencias / `97.75%` funciones / `95.19%` ramas)**, `41/41` `.vue` (`0` huérfanos), build Vite (`163` módulos), **`10/10` pruebas Playwright E2E + Axe** (`mobile-chromium` + `desktop-chromium` claro/oscuro y *Bottom Sheet*), Grafo AST Graphify (`3` grafos, `4.899` nodos, `12.429` relaciones, `0` violaciones) y Escenario 11 en `frontend/test/ui_business_flow.feature`.
 
 ---
 

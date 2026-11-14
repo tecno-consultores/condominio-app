@@ -49,7 +49,8 @@ describe('AppShellLayout.vue (Anti-JSDOM Geometry & Navigation)', () => {
     expect(wrapper.find('#mobile-bottom-nav').exists()).toBe(true);
     expect(wrapper.find('#desktop-sidebar').exists()).toBe(true);
 
-    // Botón de ayuda contextual universal
+    // Botón de tema y ayuda contextual universal
+    expect(wrapper.find('#btn-theme-toggle').exists()).toBe(true);
     const btnHelp = wrapper.find('#btn-contextual-help');
     expect(btnHelp.exists()).toBe(true);
     expect(wrapper.find('#dialog-contextual-help').exists()).toBe(false);

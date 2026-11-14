@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import VoteReceiptModal from '../../components/governance/VoteReceiptModal.vue';
+import { getActiveConsultationTransition } from '../../composables/useViewTransition';
 import { useAuthStore } from '../../stores/authStore';
 import { useGovernanceStore } from '../../stores/governanceStore';
 import { useOperationsStore } from '../../stores/operationsStore';
@@ -23,6 +24,10 @@ const canCloseConsultation = computed(() => {
   const rol = authStore.userRole;
   return (rol === 'PRESIDENTE' || rol === 'SECRETARIO') && consulta.value?.estado === 'ABIERTA';
 });
+
+const isTransitionTarget = computed(
+  () => consulta.value !== null && getActiveConsultationTransition() === consulta.value.id,
+);
 
 const activeReceipt = computed(() => govStore.ultimoReciboVoto || consulta.value?.mi_voto || null);
 
@@ -81,13 +86,18 @@ async function handleCloseConsultation(): Promise<void> {
     </p>
 
     <template v-if="consulta">
-      <header class="consultation-detail__card">
+      <header
+        id="detail-consultation-hero"
+        class="consultation-detail__card"
+        :style="isTransitionTarget ? { viewTransitionName: 'active-consultation-card' } : undefined"
+      >
         <div class="consultation-detail__top">
           <div>
             <span class="consultation-detail__type">{{ consulta.tipo_consulta }}</span>
             <h1 id="detail-heading" class="consultation-detail__title">{{ consulta.titulo }}</h1>
           </div>
           <span id="badge-estado-consulta" class="consultation-detail__badge">
+            <span aria-hidden="true">{{ consulta.estado === 'ABIERTA' ? '● ' : '✓ ' }}</span>
             {{ consulta.estado }}
           </span>
         </div>
@@ -134,8 +144,10 @@ async function handleCloseConsultation(): Promise<void> {
             v-for="op in consulta.opciones"
             :key="op.id"
             :data-testid="`option-card-${op.id}`"
-            class="option-radio-card"
-            :class="{ 'option-radio-card--selected': selectedOpcionId === op.id }"
+            class="option-radio-card selectable-card"
+            :class="{
+              'option-radio-card--selected is-selected': selectedOpcionId === op.id,
+            }"
           >
             <input
               :id="`radio-opcion-${op.id}`"

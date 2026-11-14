@@ -119,7 +119,7 @@ function handleClose(): void {
     id="dialog-contextual-help"
     ref="dialogRef"
     v-bind="{ closedby: 'any' }"
-    class="help-dialog"
+    class="help-dialog top-layer-dialog"
     aria-labelledby="help-screen-title"
     aria-describedby="help-screen-purpose"
     @close="handleClose"
@@ -209,20 +209,18 @@ dialog:modal {
 
 .help-dialog[open] {
   border: none;
-  border-radius: 1rem;
+  border-radius: var(--radius-lg, 1rem);
   padding: 0;
-  background: transparent;
-  color: #0f172a;
-  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+  background: var(--surface-elevated, #ffffff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: var(--shadow-modal);
   inline-size: min(100% - 1.5rem, 38rem);
   max-block-size: min(85dvh, 44rem);
   overscroll-behavior: contain;
-  margin: auto;
 }
 
 .help-dialog::backdrop {
   overflow: hidden;
-  background-color: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(4px);
   overscroll-behavior: contain;
 }
@@ -230,11 +228,11 @@ dialog:modal {
 .help-dialog__card {
   display: flex;
   flex-direction: column;
-  background-color: #ffffff;
-  border-radius: 1rem;
+  background-color: var(--surface-elevated, #ffffff);
+  border-radius: var(--radius-lg, 1rem);
   max-block-size: min(85dvh, 44rem);
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-subtle, #e2e8f0);
 }
 
 .help-dialog__header {
@@ -242,8 +240,12 @@ dialog:modal {
   justify-content: space-between;
   align-items: flex-start;
   padding: clamp(1rem, 2.5cqi, 1.5rem);
-  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
-  border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(
+    180deg,
+    var(--surface-subtle, #f8fafc) 0%,
+    var(--surface-elevated, #ffffff) 100%
+  );
+  border-bottom: 1px solid var(--border-subtle, #e2e8f0);
   gap: 1rem;
 }
 
@@ -257,8 +259,8 @@ dialog:modal {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #0369a1;
-  background-color: #e0f2fe;
+  color: var(--brand-accent, #0369a1);
+  background-color: var(--brand-tint, #e0f2fe);
   padding: 0.2rem 0.5rem;
   border-radius: 0.375rem;
   margin-bottom: 0.35rem;
@@ -268,7 +270,7 @@ dialog:modal {
   font-size: clamp(1.125rem, 3cqi, 1.375rem);
   font-weight: 700;
   line-height: 1.3;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
   margin: 0;
   text-wrap: balance;
 }
@@ -277,12 +279,12 @@ dialog:modal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  inline-size: 2.25rem;
-  block-size: 2.25rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
-  background-color: #ffffff;
-  color: #64748b;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control, #cbd5e1);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--text-secondary, #64748b);
   font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
@@ -291,9 +293,9 @@ dialog:modal {
 }
 
 .help-dialog__close-btn:hover {
-  background-color: #f1f5f9;
-  color: #0f172a;
-  border-color: #94a3b8;
+  background-color: var(--surface-subtle, #f1f5f9);
+  color: var(--text-primary, #0f172a);
+  border-color: var(--brand-accent, #94a3b8);
 }
 
 .help-dialog__body {
@@ -307,8 +309,8 @@ dialog:modal {
 }
 
 .help-dialog__purpose-card {
-  background-color: #f8fafc;
-  border-left: 4px solid #0369a1;
+  background-color: var(--surface-subtle, #f8fafc);
+  border-left: 4px solid var(--brand-accent, #0369a1);
   padding: 0.875rem 1rem;
   border-radius: 0 0.5rem 0.5rem 0;
 }
@@ -317,7 +319,7 @@ dialog:modal {
   margin: 0;
   font-size: 0.9375rem;
   line-height: 1.5;
-  color: #334155;
+  color: var(--text-secondary, #334155);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
@@ -334,11 +336,11 @@ dialog:modal {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #475569;
+  color: var(--text-tertiary, #475569);
 }
 
 .help-dialog__section-title--tips {
-  color: #b45309;
+  color: var(--status-warn-text, #b45309);
 }
 
 .help-steps-list {
@@ -355,14 +357,14 @@ dialog:modal {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.625rem 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #f1f5f9;
-  border-radius: 0.5rem;
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #f1f5f9);
+  border-radius: var(--radius-sm, 0.5rem);
   transition: border-color 0.15s ease;
 }
 
 .help-steps-item:hover {
-  border-color: #cbd5e1;
+  border-color: var(--border-control, #cbd5e1);
 }
 
 .help-steps-item__num {
@@ -372,7 +374,7 @@ dialog:modal {
   inline-size: 1.625rem;
   block-size: 1.625rem;
   border-radius: 50%;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   font-size: 0.8125rem;
   font-weight: 700;
@@ -382,14 +384,14 @@ dialog:modal {
 .help-steps-item__text {
   font-size: 0.9rem;
   line-height: 1.45;
-  color: #1e293b;
+  color: var(--text-primary, #1e293b);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
 
 .help-dialog__section--tips {
-  background-color: #fffbeb;
-  border: 1px solid #fef3c7;
+  background-color: var(--status-warn-bg, #fffbeb);
+  border: 1px solid var(--status-warn-border, #fef3c7);
   border-radius: 0.625rem;
   padding: 0.875rem 1rem;
 }
@@ -418,7 +420,7 @@ dialog:modal {
 .help-tips-item__text {
   font-size: 0.875rem;
   line-height: 1.4;
-  color: #92400e;
+  color: var(--status-warn-text, #92400e);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
@@ -427,37 +429,42 @@ dialog:modal {
   display: flex;
   justify-content: flex-end;
   padding: clamp(0.75rem, 2cqi, 1rem) clamp(1rem, 2.5cqi, 1.5rem);
-  background-color: #f8fafc;
-  border-top: 1px solid #e2e8f0;
+  background-color: var(--surface-subtle, #f8fafc);
+  border-top: 1px solid var(--border-subtle, #e2e8f0);
 }
 
 .help-dialog__action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-block-size: 2.75rem;
   padding: 0.5rem 1.25rem;
   font-size: 0.875rem;
   font-weight: 600;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm, 0.5rem);
   border: none;
-  background-color: #0369a1;
+  background-color: var(--brand-600, #0369a1);
   color: #ffffff;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .help-dialog__action-btn:hover {
-  background-color: #075985;
+  background-color: var(--brand-700, #075985);
 }
 
-@media (pointer: coarse) {
-  .help-dialog__close-btn {
-    inline-size: 2.75rem;
-    block-size: 2.75rem;
+@media (max-width: 639px) {
+  .help-dialog[open] {
+    margin: auto 0 0 0;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    max-block-size: 88dvh;
+    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
   }
-  .help-dialog__action-btn {
-    min-block-size: 2.75rem;
-    padding: 0.625rem 1.5rem;
+
+  .help-dialog__card {
+    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    max-block-size: 88dvh;
   }
 }
 </style>

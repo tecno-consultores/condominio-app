@@ -87,7 +87,7 @@ function handleBackdropClick(event: MouseEvent): void {
     id="modal-vote-receipt"
     ref="dialogRef"
     v-bind="{ closedby: 'any' }"
-    class="vote-receipt-modal"
+    class="vote-receipt-modal top-layer-dialog"
     aria-labelledby="vote-receipt-title"
     @close="emit('close')"
     @pointerdown="handlePointerDown"
@@ -171,7 +171,6 @@ dialog:modal {
 }
 
 .vote-receipt-modal[open] {
-  margin: auto;
   padding: 0;
   border: none;
   background: transparent;
@@ -318,6 +317,21 @@ dialog::backdrop,
 @media (pointer: coarse) {
   .vote-receipt-modal__close {
     min-block-size: 2.75rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .vote-receipt-modal[open] {
+    margin: auto 0 0 0;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    max-block-size: 88dvh;
+    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+  }
+
+  .vote-receipt-modal__card {
+    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    max-block-size: 88dvh;
   }
 }
 </style>

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import EmptyStateCard from '../../components/common/EmptyStateCard.vue';
+import SkeletonCard from '../../components/common/SkeletonCard.vue';
 import RejectPaymentModal from '../../components/finance/RejectPaymentModal.vue';
 import AppShellLayout from '../../components/layout/AppShellLayout.vue';
 import { useFinanceStore } from '../../stores/financeStore';
@@ -58,9 +60,19 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
     </div>
 
     <section aria-label="Pagos pendientes de revisión">
-      <p v-if="financeStore.data.pagosEnRevision.length === 0" class="empty-state">
-        No existen pagos pendientes de revisión en este momento.
-      </p>
+      <SkeletonCard
+        v-if="financeStore.isLoading && financeStore.data.pagosEnRevision.length === 0"
+        :lines="3"
+        height="130px"
+        label="Cargando pagos por aprobar..."
+      />
+      <EmptyStateCard
+        v-else-if="financeStore.data.pagosEnRevision.length === 0"
+        class="empty-state"
+        title="Conciliación bancaria al día"
+        description="No existen pagos pendientes de revisión en este momento."
+        icon="check"
+      />
 
       <div v-else class="payment-grid">
         <article

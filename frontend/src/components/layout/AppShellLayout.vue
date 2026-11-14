@@ -14,6 +14,7 @@ import BottomNavBar from './BottomNavBar.vue';
 import ContextualHelpModal from './ContextualHelpModal.vue';
 import SidebarNav from './SidebarNav.vue';
 import StaleDataBanner from './StaleDataBanner.vue';
+import ThemeToggleButton from './ThemeToggleButton.vue';
 
 const authStore = useAuthStore();
 const financeStore = useFinanceStore();
@@ -69,6 +70,7 @@ async function handleLogout(): Promise<void> {
       <div class="app-main__body">
         <header class="app-main__top-bar">
           <div class="app-main__top-spacer"></div>
+          <ThemeToggleButton button-id="btn-theme-toggle" />
           <button
             id="btn-contextual-help"
             type="button"
@@ -125,8 +127,8 @@ async function handleLogout(): Promise<void> {
 .app-shell {
   display: flex;
   min-height: 100dvh;
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: var(--surface-canvas, #f8fafc);
+  color: var(--text-primary, #0f172a);
 }
 
 .app-main {
@@ -152,6 +154,7 @@ async function handleLogout(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
 
@@ -163,26 +166,28 @@ async function handleLogout(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
+  min-block-size: 2.75rem;
   padding: 0.375rem 0.75rem;
-  border-radius: 9999px;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #0369a1;
+  border-radius: var(--radius-pill, 9999px);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-control, #cbd5e1);
+  color: var(--brand-accent, #0369a1);
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-  transition: all 0.15s ease-in-out;
+  box-shadow: var(--shadow-card);
+  transition:
+    background-color 0.15s ease-in-out,
+    border-color 0.15s ease-in-out;
 }
 
 .contextual-help-trigger:hover {
-  background-color: #f0f9ff;
-  border-color: #7dd3fc;
-  color: #0369a1;
+  background-color: var(--brand-tint, #f0f9ff);
+  border-color: var(--brand-accent, #7dd3fc);
 }
 
 .contextual-help-trigger:focus-visible {
-  outline: 2px solid #0369a1;
+  outline: 2px solid var(--brand-accent, #0369a1);
   outline-offset: 2px;
 }
 
@@ -194,10 +199,10 @@ async function handleLogout(): Promise<void> {
   gap: 0.75rem;
   margin-bottom: 0.75rem;
   padding: 0.625rem 0.875rem;
-  border-radius: 0.5rem;
-  background-color: #fef3c7;
-  border: 1px solid #f59e0b;
-  color: #78350f;
+  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--status-warn-bg, #fef3c7);
+  border: 1px solid var(--status-warn-border, #f59e0b);
+  color: var(--status-warn-text, #78350f);
   font-size: 0.875rem;
   font-weight: 600;
 }
@@ -205,10 +210,10 @@ async function handleLogout(): Promise<void> {
 .rbac-notice-banner__close {
   padding: 0.375rem 0.75rem;
   min-block-size: 2.25rem;
-  border-radius: 0.375rem;
-  border: 1px solid #d97706;
-  background-color: #ffffff;
-  color: #78350f;
+  border-radius: var(--radius-sm, 0.375rem);
+  border: 1px solid var(--status-warn-border, #d97706);
+  background-color: var(--surface-card, #ffffff);
+  color: var(--status-warn-text, #78350f);
   font-size: 0.8125rem;
   font-weight: 700;
   cursor: pointer;
@@ -218,20 +223,13 @@ async function handleLogout(): Promise<void> {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  inline-size: 1.125rem;
-  block-size: 1.125rem;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
   border-radius: 50%;
-  background-color: #e0f2fe;
-  color: #0369a1;
+  background-color: var(--brand-tint, #e0f2fe);
+  color: var(--brand-accent, #0369a1);
   font-size: 0.75rem;
   font-weight: 800;
-}
-
-@media (pointer: coarse) {
-  .contextual-help-trigger {
-    min-block-size: 2.75rem;
-    padding: 0.5rem 0.875rem;
-  }
 }
 
 @media (min-width: 768px) {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ConsultationDetailView from './ConsultationDetailView.vue';
+import { setActiveConsultationTransition } from '../../composables/useViewTransition';
 import { useAuthStore } from '../../stores/authStore';
 import { useGovernanceStore } from '../../stores/governanceStore';
 import { useOperationsStore } from '../../stores/operationsStore';
@@ -125,12 +126,17 @@ describe('ConsultationDetailView.vue', () => {
       };
     });
 
+    setActiveConsultationTransition(4);
     const wrapper = mount(ConsultationDetailView);
     await flushPromises();
 
     expect(wrapper.find('#quorum-progress-bar').exists()).toBe(true);
     expect(wrapper.findAll('.option-radio-card')).toHaveLength(2);
+    expect(wrapper.find('#detail-consultation-hero').attributes('style')).toContain(
+      'active-consultation-card',
+    );
 
+    await wrapper.find('#radio-opcion-11').setValue();
     await wrapper.find('#radio-opcion-10').setValue();
     await wrapper.find('#select-vote-unidad').setValue('7');
     await wrapper.find('#form-emitir-voto').trigger('submit.prevent');
@@ -151,5 +157,7 @@ describe('ConsultationDetailView.vue', () => {
     expect(govStore.cerrarConsulta).toHaveBeenCalledWith(4);
     expect(wrapper.find('#banner-consulta-cerrada').text()).toContain('CERRADA_APROBADA');
     expect(wrapper.find('#badge-acta-generada').text()).toContain('Bitácora #91');
+
+    setActiveConsultationTransition(null);
   });
 });

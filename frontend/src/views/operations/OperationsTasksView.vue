@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import EmptyStateCard from '../../components/common/EmptyStateCard.vue';
+import SkeletonCard from '../../components/common/SkeletonCard.vue';
 import AppShellLayout from '../../components/layout/AppShellLayout.vue';
 import TaskChecklistItem from '../../components/operations/TaskChecklistItem.vue';
 import { useOperationsStore } from '../../stores/operationsStore';
@@ -62,9 +64,19 @@ async function handleCompleteTask(tareaId: number): Promise<void> {
     </div>
 
     <section aria-label="Lista de tareas operativas del día">
-      <p v-if="totalTasks === 0" class="empty-state">
-        No hay tareas asignadas para la jornada de hoy.
-      </p>
+      <SkeletonCard
+        v-if="operationsStore.isLoading && totalTasks === 0"
+        :lines="3"
+        height="120px"
+        label="Cargando tareas de hoy..."
+      />
+      <EmptyStateCard
+        v-else-if="totalTasks === 0"
+        class="empty-state"
+        title="Jornada operativa libre"
+        description="No hay tareas asignadas para la jornada de hoy."
+        icon="check"
+      />
       <div v-else class="tasks-list">
         <TaskChecklistItem
           v-for="task in operationsStore.data.tareasDiarias"

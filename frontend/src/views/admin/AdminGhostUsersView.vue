@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
+import EmptyStateCard from '../../components/common/EmptyStateCard.vue';
+import SkeletonCard from '../../components/common/SkeletonCard.vue';
 import AppShellLayout from '../../components/layout/AppShellLayout.vue';
 import type { RolUsuario } from '../../stores/authStore';
 import { useOperationsStore, type TipoOcupante } from '../../stores/operationsStore';
@@ -77,13 +79,20 @@ async function handleActivateGhost(userId: number): Promise<void> {
         {{ successBanner }}
       </div>
 
-      <p
-        v-if="operationsStore.data.usuariosPendientes.length === 0"
+      <SkeletonCard
+        v-if="operationsStore.isLoading && operationsStore.data.usuariosPendientes.length === 0"
+        :lines="3"
+        height="120px"
+        label="Cargando usuarios fantasma..."
+      />
+      <EmptyStateCard
+        v-else-if="operationsStore.data.usuariosPendientes.length === 0"
         id="ghost-empty-state"
-        class="ghost-users__empty"
-      >
-        No existen usuarios fantasma pendientes de asignación en este momento.
-      </p>
+        class="ghost-users__empty empty-state"
+        title="Bandeja sin solicitudes pendientes"
+        description="No existen usuarios fantasma pendientes de asignación en este momento."
+        icon="users"
+      />
 
       <div v-else class="ghost-users__list">
         <article

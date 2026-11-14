@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '../../services/apiClient';
@@ -30,7 +30,7 @@ describe('DashboardView.vue', () => {
       });
   });
 
-  it('muestra saludo personalizado, tasa BCV, pestañas de cobranza/gastos y navega al wizard de pago', async () => {
+  it('muestra saludo personalizado, tasa BCV, pestañas de cobranza/gastos, Hero y acciones rápidas', async () => {
     const authStore = useAuthStore();
     authStore.data = {
       id: 1,
@@ -48,18 +48,37 @@ describe('DashboardView.vue', () => {
     expect(wrapper.find('#daily-rate-badge').text()).toContain('36.50 VES/USD');
     expect(wrapper.findComponent({ name: 'ClosingBanner' }).props('periodo')).toBe('2026-10');
     expect(wrapper.findComponent({ name: 'CollectionTrafficLight' }).props('ownUnitId')).toBe(1);
+    expect(wrapper.find('#dashboard-quick-actions').exists()).toBe(true);
 
+    await flushPromises();
+    expect(wrapper.find('#hero-solvency-badge').text()).toContain('Saldo pendiente');
+    await wrapper.find('#btn-hero-pagar').trigger('click');
+    expect(pushMock).toHaveBeenCalledWith('/finanzas/reportar-pago');
+
+    await wrapper.find('#tab-cobranza').trigger('click');
     await wrapper.find('#tab-gastos').trigger('click');
     expect(wrapper.find('#expenses-donut-chart').exists()).toBe(true);
 
     await wrapper.find('#tab-cobranza').trigger('click');
     expect(wrapper.find('#collection-traffic-light').exists()).toBe(true);
 
+    await wrapper.find('#qa-reportar-pago').trigger('click');
+    expect(pushMock).toHaveBeenCalledWith('/finanzas/reportar-pago');
+
+    await wrapper.find('#qa-solvencia').trigger('click');
+    expect(pushMock).toHaveBeenCalledWith('/finanzas/solvencia');
+
+    await wrapper.find('#qa-consultas').trigger('click');
+    expect(pushMock).toHaveBeenCalledWith('/consultas');
+
+    await wrapper.find('#qa-incidencias').trigger('click');
+    expect(pushMock).toHaveBeenCalledWith('/incidencias');
+
     await wrapper.find('#fab-reportar-pago').trigger('click');
     expect(pushMock).toHaveBeenCalledWith('/finanzas/reportar-pago');
   });
 
-  it('usa saludo genérico Vecino y valores por defecto cuando authStore.data y resumen son nulos', async () => {
+  it('usa saludo genérico Vecino, tarjeta hero solvente y acceso directo a solvencia cuando resumen es nulo', async () => {
     vi.spyOn(apiClient, 'get').mockRejectedValue(new Error('Offline'));
     const financeStore = useFinanceStore();
     financeStore.data.tasaActiva = null;
@@ -68,6 +87,10 @@ describe('DashboardView.vue', () => {
     const wrapper = mount(DashboardView);
     expect(wrapper.text()).toContain('Hola, Vecino');
     expect(wrapper.text()).toContain('Solvente / Al día');
+    expect(wrapper.find('#hero-solvency-badge').text()).toContain('✓');
+    await wrapper.find('#btn-hero-solvencia').trigger('click');
+    expect(pushMock).toHaveBeenCalledWith('/finanzas/solvencia');
+
     await wrapper.find('#tab-gastos').trigger('click');
     expect(wrapper.find('#expenses-donut-chart').exists()).toBe(true);
   });

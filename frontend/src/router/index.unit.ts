@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { buildAppRouter, evaluateNavigationGuard } from './index';
+import {
+  getActiveConsultationTransition,
+  setActiveConsultationTransition,
+} from '../composables/useViewTransition';
 import * as apiClient from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 
@@ -151,8 +155,19 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     expect(authStore.rbacNotice).toContain('No posee permisos');
 
     // Segunda navegación no vuelve a invocar fetchProfile innecesariamente
+    const mainEl = document.createElement('main');
+    mainEl.id = 'app-main-content';
+    const focusSpy = vi.spyOn(mainEl, 'focus');
+    document.body.appendChild(mainEl);
+    setActiveConsultationTransition(99);
+
     await router.push('/incidencias');
+    await Promise.resolve();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(router.currentRoute.value.path).toBe('/incidencias');
+    expect(getActiveConsultationTransition()).toBeNull();
+    expect(mainEl.getAttribute('tabindex')).toBe('-1');
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    mainEl.remove();
   });
 });

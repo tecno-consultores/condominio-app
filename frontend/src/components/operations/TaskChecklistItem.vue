@@ -14,8 +14,8 @@ const emit = defineEmits<{
 
 <template>
   <article
-    class="task-item"
-    :class="{ 'task-item--done': task.completada }"
+    class="task-item selectable-card"
+    :class="{ 'task-item--done is-selected': task.completada }"
     :aria-label="`Tarea #${task.id}: ${task.titulo}`"
   >
     <label :for="`chk-task-${task.id}`" class="task-item__label">
@@ -50,16 +50,16 @@ const emit = defineEmits<{
   align-items: center;
   gap: 0.75rem;
   padding: 1rem;
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
   color-scheme: light dark;
-  accent-color: #0369a1;
+  accent-color: var(--brand-accent, #0369a1);
 }
 
 .task-item--done {
-  background-color: #f0fdf4;
-  border-color: #86efac;
+  background-color: var(--status-ok-bg, #f0fdf4);
+  border-color: var(--status-ok-border, #86efac);
 }
 
 .task-item__label {
@@ -69,19 +69,20 @@ const emit = defineEmits<{
   min-height: 44px;
   cursor: pointer;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .task-item__checkbox {
   width: 22px;
   height: 22px;
-  accent-color: #0369a1;
+  accent-color: var(--brand-accent, #0369a1);
   cursor: pointer;
 }
 
 .task-item--done .task-item__title {
   text-decoration: line-through;
-  color: #166534;
+  color: var(--status-ok-text, #166534);
+  opacity: 0.85;
 }
 
 .task-item__meta {

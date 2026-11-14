@@ -47,6 +47,23 @@ describe('ConsultationsListView.vue', () => {
         acta_bitacora_id: null,
         ya_voto_usuario: false,
       },
+      {
+        id: 6,
+        titulo: 'Asamblea #06: Portón Norte',
+        descripcion_legal: 'Cierre certificado',
+        tipo_consulta: 'CARTA_CONSULTA_2DA',
+        regla_quorum: 'MAYORIA_SIMPLE',
+        quorum_minimo_alicuota: '50.0100',
+        participacion_alicuota: '60.0000',
+        alicuota_aprobatoria: '60.0000',
+        total_votos: 3,
+        fecha_apertura: '2026-09-01T00:00:00Z',
+        fecha_cierre: '2026-09-30T23:59:00Z',
+        estado: 'CERRADA_APROBADA',
+        creada_por_id: 1,
+        acta_bitacora_id: 12,
+        ya_voto_usuario: true,
+      },
     ]);
     govStore.consultas = [
       {
@@ -66,6 +83,23 @@ describe('ConsultationsListView.vue', () => {
         acta_bitacora_id: null,
         ya_voto_usuario: false,
       },
+      {
+        id: 6,
+        titulo: 'Asamblea #06: Portón Norte',
+        descripcion_legal: 'Cierre certificado',
+        tipo_consulta: 'CARTA_CONSULTA_2DA',
+        regla_quorum: 'MAYORIA_SIMPLE',
+        quorum_minimo_alicuota: '50.0100',
+        participacion_alicuota: '60.0000',
+        alicuota_aprobatoria: '60.0000',
+        total_votos: 3,
+        fecha_apertura: '2026-09-01T00:00:00Z',
+        fecha_cierre: '2026-09-30T23:59:00Z',
+        estado: 'CERRADA_APROBADA',
+        creada_por_id: 1,
+        acta_bitacora_id: 12,
+        ya_voto_usuario: true,
+      },
     ];
 
     vi.spyOn(govStore, 'crearConsulta').mockResolvedValue({
@@ -81,7 +115,9 @@ describe('ConsultationsListView.vue', () => {
 
     expect(wrapper.find('#form-crear-consulta').exists()).toBe(true);
     expect(wrapper.find('#quorum-progress-bar').exists()).toBe(true);
-    expect(wrapper.findAll('.consultation-card')).toHaveLength(1);
+    expect(wrapper.find('#quorum-progress-bar-6').exists()).toBe(true);
+    expect(wrapper.findAll('.consultation-card')).toHaveLength(2);
+    expect(wrapper.text()).toContain('✔ Voto de su unidad registrado');
 
     await wrapper.find('#input-consulta-titulo').setValue('Carta Consulta #05: Bombas');
     await wrapper.find('#select-tipo-consulta').setValue('CARTA_CONSULTA_2DA');
@@ -113,9 +149,15 @@ describe('ConsultationsListView.vue', () => {
     });
 
     const govStore = useGovernanceStore();
+    govStore.error = 'No se pudieron sincronizar consultas';
+    govStore.isLoading = true;
     vi.spyOn(govStore, 'fetchConsultas').mockResolvedValue([]);
 
     const wrapper = mount(ConsultationsListView);
+    expect(wrapper.find('.banner--error').text()).toContain('No se pudieron sincronizar');
+    expect(wrapper.find('[aria-busy="true"]').exists()).toBe(true);
+
+    govStore.isLoading = false;
     await flushPromises();
 
     expect(wrapper.find('#form-crear-consulta').exists()).toBe(false);

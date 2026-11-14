@@ -5,7 +5,7 @@ import { useAuthStore } from '../../stores/authStore';
 import SidebarNav from './SidebarNav.vue';
 
 describe('SidebarNav.vue', () => {
-  it('muestra nombre de usuario, rol activo, enlaces RBAC filtrados y emite navigate/logout', async () => {
+  it('muestra nombre de usuario, rol, 3 grupos semánticos, iconos SVG, enlaces RBAC filtrados y emite navigate/logout', async () => {
     const wrapper = mount(SidebarNav, {
       props: {
         userName: 'María Gómez',
@@ -16,6 +16,12 @@ describe('SidebarNav.vue', () => {
 
     expect(wrapper.text()).toContain('María Gómez');
     expect(wrapper.text()).toContain('TESORERO');
+    expect(wrapper.text()).toContain('Mi Hogar y Finanzas');
+    expect(wrapper.text()).toContain('Comunidad y Gobernanza');
+    expect(wrapper.text()).toContain('Operaciones y Junta Directiva');
+    expect(wrapper.find('#btn-sidebar-theme-toggle').exists()).toBe(true);
+    expect(wrapper.findAll('button.sidebar__link svg').length).toBeGreaterThan(0);
+
     expect(wrapper.find('#side-dashboard').attributes('aria-current')).toBe('page');
     expect(wrapper.find('#side-revision-pagos').exists()).toBe(true);
     expect(wrapper.find('#side-cierre-mensual').exists()).toBe(true);

@@ -26,6 +26,21 @@ const sortedItems = computed<EstadoCobranzaItemDTO[]>(() => {
 function formatVes(saldoUsd: string): string {
   return convertUsdToVes(saldoUsd, props.rateUsdVes);
 }
+
+const STATUS_GLYPHS: Record<string, string> = {
+  SOLVENTE: '✓',
+  PAGADO: '✓',
+  ABONO_PARCIAL: '◐',
+  PARCIAL: '◐',
+  PENDIENTE: '!',
+  MOROSO: '✕',
+  VENCIDO: '✕',
+  RECHAZADO: '✕',
+};
+
+function glyphFor(estado: string): string {
+  return STATUS_GLYPHS[estado.toUpperCase()] ?? '•';
+}
 </script>
 
 <template>
@@ -67,12 +82,13 @@ function formatVes(saldoUsd: string): string {
           <td>{{ item.periodo }}</td>
           <td>
             <span class="status-pill" :class="`status-pill--${item.estado.toLowerCase()}`">
-              {{ item.estado }}
+              <span class="status-pill__glyph" aria-hidden="true">{{ glyphFor(item.estado) }}</span>
+              <span>{{ item.estado }}</span>
             </span>
           </td>
           <td>
-            <strong>{{ item.saldo_usd }} USD</strong>
-            <span class="ves-subtext">({{ formatVes(item.saldo_usd) }} VES)</span>
+            <strong class="tabular-nums">{{ item.saldo_usd }} USD</strong>
+            <span class="ves-subtext tabular-nums">({{ formatVes(item.saldo_usd) }} VES)</span>
           </td>
         </tr>
       </tbody>
@@ -86,12 +102,10 @@ function formatVes(saldoUsd: string): string {
   max-inline-size: 100%;
   max-block-size: min(32rem, 75dvh);
   container-type: inline-size;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.75rem;
-  box-shadow:
-    0 1px 3px 0 rgba(15, 23, 42, 0.06),
-    0 1px 2px -1px rgba(15, 23, 42, 0.06);
+  background-color: var(--surface-card, #ffffff);
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md, 0.75rem);
+  box-shadow: var(--shadow-card);
 }
 
 .collection-table {
@@ -109,15 +123,15 @@ function formatVes(saldoUsd: string): string {
   padding: 0.875rem 1rem;
   font-weight: 700;
   font-size: 0.95rem;
-  color: #0f172a;
-  border-bottom: 1px solid #e2e8f0;
+  color: var(--text-primary, #0f172a);
+  border-bottom: 1px solid var(--border-subtle, #e2e8f0);
 }
 
 thead {
   position: sticky;
   inset-block-start: 0;
   z-index: 1;
-  background-color: #f8fafc;
+  background-color: var(--surface-subtle, #f8fafc);
 }
 
 th,
@@ -125,56 +139,63 @@ td {
   padding: 0.75rem 1rem;
   text-align: left;
   font-size: 0.85rem;
-  border-bottom: 1px solid #f1f5f9;
+  color: var(--text-primary, #0f172a);
+  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
 }
 
 tbody th {
   position: sticky;
   inset-inline-start: 0;
-  background-color: #ffffff;
+  background-color: var(--surface-card, #ffffff);
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary, #0f172a);
 }
 
 .collection-row--own tbody th,
 .collection-row--own td {
-  background-color: #f0f9ff;
+  background-color: var(--brand-tint, #f0f9ff);
 }
 
 .own-badge {
   margin-left: 0.375rem;
   font-size: 0.75rem;
-  color: #0369a1;
+  color: var(--brand-accent, #0369a1);
 }
 
 .status-pill {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill, 9999px);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
-.status-pill--solvente {
-  background-color: #dcfce7;
-  color: #166534;
+.status-pill--solvente,
+.status-pill--pagado {
+  background-color: var(--status-ok-bg, #dcfce7);
+  color: var(--status-ok-text, #166534);
 }
 
-.status-pill--abono_parcial {
-  background-color: #fef3c7;
-  color: #92400e;
+.status-pill--abono_parcial,
+.status-pill--parcial {
+  background-color: var(--status-warn-bg, #fef3c7);
+  color: var(--status-warn-text, #92400e);
 }
 
 .status-pill--pendiente,
-.status-pill--moroso {
-  background-color: #fee2e2;
-  color: #991b1b;
+.status-pill--moroso,
+.status-pill--vencido,
+.status-pill--rechazado {
+  background-color: var(--status-danger-bg, #fee2e2);
+  color: var(--status-danger-text, #991b1b);
 }
 
 .ves-subtext {
   display: inline-block;
   margin-left: 0.375rem;
-  color: #475569;
+  color: var(--text-secondary, #475569);
   font-size: 0.8rem;
 }
 
@@ -195,15 +216,15 @@ tbody th {
 
   tr {
     margin-block-end: 0.75rem;
-    border: 1px solid #cbd5e1;
-    border-radius: 0.5rem;
+    border: 1px solid var(--border-subtle, #cbd5e1);
+    border-radius: var(--radius-sm, 0.5rem);
   }
 
   tbody th {
     position: sticky;
     inset-block-start: 0;
     z-index: 2;
-    background-color: #f1f5f9;
+    background-color: var(--surface-subtle, #f1f5f9);
   }
 
   td:nth-child(2)::before {
