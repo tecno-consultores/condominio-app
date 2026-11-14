@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -204,22 +204,24 @@ async def listar_mis_pases_visita(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[PaseVisitaResponse]:
-    """Lista los pases de visita activos e históricos de las unidades del residente."""
+    """Lista los pases de visita activos e históricos filtrados directamente en SQL con JOIN Unidad."""
     verificar_usuario_activo(usuario)
-    res_pases = await db.execute(select(PaseVisita).order_by(PaseVisita.id.desc()))
-    todos_pases = list(res_pases.scalars().all())
-    unidades_propias = await _unidades_activas_usuario(db, usuario.id)
+    stmt = select(PaseVisita, Unidad.identificador).join(Unidad, Unidad.id == PaseVisita.unidad_id)
+    if usuario.rol != "PRESIDENTE":
+        unidades_propias = await _unidades_activas_usuario(db, usuario.id)
+        if unidades_propias:
+            stmt = stmt.where(
+                or_(
+                    PaseVisita.creado_por_id == usuario.id,
+                    PaseVisita.unidad_id.in_(unidades_propias),
+                )
+            )
+        else:
+            stmt = stmt.where(PaseVisita.creado_por_id == usuario.id)
 
-    res_unidades = await db.execute(select(Unidad))
-    mapa_unidades = {u.id: u.identificador for u in res_unidades.scalars().all()}
+    res = await db.execute(stmt.order_by(PaseVisita.id.desc()))
     ahora = datetime.now(UTC)
-
-    filtrados = [
-        p
-        for p in todos_pases
-        if usuario.rol == "PRESIDENTE" or p.creado_por_id == usuario.id or p.unidad_id in unidades_propias
-    ]
-    return [_serializar_pase(p, mapa_unidades.get(p.unidad_id, f"U-{p.unidad_id}"), ahora) for p in filtrados]
+    return [_serializar_pase(pase, ident, ahora) for pase, ident in res.all()]
 
 
 @router.delete(
@@ -465,20 +467,17 @@ async def listar_paqueteria(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[PaqueteResponse]:
-    """Lista paquetes pendientes en garita e historial de entregas (filtrado por unidad para residentes)."""
+    """Lista paquetes pendientes en garita e historial de entregas filtrados en SQL con JOIN Unidad."""
     verificar_usuario_activo(usuario)
-    res_paquetes = await db.execute(select(PaqueteRecibido).order_by(PaqueteRecibido.id.desc()))
-    paquetes = list(res_paquetes.scalars().all())
-    res_unidades = await db.execute(select(Unidad))
-    mapa_unidades = {u.id: u.identificador for u in res_unidades.scalars().all()}
-
-    if usuario.rol in _ROLES_JUNTA_Y_GARITA:
-        visibles = paquetes
-    else:
+    stmt = select(PaqueteRecibido, Unidad.identificador).join(Unidad, Unidad.id == PaqueteRecibido.unidad_id)
+    if usuario.rol not in _ROLES_JUNTA_Y_GARITA:
         unidades_propias = await _unidades_activas_usuario(db, usuario.id)
-        visibles = [p for p in paquetes if p.unidad_id in unidades_propias]
+        if not unidades_propias:
+            return []
+        stmt = stmt.where(PaqueteRecibido.unidad_id.in_(unidades_propias))
 
-    return [_serializar_paquete(p, mapa_unidades.get(p.unidad_id, f"U-{p.unidad_id}")) for p in visibles]
+    res = await db.execute(stmt.order_by(PaqueteRecibido.id.desc()))
+    return [_serializar_paquete(paq, ident) for paq, ident in res.all()]
 
 
 @router.put(

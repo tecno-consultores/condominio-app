@@ -175,8 +175,8 @@ async def cargar_contexto_facturacion(
             detail="No existen unidades registradas para emitir la facturación.",
         )
 
-    egr_res = await db.execute(select(Egreso).where(Egreso.periodo == datos.periodo))
-    egresos_comunes = [e for e in egr_res.scalars().all() if getattr(e, "es_gasto_comun", True) is not False]
+    egr_res = await db.execute(select(Egreso).where(Egreso.periodo == datos.periodo, Egreso.es_gasto_comun.is_(True)))
+    egresos_comunes = list(egr_res.scalars().all())
     total_egresos = cuantizar(sum((e.monto_usd for e in egresos_comunes), CERO))
 
     fondo_res = await db.execute(

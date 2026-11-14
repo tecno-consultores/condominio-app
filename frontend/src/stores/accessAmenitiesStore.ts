@@ -426,6 +426,30 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     }
   }
 
+  async function cancelarReserva(
+    reservaId: number,
+    idempotencyKey?: string,
+  ): Promise<ReservaAreaDTO> {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const data = await apiRequest<ReservaAreaDTO>(`/api/reservas/${reservaId}/cancelar`, {
+        method: 'PUT',
+        body: {},
+        idempotencyKey: idempotencyKey || generateIdempotencyKey(),
+      });
+      const limpia = sanitizeReserva(data);
+      reservas.value = reservas.value.map((r) => (r.id === reservaId ? limpia : r));
+      isStale.value = false;
+      return limpia;
+    } catch (err) {
+      await handleStoreError(err, 'Error al cancelar la reserva del área social');
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   return {
     pases,
     ultimoPaseCreado,
@@ -448,5 +472,6 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     fetchReservas,
     solicitarReservaArea,
     inspeccionarReserva,
+    cancelarReserva,
   };
 });

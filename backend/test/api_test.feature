@@ -574,4 +574,65 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method post
     Then status 403
 
+  Scenario: 23. Privacidad DTO en unidades públicas y contratos de cancelación de reservas (Hito 17.4)
+    # 1. Endpoint público de unidades para registro no expone datos financieros privados
+    Given path '/api/estructura/unidades'
+    When method get
+    Then status 200
+    And match response == '#array'
+
+    # 2. Contrato OpenAPI expone UnidadPublicaResponse sin campos financieros y registra /cancelar
+    Given path '/openapi.json'
+    When method get
+    Then status 200
+    * def publicSchema = response.components.schemas.UnidadPublicaResponse
+    * def propKeys = karate.keysOf(publicSchema.properties)
+    * match propKeys contains only ['id', 'identificador', 'estructura_id']
+    * match response.paths['/api/reservas/{reserva_id}/cancelar'].put != null
+
+    # 3. Verificación pública de solvencia inexistente retorna 404
+    Given path '/api/finanzas/solvencia/verificar/SOLV-BDD174-NOEXISTE'
+    And param sig = '0000'
+    When method get
+    Then status 404
+
+    # 4. Usuario Fantasma aislado verifica 422 sin Idempotency-Key y 403 con Idempotency-Key en cancelación
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'hito174.' + uid + '@condominio.com'
+    Given path '/api/auth/register'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request
+      """
+      {
+        "nombre": "Usuario BDD Hito 17.4",
+        "cedula": "#('V-174' + uid)",
+        "correo": "#(email)",
+        "telefono": "+584145550031",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "#(email)", password: "Password123!" }
+    When method post
+    Then status 200
+    * def csrfTok = response.csrf_token
+
+    Given path '/api/reservas/1/cancelar'
+    And header X-CSRF-Token = csrfTok
+    When method put
+    Then status 422
+    And match response.detail[0].loc contains 'Idempotency-Key'
+
+    Given path '/api/reservas/1/cancelar'
+    And header X-CSRF-Token = csrfTok
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    When method put
+    Then status 403
+
+
 

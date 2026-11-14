@@ -47,6 +47,12 @@ def _result_list(values: list[Any]) -> MagicMock:
     return result
 
 
+def _result_pairs(rows: list[tuple[Any, ...]]) -> MagicMock:
+    result = MagicMock()
+    result.all.return_value = rows
+    return result
+
+
 def _setup(session: AsyncMock, user: Any = None, redis_is_new: bool = True) -> AsyncMock:
     mock_redis = AsyncMock()
     mock_redis.set.return_value = redis_is_new
@@ -295,8 +301,10 @@ def test_resumen_financiero(client: TestClient) -> None:
             bloqueado=False,
         ),
     ]
-    egresos = [_egreso(monto_usd="30.00"), _egreso(categoria="LIMPIEZA", monto_usd="70.00")]
-    session = _mock_session(_result_list(recibos), _result_list(egresos))
+    session = _mock_session(
+        _result_list(recibos),
+        _result_pairs([("MANTENIMIENTO", Decimal("30.00")), ("LIMPIEZA", Decimal("70.00"))]),
+    )
     _setup(session)
 
     response = client.get("/api/finanzas/resumen")

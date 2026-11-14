@@ -257,12 +257,12 @@ def test_listar_y_obtener_detalle_consulta_con_voto_previo(client: TestClient) -
         ip_hash="a" * 64,
         firma_hmac="b" * 64,
     )
+    consulta.opciones = [op1, op2]
+    consulta.votos = [voto]
 
     session = _mock_session(
         _result_list([consulta]),  # listar_consultas -> consultas
         _result_list([3]),  # _unidades_usuario
-        _result_list([op1, op2]),  # _cargar_opciones_y_votos -> opciones
-        _result_list([voto]),  # _cargar_opciones_y_votos -> votos
     )
     _setup(session, user=FakeUser(2, "PROPIETARIO"))
     resp_list = client.get("/api/consultas")
@@ -273,13 +273,10 @@ def test_listar_y_obtener_detalle_consulta_con_voto_previo(client: TestClient) -
     assert items[0]["ya_voto_usuario"] is True
 
     # Detalle con unidad encontrada y con fallback de unidad None
-    unidad = Unidad(id=3, identificador="A-03", estructura_id=1, alicuota=Decimal("35.0000"))
     session_det = _mock_session(
         _result(consulta),
-        _result_list([op1, op2]),
-        _result_list([voto]),
         _result_list([3]),
-        _result(unidad),
+        _result("A-03"),
     )
     _setup(session_det, user=FakeUser(2, "PROPIETARIO"))
     resp_det = client.get("/api/consultas/7")

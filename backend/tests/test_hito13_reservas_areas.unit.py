@@ -38,6 +38,12 @@ def _result_list(values: list[Any]) -> MagicMock:
     return res
 
 
+def _result_rows(rows: list[tuple[Any, ...]]) -> MagicMock:
+    res = MagicMock()
+    res.all.return_value = rows
+    return res
+
+
 def _mock_session(*results: Any) -> AsyncMock:
     session = AsyncMock()
     session.execute.side_effect = list(results)
@@ -386,15 +392,10 @@ def test_listar_reservas_junta_y_residente() -> None:
         estado="CONFIRMADA",
         tarea_inspeccion_id=101,
     )
-    area = AreaSocial(id=3, nombre="Salón Principal", aforo_maximo=50)
-    u12 = Unidad(id=12, estructura_id=1, identificador="PB-02", alicuota=Decimal("2.5000"))
-    u18 = Unidad(id=18, estructura_id=1, identificador="PB-08", alicuota=Decimal("2.5000"))
 
     # Conserje ve todas las reservas
     session_conserje = _mock_session(
-        _result_list([r1, r2]),
-        _result_list([area]),
-        _result_list([u12, u18]),
+        _result_rows([(r1, "Salón Principal", "PB-02"), (r2, "Salón Principal", "PB-08")]),
     )
     _setup(session_conserje, FakeUser(4, "CONSERJE"))
     client = TestClient(app)
@@ -405,10 +406,8 @@ def test_listar_reservas_junta_y_residente() -> None:
 
     # Residente ve solo las de su unidad
     session_res = _mock_session(
-        _result_list([r1, r2]),
-        _result_list([area]),
-        _result_list([u12, u18]),
         _result_list([12]),
+        _result_rows([(r1, "Salón Principal", "PB-02")]),
     )
     _setup(session_res, FakeUser(7, "RESIDENTE"))
     resp_own = client.get("/api/reservas")

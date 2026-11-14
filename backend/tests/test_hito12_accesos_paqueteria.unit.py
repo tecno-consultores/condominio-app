@@ -52,6 +52,12 @@ def _result_list(values: list[Any]) -> MagicMock:
     return res
 
 
+def _result_rows(rows: list[tuple[Any, ...]]) -> MagicMock:
+    res = MagicMock()
+    res.all.return_value = rows
+    return res
+
+
 def _mock_session(*results: Any) -> AsyncMock:
     session = AsyncMock()
     session.execute.side_effect = list(results)
@@ -272,8 +278,7 @@ def test_listar_mis_pases_y_revocar_pase(client: TestClient) -> None:
             estado="ACTIVO",
             firma_hmac="a" * 64,
         )
-        unidad = Unidad(id=1, estructura_id=1, identificador="1-A")
-        session = _mock_session(_result_list([pase_activo]), _result_list([1]), _result_list([unidad]))
+        session = _mock_session(_result_list([1]), _result_rows([(pase_activo, "1-A")]))
         _setup(session, FakeUser(user_id=2, rol="RESIDENTE"))
         r_list = client.get("/api/accesos/pases/mios")
         assert r_list.status_code == 200
@@ -288,7 +293,8 @@ def test_listar_mis_pases_y_revocar_pase(client: TestClient) -> None:
         assert client.delete("/api/accesos/pases/10").status_code == 403
 
         # Revocar exitoso por el creador -> 200 REVOCADO
-        _setup(_mock_session(_result(pase_activo), _result(unidad)), FakeUser(user_id=2, rol="RESIDENTE"))
+        unidad_rev = Unidad(id=1, estructura_id=1, identificador="1-A")
+        _setup(_mock_session(_result(pase_activo), _result(unidad_rev)), FakeUser(user_id=2, rol="RESIDENTE"))
         r_del = client.delete("/api/accesos/pases/10")
         assert r_del.status_code == 200
         assert r_del.json()["estado"] == "REVOCADO"
@@ -445,13 +451,13 @@ def test_registrar_listar_y_entregar_paqueteria(client: TestClient) -> None:
             estado="EN_GARITA",
             fecha_recepcion=datetime.now(UTC),
         )
-        _setup(_mock_session(_result_list([paquete]), _result_list([unidad])), FakeUser(user_id=5, rol="CONSERJE"))
+        _setup(_mock_session(_result_rows([(paquete, "1-A")])), FakeUser(user_id=5, rol="CONSERJE"))
         r_list_c = client.get("/api/paqueteria")
         assert r_list_c.status_code == 200
         assert len(r_list_c.json()) == 1
 
         _setup(
-            _mock_session(_result_list([paquete]), _result_list([unidad]), _result_list([1])),
+            _mock_session(_result_list([1]), _result_rows([(paquete, "1-A")])),
             FakeUser(user_id=2, rol="RESIDENTE"),
         )
         r_list_r = client.get("/api/paqueteria")

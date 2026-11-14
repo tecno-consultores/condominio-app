@@ -205,8 +205,18 @@ def aplicar_credito_disponible(
     return monto_neto, credito_aplicado, credito_restante
 
 
-def _construir_payload_solvencia(folio: str, identificador_unidad: str, fecha_vencimiento_iso: str) -> str:
-    return f"SOLV|v1|{folio.strip()}|{identificador_unidad.strip()}|{fecha_vencimiento_iso.strip()}|0.00"
+def _construir_payload_solvencia(
+    folio: str,
+    identificador_unidad: str,
+    fecha_vencimiento_iso: str,
+    jti: str | None = None,
+) -> str:
+    folio_norm = folio.strip()
+    unidad_norm = identificador_unidad.strip()
+    venc_norm = fecha_vencimiento_iso.strip()
+    if jti and jti.strip():
+        return f"SOLV|v2|{jti.strip()}|{folio_norm}|{unidad_norm}|{venc_norm}|0.00"
+    return f"SOLV|v1|{folio_norm}|{unidad_norm}|{venc_norm}|0.00"
 
 
 def generar_firma_solvencia(
@@ -214,9 +224,10 @@ def generar_firma_solvencia(
     identificador_unidad: str,
     fecha_vencimiento_iso: str,
     secret_key: str,
+    jti: str | None = None,
 ) -> str:
     """Genera la firma HMAC-SHA256 canónica para un Certificado de Solvencia (Art. 14 LPH)."""
-    payload = _construir_payload_solvencia(folio, identificador_unidad, fecha_vencimiento_iso)
+    payload = _construir_payload_solvencia(folio, identificador_unidad, fecha_vencimiento_iso, jti=jti)
     return hmac.new(
         secret_key.encode("utf-8"),
         payload.encode("utf-8"),
@@ -230,11 +241,12 @@ def verificar_firma_solvencia(
     fecha_vencimiento_iso: str,
     firma_recibida: str,
     secret_key: str,
+    jti: str | None = None,
 ) -> bool:
     """Verifica en tiempo constante la autenticidad criptográfica de un Certificado de Solvencia."""
     if not firma_recibida or not firma_recibida.strip():
         return False
-    esperada = generar_firma_solvencia(folio, identificador_unidad, fecha_vencimiento_iso, secret_key)
+    esperada = generar_firma_solvencia(folio, identificador_unidad, fecha_vencimiento_iso, secret_key, jti=jti)
     return hmac.compare_digest(firma_recibida.strip(), esperada)
 
 
@@ -243,9 +255,10 @@ def construir_qr_token_solvencia(
     identificador_unidad: str,
     fecha_vencimiento_iso: str,
     firma_hmac: str,
+    jti: str | None = None,
 ) -> str:
     """Construye el token compacto base64url(payload).firma_hmac para el código QR del certificado."""
-    payload = _construir_payload_solvencia(folio, identificador_unidad, fecha_vencimiento_iso)
+    payload = _construir_payload_solvencia(folio, identificador_unidad, fecha_vencimiento_iso, jti=jti)
     b64_payload = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
     return f"{b64_payload}.{firma_hmac}"
 
@@ -274,9 +287,14 @@ def construir_mensaje_voto_consulta(
     opcion_id: int,
     alicuota_capturada: Decimal,
     fecha_voto_iso: str,
+    jti: str | None = None,
 ) -> str:
-    """Construye el mensaje canónico VOTO|v1 para el recibo criptográfico de Carta Consulta."""
+    """Construye el mensaje canónico VOTO|v1 o VOTO|v2 (con JTI) para el recibo de Carta Consulta."""
     alicuota_norm = Decimal(str(alicuota_capturada)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+    if jti and jti.strip():
+        return (
+            f"VOTO|v2|{jti.strip()}|{consulta_id}|{unidad_id}|{opcion_id}|{alicuota_norm:.4f}|{fecha_voto_iso.strip()}"
+        )
     return f"VOTO|v1|{consulta_id}|{unidad_id}|{opcion_id}|{alicuota_norm:.4f}|{fecha_voto_iso.strip()}"
 
 
@@ -287,9 +305,12 @@ def generar_firma_voto_consulta(
     alicuota_capturada: Decimal,
     fecha_voto_iso: str,
     secret_key: str,
+    jti: str | None = None,
 ) -> str:
     """Genera la firma HMAC-SHA256 para un voto emitido en una Carta Consulta o Asamblea."""
-    mensaje = construir_mensaje_voto_consulta(consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso)
+    mensaje = construir_mensaje_voto_consulta(
+        consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso, jti=jti
+    )
     return hmac.new(
         secret_key.encode("utf-8"),
         mensaje.encode("utf-8"),
@@ -305,12 +326,13 @@ def verificar_firma_voto_consulta(
     fecha_voto_iso: str,
     firma_recibida: str,
     secret_key: str,
+    jti: str | None = None,
 ) -> bool:
     """Verifica en tiempo constante la autenticidad criptográfica de un recibo de voto."""
     if not firma_recibida or not firma_recibida.strip():
         return False
     esperada = generar_firma_voto_consulta(
-        consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso, secret_key
+        consulta_id, unidad_id, opcion_id, alicuota_capturada, fecha_voto_iso, secret_key, jti=jti
     )
     return hmac.compare_digest(firma_recibida.strip(), esperada)
 

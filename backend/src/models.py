@@ -1,3 +1,4 @@
+import uuid
 from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
@@ -15,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from src.database import Base
@@ -24,6 +25,7 @@ from src.database import Base
 class Usuario(Base):
     __tablename__ = "usuarios"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     nombre: Mapped[str] = mapped_column(String, index=True)
     cedula: Mapped[str] = mapped_column(String, unique=True, index=True)
     correo: Mapped[str] = mapped_column(String, unique=True, index=True)
@@ -36,6 +38,7 @@ class Usuario(Base):
 class Estructura(Base):
     __tablename__ = "estructuras"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     nombre: Mapped[str] = mapped_column(String)
     tipo: Mapped[str] = mapped_column(String)
 
@@ -43,6 +46,7 @@ class Estructura(Base):
 class Unidad(Base):
     __tablename__ = "unidades"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     identificador: Mapped[str] = mapped_column(String, unique=True, index=True)
     estructura_id: Mapped[int] = mapped_column(ForeignKey("estructuras.id"))
     alicuota: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("0.0000"), server_default="0.0000")
@@ -55,13 +59,14 @@ class Unidad(Base):
 class ContratoOcupacion(Base):
     __tablename__ = "contratos_ocupacion"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"))
     tipo_ocupante: Mapped[str] = mapped_column(String)
     es_activo: Mapped[bool] = mapped_column(Boolean, default=False)
     puede_votar_asamblea: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    fecha_inicio: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    fecha_fin: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fecha_inicio: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    fecha_fin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TasaCambio(Base):
@@ -69,6 +74,7 @@ class TasaCambio(Base):
 
     __tablename__ = "tasas_cambio"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     fecha: Mapped[date_type] = mapped_column(Date, unique=True, index=True)
     tasa_usd_ves: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -80,6 +86,7 @@ class Recibo(Base):
     __tablename__ = "recibos"
     __table_args__ = (UniqueConstraint("unidad_id", "periodo", name="uq_recibo_unidad_periodo"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"))
     periodo: Mapped[str] = mapped_column(String(7), index=True)
     monto_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -104,6 +111,7 @@ class PagoReportado(Base):
         ),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     recibo_id: Mapped[int] = mapped_column(ForeignKey("recibos.id"))
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
     monto: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -122,6 +130,7 @@ class Egreso(Base):
 
     __tablename__ = "egresos"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     periodo: Mapped[str] = mapped_column(String(7), index=True)
     categoria: Mapped[str] = mapped_column(String)
     descripcion: Mapped[str] = mapped_column(String)
@@ -141,6 +150,7 @@ class AuditoriaRecibo(Base):
 
     __tablename__ = "auditoria_recibos"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     recibo_id: Mapped[int] = mapped_column(ForeignKey("recibos.id"), index=True)
     pago_id: Mapped[int | None] = mapped_column(ForeignKey("pagos_reportados.id"), nullable=True)
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
@@ -155,6 +165,7 @@ class ReporteMensual(Base):
 
     __tablename__ = "reportes_mensuales"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     periodo: Mapped[str] = mapped_column(String(7), unique=True, index=True)
     estado: Mapped[str] = mapped_column(String, default="PRELIMINAR")
     url_pdf: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -167,6 +178,7 @@ class Incidencia(Base):
 
     __tablename__ = "incidencias"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     usuario_creador_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
     area: Mapped[str] = mapped_column(String, index=True)
     descripcion: Mapped[str] = mapped_column(String)
@@ -183,6 +195,7 @@ class IncidenciaAdhesion(Base):
     __table_args__ = (UniqueConstraint("incidencia_id", "usuario_id", name="uq_incidencia_usuario_adhesion"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     incidencia_id: Mapped[int] = mapped_column(ForeignKey("incidencias.id"), index=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -193,6 +206,7 @@ class PlantillaTarea(Base):
 
     __tablename__ = "plantillas_tareas"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     titulo: Mapped[str] = mapped_column(String)
     area: Mapped[str] = mapped_column(String)
     frecuencia: Mapped[str] = mapped_column(String, default="DIARIA")
@@ -205,6 +219,7 @@ class TareaDiaria(Base):
 
     __tablename__ = "tareas_diarias"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     plantilla_id: Mapped[int | None] = mapped_column(ForeignKey("plantillas_tareas.id"), nullable=True)
     incidencia_id: Mapped[int | None] = mapped_column(ForeignKey("incidencias.id"), nullable=True)
     titulo: Mapped[str] = mapped_column(String)
@@ -221,6 +236,7 @@ class FotoVocero(Base):
 
     __tablename__ = "fotos_voceros"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
     periodo: Mapped[str] = mapped_column(String(7), index=True)
     area: Mapped[str] = mapped_column(String, index=True)
@@ -234,6 +250,7 @@ class BitacoraActa(Base):
 
     __tablename__ = "bitacora_actas"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     fecha: Mapped[date_type] = mapped_column(Date, index=True)
     hora: Mapped[str] = mapped_column(String)
     ubicacion: Mapped[str] = mapped_column(String)
@@ -247,6 +264,7 @@ class Comunicado(Base):
 
     __tablename__ = "comunicados"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     titulo: Mapped[str] = mapped_column(String)
     contenido: Mapped[str] = mapped_column(String)
     enlace_externo: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -259,6 +277,7 @@ class FondoCondominio(Base):
 
     __tablename__ = "fondos_condominio"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     nombre: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     tipo: Mapped[str] = mapped_column(String(30), default="RESERVA_LEGAL")
     porcentaje_recargo: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("10.00"))
@@ -272,6 +291,7 @@ class ReciboItem(Base):
 
     __tablename__ = "recibos_items"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     recibo_id: Mapped[int] = mapped_column(ForeignKey("recibos.id", ondelete="CASCADE"), index=True)
     tipo_item: Mapped[str] = mapped_column(String(30))
     descripcion: Mapped[str] = mapped_column(String(255))
@@ -284,6 +304,10 @@ class CertificadoSolvencia(Base):
 
     __tablename__ = "certificados_solvencia"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
+    jti: Mapped[str] = mapped_column(
+        String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True, nullable=False
+    )
     folio: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True)
     emitido_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
@@ -298,6 +322,7 @@ class ConsultaComunitaria(Base):
 
     __tablename__ = "consultas_comunitarias"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     titulo: Mapped[str] = mapped_column(String(160), nullable=False)
     descripcion_legal: Mapped[str] = mapped_column(String, nullable=False)
     tipo_consulta: Mapped[str] = mapped_column(String(30), default="CARTA_CONSULTA_1RA")
@@ -309,12 +334,24 @@ class ConsultaComunitaria(Base):
     creada_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
     acta_bitacora_id: Mapped[int | None] = mapped_column(ForeignKey("bitacora_actas.id"), nullable=True, default=None)
 
+    opciones: Mapped[list["OpcionConsulta"]] = relationship(
+        "OpcionConsulta",
+        order_by="OpcionConsulta.id.asc()",
+        lazy="selectin",
+    )
+    votos: Mapped[list["VotoConsulta"]] = relationship(
+        "VotoConsulta",
+        order_by="VotoConsulta.id.asc()",
+        lazy="selectin",
+    )
+
 
 class OpcionConsulta(Base):
     """Opción seleccionable dentro de una Carta Consulta o Asamblea — Hito 11."""
 
     __tablename__ = "opciones_consulta"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     consulta_id: Mapped[int] = mapped_column(ForeignKey("consultas_comunitarias.id", ondelete="CASCADE"), index=True)
     etiqueta: Mapped[str] = mapped_column(String(120), nullable=False)
     es_opcion_aprobatoria: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -327,6 +364,10 @@ class VotoConsulta(Base):
     __table_args__ = (UniqueConstraint("consulta_id", "unidad_id", name="uq_voto_consulta_unidad"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
+    jti: Mapped[str] = mapped_column(
+        String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True, nullable=False
+    )
     consulta_id: Mapped[int] = mapped_column(ForeignKey("consultas_comunitarias.id"), index=True)
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
@@ -342,6 +383,7 @@ class PaseVisita(Base):
 
     __tablename__ = "pases_visita"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     jti: Mapped[str] = mapped_column(String(36), unique=True, index=True, nullable=False)
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True, nullable=False)
     creado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
@@ -363,6 +405,7 @@ class PaqueteRecibido(Base):
 
     __tablename__ = "paquetes_recibidos"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True, nullable=False)
     recibido_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
     empresa_envio: Mapped[str] = mapped_column(String(60), nullable=False)
@@ -381,6 +424,7 @@ class AreaSocial(Base):
 
     __tablename__ = "areas_sociales"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     nombre: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     aforo_maximo: Mapped[int] = mapped_column(Integer, nullable=False)
     costo_uso_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
@@ -393,9 +437,19 @@ class ReservaAreaSocial(Base):
     """Reserva exclusiva por fecha de un área social con vínculo a inspección post-evento — Hito 13."""
 
     __tablename__ = "reservas_areas_sociales"
-    __table_args__ = (UniqueConstraint("area_id", "fecha_evento", name="uq_reserva_area_fecha"),)
+    __table_args__ = (
+        Index(
+            "uq_reserva_area_fecha_activa",
+            "area_id",
+            "fecha_evento",
+            unique=True,
+            postgresql_where=text("estado != 'CANCELADA'"),
+            sqlite_where=text("estado != 'CANCELADA'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     area_id: Mapped[int] = mapped_column(ForeignKey("areas_sociales.id"), index=True, nullable=False)
     unidad_id: Mapped[int] = mapped_column(ForeignKey("unidades.id"), index=True, nullable=False)
     solicitante_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)

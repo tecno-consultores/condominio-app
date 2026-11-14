@@ -88,6 +88,16 @@ async function handleInspeccionar(
     // Error expuesto reactivamente en store.error
   }
 }
+
+async function handleCancelarReserva(reservaId: number): Promise<void> {
+  feedbackExito.value = null;
+  try {
+    const cancelada = await store.cancelarReserva(reservaId);
+    feedbackExito.value = `Reserva #${cancelada.id} cancelada exitosamente. La fecha quedó liberada.`;
+  } catch {
+    // Error expuesto reactivamente en store.error
+  }
+}
 </script>
 
 <template>
@@ -332,6 +342,14 @@ async function handleInspeccionar(
             >
               Reportar Daños Post-Evento
             </button>
+            <button
+              :id="`btn-cancelar-reserva-${reserva.id}`"
+              type="button"
+              class="btn btn--secondary"
+              @click="handleCancelarReserva(reserva.id)"
+            >
+              Cancelar Reserva
+            </button>
           </div>
         </article>
       </div>
@@ -490,6 +508,11 @@ async function handleInspeccionar(
 .badge--finalizada_con_danos {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.badge--cancelada {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .btn {

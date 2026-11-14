@@ -93,4 +93,12 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     When click('#btn-close-help')
     Then waitUntil("!document.querySelector('#dialog-contextual-help')")
 
+  Scenario: 10. El formulario público de registro consulta unidades sin exponer datos financieros privados (Hito 17.4)
+    Given driver baseUrl + '/register'
+    And waitFor('#reg-unidad')
+    * def bodyText = text('body')
+    * assert !bodyText.contains('alicuota')
+    * assert !bodyText.contains('credito_disponible_usd')
+
+
 

@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -8,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.database import get_db
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
@@ -119,13 +121,13 @@ async def _construir_mi_voto(
     )
     if not voto_propio:
         return None
-    res_u = await db.execute(select(Unidad).where(Unidad.id == voto_propio.unidad_id))
-    unidad = res_u.scalars().first()
-    identificador = unidad.identificador if unidad else f"U-{voto_propio.unidad_id}"
+    res_u = await db.execute(select(Unidad.identificador).where(Unidad.id == voto_propio.unidad_id))
+    identificador = res_u.scalars().first() or f"U-{voto_propio.unidad_id}"
     return VotoReciboResumenResponse(
         voto_id=voto_propio.id,
+        jti=getattr(voto_propio, "jti", None) or "",
         unidad_id=voto_propio.unidad_id,
-        identificador_unidad=identificador,
+        identificador_unidad=str(identificador),
         opcion_id=voto_propio.opcion_id,
         opcion_etiqueta=opciones_map.get(voto_propio.opcion_id, ""),
         alicuota_capturada=Decimal(str(voto_propio.alicuota_capturada)).quantize(CUATRO_DECIMALES),
@@ -134,18 +136,16 @@ async def _construir_mi_voto(
     )
 
 
-async def _armar_detalle_consulta(
-    db: AsyncSession, consulta: ConsultaComunitaria, usuario_id: int
+def _ensamblar_detalle_desde_datos(
+    consulta: ConsultaComunitaria,
+    opciones: list[OpcionConsulta],
+    votos: list[VotoConsulta],
+    mi_voto: VotoReciboResumenResponse | None,
 ) -> ConsultaDetalleResponse:
-    opciones, votos = await _cargar_opciones_y_votos(db, consulta.id)
     quorum_min = Decimal(str(consulta.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
     participacion, aprobatoria, opciones_resp = _calcular_metricas_consulta(
         opciones, votos, quorum_min, consulta.regla_quorum
     )
-    unidades_propias = await _unidades_usuario(db, usuario_id)
-    opciones_map = {op.id: op.etiqueta for op in opciones}
-    mi_voto = await _construir_mi_voto(db, votos, opciones_map, usuario_id, unidades_propias)
-
     return ConsultaDetalleResponse(
         id=consulta.id,
         titulo=consulta.titulo,
@@ -165,6 +165,20 @@ async def _armar_detalle_consulta(
         opciones=opciones_resp,
         mi_voto=mi_voto,
     )
+
+
+async def _armar_detalle_consulta(
+    db: AsyncSession, consulta: ConsultaComunitaria, usuario_id: int
+) -> ConsultaDetalleResponse:
+    if consulta.opciones:
+        opciones = list(consulta.opciones)
+        votos = list(consulta.votos)
+    else:
+        opciones, votos = await _cargar_opciones_y_votos(db, consulta.id)
+    unidades_propias = await _unidades_usuario(db, usuario_id)
+    opciones_map = {op.id: op.etiqueta for op in opciones}
+    mi_voto = await _construir_mi_voto(db, votos, opciones_map, usuario_id, unidades_propias)
+    return _ensamblar_detalle_desde_datos(consulta, opciones, votos, mi_voto)
 
 
 @router.post(
@@ -232,15 +246,20 @@ async def listar_consultas(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[ConsultaResumenResponse]:
-    """Lista las Cartas Consulta y Asambleas con su avance de quórum por alícuota en tiempo real."""
+    """Lista las Cartas Consulta y Asambleas con su avance de quórum por alícuota sin consultas N+1."""
     verificar_usuario_activo(usuario)
-    res = await db.execute(select(ConsultaComunitaria).order_by(ConsultaComunitaria.id.desc()))
+    res = await db.execute(
+        select(ConsultaComunitaria)
+        .options(selectinload(ConsultaComunitaria.opciones), selectinload(ConsultaComunitaria.votos))
+        .order_by(ConsultaComunitaria.id.desc())
+    )
     consultas = list(res.scalars().all())
     unidades_propias = await _unidades_usuario(db, usuario.id)
     salida: list[ConsultaResumenResponse] = []
 
     for c in consultas:
-        opciones, votos = await _cargar_opciones_y_votos(db, c.id)
+        opciones = list(c.opciones)
+        votos = list(c.votos)
         quorum_min = Decimal(str(c.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
         participacion, aprobatoria, _ = _calcular_metricas_consulta(opciones, votos, quorum_min, c.regla_quorum)
         ya_voto = any(v.usuario_id == usuario.id or v.unidad_id in unidades_propias for v in votos)
@@ -281,7 +300,11 @@ async def obtener_detalle_consulta(
 ) -> ConsultaDetalleResponse:
     """Obtiene el detalle de una Carta Consulta o Asamblea, sus opciones y el recibo de voto si ya participó."""
     verificar_usuario_activo(usuario)
-    res = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id))
+    res = await db.execute(
+        select(ConsultaComunitaria)
+        .options(selectinload(ConsultaComunitaria.opciones), selectinload(ConsultaComunitaria.votos))
+        .where(ConsultaComunitaria.id == consulta_id)
+    )
     consulta = res.scalars().first()
     if not consulta:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consulta comunitaria no encontrada.")
@@ -323,6 +346,29 @@ async def _validar_derecho_voto_unidad(
     return unidad, contrato
 
 
+async def _validar_consulta_abierta_en_plazo(db: AsyncSession, consulta_id: int) -> ConsultaComunitaria:
+    """Bloquea y valida que la consulta exista, siga abierta y esté dentro del plazo de cierre."""
+    res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id).with_for_update())
+    consulta = res_c.scalars().first()
+    if not consulta:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consulta comunitaria no encontrada.")
+    if consulta.estado != "ABIERTA":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La consulta ya se encuentra cerrada y no admite nuevos votos.",
+        )
+
+    cierre_utc = (
+        consulta.fecha_cierre if consulta.fecha_cierre.tzinfo is not None else consulta.fecha_cierre.replace(tzinfo=UTC)
+    )
+    if datetime.now(UTC) > cierre_utc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El plazo de votación de esta consulta ya venció.",
+        )
+    return consulta
+
+
 @router.post(
     "/{consulta_id}/votar",
     status_code=status.HTTP_201_CREATED,
@@ -354,15 +400,7 @@ async def votar_en_consulta(
             detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
         )
 
-    res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id))
-    consulta = res_c.scalars().first()
-    if not consulta:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consulta comunitaria no encontrada.")
-    if consulta.estado != "ABIERTA":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="La consulta ya se encuentra cerrada y no admite nuevos votos.",
-        )
+    consulta = await _validar_consulta_abierta_en_plazo(db, consulta_id)
 
     res_op = await db.execute(
         select(OpcionConsulta).where(
@@ -391,6 +429,7 @@ async def votar_en_consulta(
     alicuota_capturada = Decimal(str(unidad.alicuota or Decimal("0.0000"))).quantize(CUATRO_DECIMALES)
     fecha_voto = datetime.now(UTC)
     fecha_voto_iso = fecha_voto.isoformat()
+    voto_jti = str(uuid.uuid4())
     secret_key = SECRET_KEY
     ip_cliente = request.client.host if request.client else "127.0.0.1"
     ip_hash = calcular_ip_hash_voto(ip_cliente, consulta_id, secret_key)
@@ -401,6 +440,7 @@ async def votar_en_consulta(
         alicuota_capturada=alicuota_capturada,
         fecha_voto_iso=fecha_voto_iso,
         secret_key=secret_key,
+        jti=voto_jti,
     )
     mensaje_verificacion = construir_mensaje_voto_consulta(
         consulta_id=consulta_id,
@@ -408,9 +448,11 @@ async def votar_en_consulta(
         opcion_id=opcion.id,
         alicuota_capturada=alicuota_capturada,
         fecha_voto_iso=fecha_voto_iso,
+        jti=voto_jti,
     )
 
     voto = VotoConsulta(
+        jti=voto_jti,
         consulta_id=consulta_id,
         unidad_id=unidad.id,
         usuario_id=usuario.id,
@@ -437,6 +479,7 @@ async def votar_en_consulta(
 
     return ReciboVotoResponse(
         voto_id=voto.id,
+        jti=voto.jti,
         consulta_id=consulta.id,
         titulo_consulta=consulta.titulo,
         unidad_id=unidad.id,
@@ -502,7 +545,7 @@ async def cerrar_consulta(
             detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
         )
 
-    res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id))
+    res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id).with_for_update())
     consulta = res_c.scalars().first()
     if not consulta:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consulta comunitaria no encontrada.")

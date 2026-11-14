@@ -169,6 +169,16 @@ class EstructuraGenerarRequest(BaseModel):
     identificadores: list[str] = Field(min_length=1)
 
 
+class UnidadPublicaResponse(BaseModel):
+    """DTO público mínimo para registro de vecinos sin exponer saldos ni alícuotas."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    identificador: str
+    estructura_id: int
+
+
 class UnidadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -442,6 +452,7 @@ class CertificadoSolvenciaResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    jti: str = ""
     folio: str
     unidad_id: int
     identificador_unidad: str
@@ -455,6 +466,7 @@ class CertificadoSolvenciaResponse(BaseModel):
 
 class VerificarSolvenciaResponse(BaseModel):
     valido: bool
+    jti: str = ""
     folio: str
     unidad_id: int
     identificador_unidad: str
@@ -507,6 +519,7 @@ class OpcionConsultaResultadoResponse(BaseModel):
 
 class VotoReciboResumenResponse(BaseModel):
     voto_id: int
+    jti: str = ""
     unidad_id: int
     identificador_unidad: str
     opcion_id: int
@@ -548,6 +561,7 @@ class VotarConsultaRequest(BaseModel):
 
 class ReciboVotoResponse(BaseModel):
     voto_id: int
+    jti: str = ""
     consulta_id: int
     titulo_consulta: str
     unidad_id: int

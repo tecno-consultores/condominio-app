@@ -162,4 +162,51 @@ describe('AmenitiesReservationView.vue', () => {
       expect.objectContaining({ estado: 'FINALIZADA_CON_DANOS' }),
     );
   });
+
+  it('permite cancelar una reserva confirmada y muestra error si falla la cancelación', async () => {
+    const store = useAccessAmenitiesStore();
+    vi.spyOn(store, 'fetchAreasSociales').mockResolvedValue([]);
+    vi.spyOn(store, 'fetchReservas').mockImplementation(async () => {
+      const res = {
+        id: 51,
+        area_id: 2,
+        nombre_area: 'Salón',
+        unidad_id: 3,
+        identificador_unidad: '1-B',
+        solicitante_id: 3,
+        fecha_evento: '2026-12-30',
+        motivo_evento: 'Brindis',
+        estado: 'CONFIRMADA' as const,
+        tarea_inspeccion_id: 88,
+        observaciones_inspeccion: null,
+        creado_en: '2026-10-30T10:00:00Z',
+      };
+      store.reservas = [res];
+      return [res];
+    });
+    vi.spyOn(store, 'cancelarReserva')
+      .mockImplementationOnce(async () => {
+        store.error = 'Solo reservas confirmadas pueden cancelarse';
+        throw new Error(store.error);
+      })
+      .mockImplementationOnce(async () => {
+        store.reservas[0].estado = 'CANCELADA';
+        return store.reservas[0];
+      });
+
+    const wrapper = mount(AmenitiesReservationView);
+    await flushPromises();
+
+    await wrapper.find('#btn-cancelar-reserva-51').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('#amenities-error-banner').text()).toContain(
+      'Solo reservas confirmadas pueden cancelarse',
+    );
+
+    await wrapper.find('#btn-cancelar-reserva-51').trigger('click');
+    await flushPromises();
+    expect(store.cancelarReserva).toHaveBeenCalledWith(51);
+    expect(wrapper.find('.badge--cancelada').exists()).toBe(true);
+    expect(wrapper.find('#btn-cancelar-reserva-51').exists()).toBe(false);
+  });
 });

@@ -1,5 +1,6 @@
 """Rutas administrativas: generación de estructura/unidades, activación de usuarios fantasma y Junta (Hito 4)."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import get_db
-from src.dependencies import get_current_user, verificar_roles
+from src.dependencies import get_current_user, get_optional_active_user, verificar_roles
 from src.models import ContratoOcupacion, Estructura, Unidad, Usuario
 from src.redis_client import (
     check_and_set_idempotency_key,
@@ -21,6 +22,7 @@ from src.schemas import (
     EstructuraGenerarRequest,
     EstructuraGenerarResponse,
     JuntaCargoRequest,
+    UnidadPublicaResponse,
     UnidadResponse,
     UsuarioAsignarRequest,
     UsuarioResponse,
@@ -30,13 +32,20 @@ router = APIRouter(prefix="/api", tags=["Administracion"])
 
 _ROLES_DIRECTIVA = ("PRESIDENTE", "VICEPRESIDENTE")
 _ROLES_ALICUOTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO")
+_ROLES_JUNTA_LPH = frozenset({"PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "VOCERO"})
 
 
-@router.get("/estructura/unidades", response_model=list[UnidadResponse])
-async def listar_unidades(db: AsyncSession = Depends(get_db)) -> list[Unidad]:
-    """Lista las unidades registradas para el selector de registro y el panel administrativo."""
+@router.get("/estructura/unidades", response_model=list[UnidadResponse] | list[UnidadPublicaResponse])
+async def listar_unidades(
+    db: AsyncSession = Depends(get_db),
+    usuario_activo: Usuario | None = Depends(get_optional_active_user),
+) -> list[UnidadResponse] | list[UnidadPublicaResponse]:
+    """Lista unidades (DTO público mínimo sin autenticación; DTO financiero completo para activos)."""
     res = await db.execute(select(Unidad).order_by(Unidad.identificador.asc()))
-    return list(res.scalars().all())
+    unidades = list(res.scalars().all())
+    if usuario_activo is None:
+        return [UnidadPublicaResponse.model_validate(u) for u in unidades]
+    return [UnidadResponse.model_validate(u) for u in unidades]
 
 
 @router.post(
@@ -126,10 +135,67 @@ async def listar_usuarios_pendientes(
     return list(res.scalars().all())
 
 
+def _tiene_otro_contrato_propietario_activo(
+    contratos: list[ContratoOcupacion],
+    unidad_destino_id: int,
+) -> bool:
+    return any(
+        c.es_activo and c.fecha_fin is None and c.tipo_ocupante == "PROPIETARIO" and c.unidad_id != unidad_destino_id
+        for c in contratos
+    )
+
+
+def _es_contrato_reutilizable(contrato: ContratoOcupacion, datos: UsuarioAsignarRequest) -> bool:
+    if contrato.fecha_fin is not None or contrato.unidad_id != datos.unidad_id:
+        return False
+    if not contrato.es_activo:
+        return True
+    return contrato.tipo_ocupante == datos.tipo_ocupante
+
+
+def _aplicar_historico_contratos(
+    db: AsyncSession,
+    contratos_usuario: list[ContratoOcupacion],
+    objetivo_id: int,
+    datos: UsuarioAsignarRequest,
+) -> None:
+    """Preserva el histórico de ocupación cerrando contratos previos incompatibles sin mutar unidad_id."""
+    puede_votar = (
+        datos.puede_votar_asamblea if datos.puede_votar_asamblea is not None else (datos.tipo_ocupante == "PROPIETARIO")
+    )
+    ahora = datetime.now(UTC)
+    mismo_destino_vigente: ContratoOcupacion | None = None
+
+    for contrato in contratos_usuario:
+        if _es_contrato_reutilizable(contrato, datos):
+            if mismo_destino_vigente is None:
+                contrato.tipo_ocupante = datos.tipo_ocupante
+                contrato.es_activo = True
+                contrato.puede_votar_asamblea = puede_votar
+                mismo_destino_vigente = contrato
+            continue
+
+        if contrato.es_activo and contrato.fecha_fin is None:
+            contrato.es_activo = False
+            contrato.fecha_fin = ahora
+
+    if mismo_destino_vigente is None:
+        db.add(
+            ContratoOcupacion(
+                usuario_id=objetivo_id,
+                unidad_id=datos.unidad_id,
+                tipo_ocupante=datos.tipo_ocupante,
+                es_activo=True,
+                puede_votar_asamblea=puede_votar,
+            )
+        )
+
+
 @router.put(
     "/usuarios/{usuario_id}/asignar",
     response_model=UsuarioResponse,
     responses={
+        400: {"description": "Inquilino no puede ejercer cargo de Junta Directiva"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Usuario o unidad no encontrada"},
     },
@@ -140,7 +206,7 @@ async def asignar_y_activar_usuario(
     db: AsyncSession = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ) -> Usuario:
-    """Aprueba un Usuario Fantasma, le asigna unidad y rol, y registra su ContratoOcupacion activo."""
+    """Aprueba un Usuario Fantasma o reasigna unidad preservando el histórico de contratos y regla LPH."""
     verificar_roles(usuario_actual, _ROLES_DIRECTIVA)
 
     res_u = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
@@ -154,31 +220,20 @@ async def asignar_y_activar_usuario(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada.")
 
     res_contratos = await db.execute(
-        select(ContratoOcupacion).where(
-            ContratoOcupacion.usuario_id == objetivo.id,
-            ContratoOcupacion.unidad_id == unidad.id,
-        )
+        select(ContratoOcupacion)
+        .where(ContratoOcupacion.usuario_id == objetivo.id)
+        .order_by(ContratoOcupacion.id.asc())
     )
-    contratos_previos = list(res_contratos.scalars().all())
-    puede_votar = (
-        datos.puede_votar_asamblea if datos.puede_votar_asamblea is not None else (datos.tipo_ocupante == "PROPIETARIO")
-    )
-    if contratos_previos:
-        for contrato in contratos_previos:
-            contrato.tipo_ocupante = datos.tipo_ocupante
-            contrato.es_activo = True
-            contrato.puede_votar_asamblea = puede_votar
-    else:
-        db.add(
-            ContratoOcupacion(
-                usuario_id=objetivo.id,
-                unidad_id=unidad.id,
-                tipo_ocupante=datos.tipo_ocupante,
-                es_activo=True,
-                puede_votar_asamblea=puede_votar,
-            )
-        )
+    contratos_usuario = list(res_contratos.scalars().all())
 
+    if datos.rol in _ROLES_JUNTA_LPH and datos.tipo_ocupante != "PROPIETARIO":
+        if not _tiene_otro_contrato_propietario_activo(contratos_usuario, unidad.id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo los propietarios activos pueden ocupar cargos en la Junta de Condominio.",
+            )
+
+    _aplicar_historico_contratos(db, contratos_usuario, objetivo.id, datos)
     objetivo.es_activo = True
     objetivo.rol = datos.rol
     await db.commit()
@@ -213,6 +268,7 @@ async def asignar_cargo_junta(
         select(ContratoOcupacion).where(
             ContratoOcupacion.usuario_id == objetivo.id,
             ContratoOcupacion.es_activo.is_(True),
+            ContratoOcupacion.fecha_fin.is_(None),
             ContratoOcupacion.tipo_ocupante == "PROPIETARIO",
         )
     )

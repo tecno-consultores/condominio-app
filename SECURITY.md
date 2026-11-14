@@ -134,6 +134,12 @@ flowchart TD
   - **Lockout Anti-Fuerza Bruta (`POST /api/auth/login`):** Bloquea por `(ip, correo)` tras `5` fallos en `15 minutos` (`HTTP 429`) y ejecuta cómputo constante `DUMMY_PASSWORD_HASH` para correos inexistentes.
   - **KeyDB Fail-Closed e Idempotencia Canónica (`backend/src/redis_client.py`):** Falla cerrado con `HTTP 503` si KeyDB cae en `APP_ENV=production`, eleva el TTL de idempotencia a `86400s` (24h) y exige cabeceras `Idempotency-Key` de `8..128` caracteres.
 
+### 4.21. Aislamiento Multi-Tenant PG17 RLS, Anti-Replay `jti` y Privacidad DTO Pública (Hito 17.4)
+- **Mitigación Implementada:**
+  - **Row-Level Security Forzado en PostgreSQL 17 (`backend/alembic/versions/0008_hito17_integridad_y_rls.py`, `backend/src/database.py`):** Columna `condominio_id`, política `tenant_isolation_policy` (`ENABLE` + `FORCE ROW LEVEL SECURITY`) en las 27 tablas del esquema ORM, rol runtime no privilegiado `condominio_app_runtime` (`NOBYPASSRLS`) e inyección transaccional `set_config('app.current_tenant_id', ...)` / `app.is_superadmin` en cada inicio de transacción SQLAlchemy (`after_begin`), con comportamiento *fail-closed* si no existe tenant asignado.
+  - **Anti-Replay `jti` y Vigencia Viva en Solvencia/Votos (`backend/src/finanzas.py`, `routers/consultas.py`, `routers/finanzas.py`):** Identificador único UUIDv4 (`jti`) en `VotoConsulta` y `CertificadoSolvencia` vinculado a firma `HMAC-SHA256` (`v2`) y verificación dinámica de deuda viva (`deuda_viva == 0`) al consultar `/api/finanzas/solvencia/verificar/{folio}`.
+  - **Privacidad de Catálogo Público (`backend/src/dependencies.py`, `routers/administracion.py`):** `GET /api/estructura/unidades` entrega exclusivamente `UnidadPublicaResponse` (`id`, `identificador`, `estructura_id`) cuando no existe usuario activo autenticado, ocultando `alicuota`, `cuota_fija_usd` y `credito_disponible_usd`.
+
 ---
 
 ## 5. Barreras Automatizadas DevSecOps

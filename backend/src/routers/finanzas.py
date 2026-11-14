@@ -2,12 +2,14 @@
 
 import calendar
 import secrets
+import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -199,23 +201,31 @@ async def registrar_egreso(
     },
 )
 async def resumen_financiero(
+    periodo: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     verificar_usuario_activo(usuario)
-    recibos_result = await db.execute(select(Recibo))
+    recibo_stmt = select(Recibo).order_by(Recibo.id.asc())
+    egreso_stmt = select(
+        Egreso.categoria,
+        func.coalesce(func.sum(Egreso.monto_usd), CERO),
+    ).group_by(Egreso.categoria)
+    if periodo is not None:
+        recibo_stmt = recibo_stmt.where(Recibo.periodo == periodo)
+        egreso_stmt = egreso_stmt.where(Egreso.periodo == periodo)
+
+    recibos_result = await db.execute(recibo_stmt)
     recibos = list(recibos_result.scalars().all())
     deuda_total = calcular_deuda_total([(r.monto_usd, r.monto_pagado_usd) for r in recibos])
 
-    egresos_result = await db.execute(select(Egreso))
-    egresos = list(egresos_result.scalars().all())
+    egresos_result = await db.execute(egreso_stmt)
     total_egresos = Decimal("0.00")
     gastos_por_categoria: dict[str, Decimal] = {}
-    for egreso in egresos:
-        total_egresos += egreso.monto_usd
-        gastos_por_categoria[egreso.categoria] = (
-            gastos_por_categoria.get(egreso.categoria, Decimal("0.00")) + egreso.monto_usd
-        )
+    for categoria, monto_sumado in egresos_result.all():
+        monto_q = cuantizar(Decimal(str(monto_sumado or CERO)))
+        total_egresos += monto_q
+        gastos_por_categoria[str(categoria)] = monto_q
 
     return {
         "deuda_total_usd": str(cuantizar(deuda_total)),
@@ -487,6 +497,17 @@ def _fin_de_mes(fecha_base: date) -> date:
     return date(fecha_base.year, fecha_base.month, ultimo_dia)
 
 
+async def _obtener_deuda_viva_unidad(db: AsyncSession, unidad_id: int) -> Decimal:
+    """Calcula en SQL la deuda viva total (> 0.00) de una unidad sobre recibos no pagados."""
+    stmt = select(
+        func.coalesce(func.sum(Recibo.monto_usd - Recibo.monto_pagado_usd), CERO),
+    ).where(Recibo.unidad_id == unidad_id, Recibo.estado != "PAGADO")
+    res = await db.execute(stmt)
+    raw = res.scalars().first()
+    deuda = cuantizar(Decimal(str(raw if raw is not None else CERO)))
+    return max(CERO, deuda)
+
+
 @router.post(
     "/solvencia/{unidad_id}",
     response_model=CertificadoSolvenciaResponse,
@@ -504,7 +525,7 @@ async def emitir_certificado_solvencia(
     redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> CertificadoSolvenciaResponse:
-    """Verifica deuda cero ($0.00 USD) y emite un Certificado de Solvencia firmado con HMAC-SHA256."""
+    """Verifica deuda cero ($0.00 USD) y emite un Certificado de Solvencia firmado con HMAC-SHA256 y JTI."""
     verificar_usuario_activo(usuario)
     await _verificar_acceso_unidad(db, usuario, unidad_id)
 
@@ -524,9 +545,7 @@ async def emitir_certificado_solvencia(
     if not unidad:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada.")
 
-    rec_res = await db.execute(select(Recibo).where(Recibo.unidad_id == unidad_id))
-    recibos = list(rec_res.scalars().all())
-    deuda = calcular_deuda_total([(r.monto_usd, r.monto_pagado_usd) for r in recibos])
+    deuda = await _obtener_deuda_viva_unidad(db, unidad_id)
     if deuda > CERO:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -537,10 +556,12 @@ async def emitir_certificado_solvencia(
     vencimiento = _fin_de_mes(hoy)
     sufijo = secrets.token_hex(2).upper()
     folio = f"SOLV-{hoy.strftime('%Y%m')}-{unidad.id:04d}-{sufijo}"
-    firma = generar_firma_solvencia(folio, unidad.identificador, vencimiento.isoformat(), SECRET_KEY)
+    cert_jti = str(uuid.uuid4())
+    firma = generar_firma_solvencia(folio, unidad.identificador, vencimiento.isoformat(), SECRET_KEY, jti=cert_jti)
     ahora = datetime.now(UTC)
 
     cert = CertificadoSolvencia(
+        jti=cert_jti,
         folio=folio,
         unidad_id=unidad.id,
         emitido_por_id=usuario.id,
@@ -553,9 +574,10 @@ async def emitir_certificado_solvencia(
     await db.commit()
     await db.refresh(cert)
 
-    qr_token = construir_qr_token_solvencia(folio, unidad.identificador, vencimiento.isoformat(), firma)
+    qr_token = construir_qr_token_solvencia(folio, unidad.identificador, vencimiento.isoformat(), firma, jti=cert_jti)
     return CertificadoSolvenciaResponse(
         id=cert.id or 1,
+        jti=cert.jti,
         folio=cert.folio,
         unidad_id=cert.unidad_id,
         identificador_unidad=unidad.identificador,
@@ -581,7 +603,7 @@ async def verificar_certificado_solvencia(
     sig: str = Query(..., min_length=1, description="Firma HMAC-SHA256 del certificado"),
     db: AsyncSession = Depends(get_db),
 ) -> VerificarSolvenciaResponse:
-    """Verifica públicamente en tiempo constante la autenticidad y vigencia de un Certificado de Solvencia."""
+    """Verifica públicamente la autenticidad criptográfica y la vigencia viva sin deuda del Certificado."""
     cert_res = await db.execute(select(CertificadoSolvencia).where(CertificadoSolvencia.folio == folio.strip()))
     cert = cert_res.scalars().first()
     if not cert:
@@ -594,12 +616,14 @@ async def verificar_certificado_solvencia(
     unidad = uni_res.scalars().first()
     identificador = unidad.identificador if unidad else f"UNIDAD-{cert.unidad_id}"
 
+    cert_jti = getattr(cert, "jti", None) or ""
     es_valida = verificar_firma_solvencia(
         cert.folio,
         identificador,
         cert.fecha_vencimiento.isoformat(),
         sig,
         SECRET_KEY,
+        jti=cert_jti or None,
     )
     if not es_valida or sig.strip() != cert.firma_hmac:
         raise HTTPException(
@@ -607,13 +631,17 @@ async def verificar_certificado_solvencia(
             detail="Firma criptográfica de solvencia inválida o adulterada.",
         )
 
+    deuda_viva = await _obtener_deuda_viva_unidad(db, cert.unidad_id)
+    vigente = cert.fecha_vencimiento >= date.today() and deuda_viva == CERO
+
     return VerificarSolvenciaResponse(
         valido=True,
+        jti=cert_jti,
         folio=cert.folio,
         unidad_id=cert.unidad_id,
         identificador_unidad=identificador,
         fecha_vencimiento=cert.fecha_vencimiento,
-        vigente=cert.fecha_vencimiento >= date.today(),
-        deuda_verificada_usd=cuantizar(cert.deuda_verificada_usd),
+        vigente=vigente,
+        deuda_verificada_usd=deuda_viva,
         firma_hmac=cert.firma_hmac,
     )

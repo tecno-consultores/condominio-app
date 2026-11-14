@@ -693,19 +693,8 @@ def test_obtener_desglose_recibo_exito_y_permisos(client: TestClient) -> None:
 
 def test_emitir_y_verificar_certificado_solvencia(client: TestClient) -> None:
     unidad = Unidad(id=4, identificador="PH-01", estructura_id=1, alicuota=Decimal("10.0000"))
-    recibos_solventes = [
-        Recibo(
-            id=1,
-            unidad_id=4,
-            periodo="2026-09",
-            monto_usd=Decimal("50.00"),
-            monto_pagado_usd=Decimal("50.00"),
-            estado="PAGADO",
-            bloqueado=True,
-        )
-    ]
     contrato = ContratoOcupacion(id=1, usuario_id=44, unidad_id=4, tipo_ocupante="PROPIETARIO", es_activo=True)
-    session = _mock_session(_result(contrato), _result(unidad), _result_list(recibos_solventes))
+    session = _mock_session(_result(contrato), _result(unidad), _result(Decimal("0.00")))
     _setup(session, user=FakeUser(user_id=44, rol="PROPIETARIO"))
 
     res = client.post("/api/finanzas/solvencia/4", headers=HEADERS)
@@ -728,7 +717,7 @@ def test_emitir_y_verificar_certificado_solvencia(client: TestClient) -> None:
         deuda_verificada_usd=Decimal("0.00"),
         firma_hmac=firma,
     )
-    session_verif = _mock_session(_result(cert_orm), _result(unidad))
+    session_verif = _mock_session(_result(cert_orm), _result(unidad), _result(Decimal("0.00")))
     _setup(session_verif)
     res_verif = client.get(f"/api/finanzas/solvencia/verificar/{cert_data['folio']}?sig={firma}")
     assert res_verif.status_code == 200
@@ -749,18 +738,7 @@ def test_emitir_y_verificar_certificado_solvencia(client: TestClient) -> None:
 
 def test_emitir_solvencia_con_deuda_pendiente_devuelve_409(client: TestClient) -> None:
     unidad = Unidad(id=4, identificador="PH-01", estructura_id=1, alicuota=Decimal("10.0000"))
-    recibos_morosos = [
-        Recibo(
-            id=2,
-            unidad_id=4,
-            periodo="2026-10",
-            monto_usd=Decimal("80.00"),
-            monto_pagado_usd=Decimal("20.00"),
-            estado="PAGADO_PARCIAL",
-            bloqueado=False,
-        )
-    ]
-    session = _mock_session(_result(unidad), _result_list(recibos_morosos))
+    session = _mock_session(_result(unidad), _result(Decimal("60.00")))
     _setup(session)
 
     res = client.post("/api/finanzas/solvencia/4", headers=HEADERS)

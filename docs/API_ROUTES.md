@@ -100,7 +100,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Bandeja de Usuarios:** Tarjetas de registros nuevos. Ficha con toggle para elegir `[ Ocupado Propietario / Inquilino / Vacío ]` y quién es el responsable de pagar el condominio.
   * **Composición de Junta:** Tabla de cargos (Presidente, Tesorero, Vocero, etc.) con interruptor de activación y buscador para asignar propietarios.
 * **Endpoints FastAPI:**
-  * `GET /api/estructura/unidades`: Lista las unidades disponibles para el registro y gestión.
+  * `GET /api/estructura/unidades`: Lista las unidades con DTO dual: `UnidadPublicaResponse` (`id`, `identificador`, `estructura_id`) para anónimos o Usuarios Fantasma en registro, y `UnidadResponse` completo (alícuota, cuota fija y saldo a favor) para usuarios activos autenticados.
   * `POST /api/estructura/generar`: Crea sectores y unidades con su identificador.
   * `GET /api/usuarios/pendientes`: Lista "Fantasmas".
   * `PUT /api/usuarios/{id}/asignar`: Asigna unidad, rol y activa al usuario.
@@ -179,4 +179,4 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * `POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{pase_id}`: Emisión y revocación de pases QR firmados con `HMAC-SHA256`. *[Header: Idempotency-Key]*
   * `POST /api/accesos/verificar-qr`: Verifica firma, vigencia y unicidad (`jti` anti-replay en KeyDB Multi-Hilo). *[Header: Idempotency-Key]*
   * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{paquete_id}/entregar`: Cadena de custodia de encomiendas en conserjería. *[Header: Idempotency-Key]*
-  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con bloqueo automático a unidades insolventes y creación automática de `TareaDiaria` de inspección post-evento. *[Header: Idempotency-Key]*
+  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{reserva_id}/cancelar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con índice único parcial excluyendo `CANCELADA`, bloqueo automático a unidades insolventes, cancelación liberando fecha/tarea, tarea automática de inspección post-evento y cargo contable (`Recibo` + `ReciboItem` + `AuditoriaRecibo`) si concluye `FINALIZADA_CON_DANOS`. *[Header: Idempotency-Key]*

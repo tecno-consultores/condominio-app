@@ -1,5 +1,6 @@
 """Dependencias compartidas de FastAPI (autenticación de usuario actual por Cookie o Bearer)."""
 
+import inspect
 from typing import Any
 
 import jwt
@@ -93,3 +94,42 @@ def verificar_roles(usuario: Usuario, roles_permitidos: tuple[str, ...]) -> None
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tiene permisos para ejecutar esta acción.",
         )
+
+
+async def _resolver_override_usuario(request: Request) -> Usuario | None:
+    override_fn = request.app.dependency_overrides.get(get_current_user)
+    if override_fn is None:
+        return None
+    candidato = override_fn()
+    if inspect.isawaitable(candidato):
+        candidato = await candidato
+    return candidato if getattr(candidato, "es_activo", False) else None
+
+
+async def get_optional_active_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    redis_conn: aioredis.Redis = Depends(get_redis_client),
+) -> Usuario | None:
+    """Retorna el usuario activo si hay sesión válida; None para anónimos, tokens inválidos o Fantasmas."""
+    if get_current_user in request.app.dependency_overrides:
+        return await _resolver_override_usuario(request)
+    token = extract_bearer_or_cookie_token(request)
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(token)
+    except jwt.InvalidTokenError:
+        return None
+    correo = payload.get("sub")
+    if not correo:
+        return None
+    res = await db.execute(select(Usuario).where(Usuario.correo == str(correo)))
+    user = res.scalars().first()
+    if not user or not getattr(user, "es_activo", False):
+        return None
+    try:
+        await _validar_sesion_no_revocada(redis_conn, user, str(payload.get("sid") or ""))
+    except HTTPException:
+        return None
+    return user

@@ -380,6 +380,20 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter√
       }),
     ).rejects.toBe('raw-inspeccion');
 
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+      ...reservaMock,
+      estado: 'CANCELADA',
+    });
+    const cancelada = await store.cancelarReserva(10, 'idem-cancel-001');
+    expect(cancelada.estado).toBe('CANCELADA');
+    expect(store.reservas[0].estado).toBe('CANCELADA');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('err-cancelar'));
+    await expect(store.cancelarReserva(10)).rejects.toThrow('err-cancelar');
+
+    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-cancelar');
+    await expect(store.cancelarReserva(10)).rejects.toBe('raw-cancelar');
+
     const authStore = useAuthStore();
     authStore.setProfileForTesting({
       id: 2,

@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -15,8 +15,11 @@ from src.dependencies import get_current_user, verificar_roles, verificar_usuari
 from src.finanzas import calcular_deuda_total, cuantizar
 from src.models import (
     AreaSocial,
+    AuditoriaRecibo,
     ContratoOcupacion,
     Recibo,
+    ReciboItem,
+    ReporteMensual,
     ReservaAreaSocial,
     TareaDiaria,
     Unidad,
@@ -34,6 +37,7 @@ from src.schemas import (
 router = APIRouter(prefix="/api", tags=["Reservas de Áreas Sociales"])
 
 _ROLES_GESTION_AREAS = ("PRESIDENTE", "TESORERO")
+_ROLES_CANCELACION_JUNTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO")
 _ROLES_INSPECCION = ("CONSERJE", "PRESIDENTE", "TESORERO")
 _ROLES_JUNTA_Y_GARITA = ("CONSERJE", "PRESIDENTE", "VICEPRESIDENTE", "SECRETARIO", "TESORERO", "VOCERO")
 
@@ -94,6 +98,7 @@ async def _verificar_disponibilidad_fecha(db: AsyncSession, area_id: int, fecha_
         select(ReservaAreaSocial).where(
             ReservaAreaSocial.area_id == area_id,
             ReservaAreaSocial.fecha_evento == fecha_evento,
+            ReservaAreaSocial.estado != "CANCELADA",
         )
     )
     existente = res_existente.scalars().first()
@@ -199,32 +204,27 @@ async def listar_reservas_areas(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[ReservaAreaResponse]:
-    """Lista reservas confirmadas o inspeccionadas (todas para Junta/Conserje; propias para residentes)."""
+    """Lista reservas confirmadas o inspeccionadas en una sola consulta SQL con JOIN."""
     verificar_usuario_activo(usuario)
-    res_reservas = await db.execute(
-        select(ReservaAreaSocial).order_by(ReservaAreaSocial.fecha_evento.desc(), ReservaAreaSocial.id.desc())
+    stmt = (
+        select(ReservaAreaSocial, AreaSocial.nombre, Unidad.identificador)
+        .join(AreaSocial, AreaSocial.id == ReservaAreaSocial.area_id)
+        .join(Unidad, Unidad.id == ReservaAreaSocial.unidad_id)
     )
-    reservas = list(res_reservas.scalars().all())
-
-    res_areas = await db.execute(select(AreaSocial))
-    mapa_areas = {a.id: a.nombre for a in res_areas.scalars().all()}
-    res_unidades = await db.execute(select(Unidad))
-    mapa_unidades = {u.id: u.identificador for u in res_unidades.scalars().all()}
-
-    if usuario.rol in _ROLES_JUNTA_Y_GARITA:
-        visibles = reservas
-    else:
+    if usuario.rol not in _ROLES_JUNTA_Y_GARITA:
         unidades_propias = await _unidades_activas_usuario(db, usuario.id)
-        visibles = [r for r in reservas if r.solicitante_id == usuario.id or r.unidad_id in unidades_propias]
+        if unidades_propias:
+            stmt = stmt.where(
+                or_(
+                    ReservaAreaSocial.solicitante_id == usuario.id,
+                    ReservaAreaSocial.unidad_id.in_(unidades_propias),
+                )
+            )
+        else:
+            stmt = stmt.where(ReservaAreaSocial.solicitante_id == usuario.id)
 
-    return [
-        _serializar_reserva(
-            r,
-            mapa_areas.get(r.area_id, f"Área #{r.area_id}"),
-            mapa_unidades.get(r.unidad_id, f"U-{r.unidad_id}"),
-        )
-        for r in visibles
-    ]
+    res = await db.execute(stmt.order_by(ReservaAreaSocial.fecha_evento.desc(), ReservaAreaSocial.id.desc()))
+    return [_serializar_reserva(r, nombre_area, identificador) for r, nombre_area, identificador in res.all()]
 
 
 @router.post(
@@ -286,13 +286,159 @@ async def solicitar_reserva_area_social(
     return _serializar_reserva(reserva, area.nombre, unidad.identificador)
 
 
+async def _completar_tarea_inspeccion(db: AsyncSession, tarea_inspeccion_id: int | None) -> None:
+    if tarea_inspeccion_id is None:
+        return
+    res_tarea = await db.execute(select(TareaDiaria).where(TareaDiaria.id == tarea_inspeccion_id))
+    tarea = res_tarea.scalars().first()
+    if tarea and not tarea.completada:
+        tarea.completada = True
+        tarea.completada_en = datetime.now(UTC)
+
+
+async def _verificar_permiso_cancelacion(db: AsyncSession, usuario: Usuario, reserva: ReservaAreaSocial) -> None:
+    if usuario.rol in _ROLES_CANCELACION_JUNTA or reserva.solicitante_id == usuario.id:
+        return
+    unidades_propias = await _unidades_activas_usuario(db, usuario.id)
+    if reserva.unidad_id not in unidades_propias:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permisos para cancelar esta reserva.",
+        )
+
+
+async def _resolver_periodo_cargo_danos(db: AsyncSession, fecha_evento: object) -> str:
+    periodo_evento = fecha_evento.strftime("%Y-%m")  # type: ignore[attr-defined]
+    res_rep = await db.execute(select(ReporteMensual).where(ReporteMensual.periodo == periodo_evento))
+    reporte = res_rep.scalars().first()
+    if reporte is not None and reporte.estado == "CERRADO":
+        return datetime.now(UTC).strftime("%Y-%m")
+    return str(periodo_evento)
+
+
+async def _registrar_cargo_danos_reserva(
+    db: AsyncSession,
+    reserva: ReservaAreaSocial,
+    area: AreaSocial,
+    usuario_id: int,
+) -> None:
+    """Registra el cargo contable (Recibo, ReciboItem y AuditoriaRecibo) por retención de depósito."""
+    monto_danos = cuantizar(area.deposito_garantia_usd)
+    if monto_danos <= Decimal("0.00"):
+        return
+
+    periodo_cargo = await _resolver_periodo_cargo_danos(db, reserva.fecha_evento)
+    res_rec = await db.execute(
+        select(Recibo).where(Recibo.unidad_id == reserva.unidad_id, Recibo.periodo == periodo_cargo).with_for_update()
+    )
+    recibo = res_rec.scalars().first()
+
+    if recibo is not None and recibo.bloqueado:
+        periodo_cargo = datetime.now(UTC).strftime("%Y-%m")
+        res_rec = await db.execute(
+            select(Recibo)
+            .where(Recibo.unidad_id == reserva.unidad_id, Recibo.periodo == periodo_cargo)
+            .with_for_update()
+        )
+        recibo = res_rec.scalars().first()
+
+    if recibo is not None and not recibo.bloqueado:
+        estado_viejo = recibo.estado
+        recibo.monto_usd = cuantizar(recibo.monto_usd + monto_danos)
+        pagado = recibo.monto_pagado_usd or Decimal("0.00")
+        recibo.estado = "PAGADO_PARCIAL" if pagado > Decimal("0.00") else "PENDIENTE"
+    else:
+        estado_viejo = "INEXISTENTE"
+        recibo = Recibo(
+            unidad_id=reserva.unidad_id,
+            periodo=periodo_cargo,
+            monto_usd=monto_danos,
+            monto_pagado_usd=Decimal("0.00"),
+            estado="PENDIENTE",
+            bloqueado=False,
+        )
+        db.add(recibo)
+        await db.flush()
+
+    db.add(
+        ReciboItem(
+            recibo_id=recibo.id,
+            tipo_item="DANOS_AREA_SOCIAL",
+            descripcion=f"Cargo por daños post-evento en {area.nombre} ({reserva.fecha_evento.isoformat()})",
+            monto_usd=monto_danos,
+        )
+    )
+    db.add(
+        AuditoriaRecibo(
+            recibo_id=recibo.id,
+            usuario_id=usuario_id,
+            estado_viejo=estado_viejo,
+            estado_nuevo=recibo.estado,
+            motivo=f"Retención/cargo de depósito por daños en reserva #{reserva.id}",
+        )
+    )
+
+
+@router.put(
+    "/reservas/{reserva_id}/cancelar",
+    response_model=ReservaAreaResponse,
+    responses={
+        403: {"description": "Sin permisos sobre la reserva"},
+        404: {"description": "Reserva no encontrada"},
+        409: {"description": "Reserva no cancelable o Idempotency-Key duplicada"},
+    },
+)
+async def cancelar_reserva_area_social(
+    reserva_id: int,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+    redis_conn: aioredis.Redis = Depends(get_redis_client),
+) -> ReservaAreaResponse:
+    """Cancela una reserva CONFIRMADA liberando la fecha del área social y cerrando la tarea asociada."""
+    verificar_usuario_activo(usuario)
+    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"cancelar_reserva:{reserva_id}")
+    if not es_unica:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
+        )
+
+    res = await db.execute(select(ReservaAreaSocial).where(ReservaAreaSocial.id == reserva_id).with_for_update())
+    reserva = res.scalars().first()
+    if not reserva:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reserva de área social no encontrada.")
+
+    await _verificar_permiso_cancelacion(db, usuario, reserva)
+    if reserva.estado != "CONFIRMADA":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo pueden cancelarse reservas en estado CONFIRMADA.",
+        )
+
+    reserva.estado = "CANCELADA"
+    await _completar_tarea_inspeccion(db, reserva.tarea_inspeccion_id)
+    await db.commit()
+    await db.refresh(reserva)
+
+    res_area = await db.execute(select(AreaSocial).where(AreaSocial.id == reserva.area_id))
+    area = res_area.scalars().first()
+    res_unidad = await db.execute(select(Unidad).where(Unidad.id == reserva.unidad_id))
+    unidad = res_unidad.scalars().first()
+    return _serializar_reserva(
+        reserva,
+        area.nombre if area else f"Área #{reserva.area_id}",
+        unidad.identificador if unidad else f"U-{reserva.unidad_id}",
+    )
+
+
 @router.put(
     "/reservas/{reserva_id}/inspeccionar",
     response_model=ReservaAreaResponse,
     responses={
         403: {"description": "Solo Conserje, Presidente o Tesorero pueden registrar la inspección"},
         404: {"description": "Reserva no encontrada"},
-        409: {"description": "La inspección post-evento de esta reserva ya fue registrada"},
+        409: {"description": "La inspección post-evento de esta reserva ya fue registrada o fue cancelada"},
     },
 )
 async def inspeccionar_entrega_area_social(
@@ -301,36 +447,33 @@ async def inspeccionar_entrega_area_social(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> ReservaAreaResponse:
-    """Registra el resultado de la inspección post-evento y completa automáticamente la TareaDiaria del conserje."""
+    """Registra la inspección post-evento, completa la TareaDiaria y genera cargo contable si hubo daños."""
     verificar_roles(usuario, _ROLES_INSPECCION)
-    res = await db.execute(select(ReservaAreaSocial).where(ReservaAreaSocial.id == reserva_id))
+    res = await db.execute(select(ReservaAreaSocial).where(ReservaAreaSocial.id == reserva_id).with_for_update())
     reserva = res.scalars().first()
     if not reserva:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reserva de área social no encontrada.")
 
-    if reserva.estado in ("FINALIZADA_SIN_DANOS", "FINALIZADA_CON_DANOS"):
+    if reserva.estado != "CONFIRMADA":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="La inspección post-evento de esta reserva ya fue registrada.",
+            detail="La inspección post-evento de esta reserva ya fue registrada o fue cancelada.",
         )
 
     reserva.estado = datos.estado
     reserva.observaciones_inspeccion = datos.observaciones_inspeccion.strip()
-
-    if reserva.tarea_inspeccion_id is not None:
-        res_tarea = await db.execute(select(TareaDiaria).where(TareaDiaria.id == reserva.tarea_inspeccion_id))
-        tarea = res_tarea.scalars().first()
-        if tarea:
-            tarea.completada = True
-            tarea.completada_en = datetime.now(UTC)
-
-    await db.commit()
-    await db.refresh(reserva)
+    await _completar_tarea_inspeccion(db, reserva.tarea_inspeccion_id)
 
     res_area = await db.execute(select(AreaSocial).where(AreaSocial.id == reserva.area_id))
     area = res_area.scalars().first()
     res_unidad = await db.execute(select(Unidad).where(Unidad.id == reserva.unidad_id))
     unidad = res_unidad.scalars().first()
+
+    if datos.estado == "FINALIZADA_CON_DANOS" and area is not None:
+        await _registrar_cargo_danos_reserva(db, reserva, area, usuario.id)
+
+    await db.commit()
+    await db.refresh(reserva)
 
     return _serializar_reserva(
         reserva,
