@@ -1,5 +1,6 @@
 # Sistema de Administración de Condominios - Arquitectura y Especificaciones
-**Fecha de Documento:** Octubre 2026
+**Versión:** 1.0.0  
+**Fecha de Documento:** Noviembre 2026
 **Licencia:** MIT
 
 ## 1. Stack Tecnológico y Arquitectura

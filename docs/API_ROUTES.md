@@ -1,6 +1,6 @@
 # Mapa de Vistas (GUI) y Rutas API
 **Proyecto:** Condominio App
-**Fase de Diseño:** 1.0
+**Versión:** 1.0.0 (Lanzamiento Oficial)
 
 Este documento integra la navegación del Frontend (Vue 3), el diseño de la Interfaz Gráfica (UI/UX) y los Endpoints del Backend (FastAPI) requeridos para cada pantalla.
 

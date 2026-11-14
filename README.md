@@ -1,5 +1,7 @@
 # 🏢 Condominio App
 
+**Versión Oficial:** `v1.0.0` · **Licencia:** MIT · **Certificación:** Estándar Corporativo QA Nivel 11X
+
 **Condominio App** es una plataforma de código abierto (MIT) diseñada para modernizar y transparentar la administración de condominios, edificios y urbanizaciones bajo el estándar corporativo **Gobernanza y Calidad Nivel 11X**.
 
 Construida con una arquitectura modular **Mobile-First**, resuelve los problemas críticos de la gestión condominal: control de pagos multimoneda (USD / VES con tasa BCV), facturación trimodal LPH por alícuotas (Método de Hamilton), certificados digitales de solvencia e inmutabilidad del **Candado Contable**, Cartas Consulta (Art. 23 LPH) y Asambleas con voto ponderado firmado con `HMAC-SHA256`, Pases de Visita QR con protección Anti-Replay en KeyDB, trazabilidad de paquetería en garita, reserva de áreas sociales vinculada a Solvencia Estricta e inspección post-evento automática, auditoría forense de rechazos, activación controlada de residentes (**Usuarios Fantasma**), embudo vecinal de incidencias ("¡Me sumo!") y checklist diario de conserjería.
@@ -123,8 +125,8 @@ make qa-all
 9. **[`docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md`](./docs/specs/08_DOMINIO_GOBERNANZA_CARTAS_CONSULTA_Y_ASAMBLEAS.md)** — Gobernanza Digital (Art. 23 y 24 LPH), Cartas Consulta y Asambleas, Voto Ponderado por Alícuota con firma `HMAC-SHA256` y Acta Automática.
 10. **[`docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`](./docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md)** — Control de Acceso QR (`HMAC-SHA256` + `jti` anti-replay en KeyDB), Paquetería en Garita y Reserva de Áreas Sociales vinculada a Solvencia.
 11. **[`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)** — Diseño UX/UI de "Hospitalidad Residencial", Sistema de Tokens `OKLCH` + `light-dark()`, Navegación agrupada con SVG, Dashboard Contextual, Estados Vacíos ilustrados, `View Transitions API`, `@starting-style` + Bottom Sheet en `<dialog>` y `calc-size()`.
-12. **[`docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md`](./docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md)** — Endurecimiento Backend Fase 5 (Hito 17): packaging `--no-dev`, Fail-Fast en producción, eliminación de SHA-256 heredado, bloqueo pesimista PostgreSQL, anti-reversión FSM, subida `multipart` binaria a MinIO y PostgreSQL 17 RLS + Keycloak.
-13. **[`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md)** — Gobernanza Thin-Repo v2.20.3, Higiene AST sin daemons, `Rule Zero` (E2E/Lighthouse local + `Makefile` unificado + CI/CD endurecido) y Blueprint de Despliegue Productivo (Hito 18).
+12. **[`docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md`](./docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md)** — Endurecimiento Backend Fase 5 (Hito 17): packaging `--no-dev`, Fail-Fast en producción, eliminación de SHA-256 sin sal, ciclo de sesión/CSRF real, bloqueo pesimista PostgreSQL (`with_for_update()`), unicidad contable LPH y aislamiento multi-tenant PostgreSQL 17 `FORCE ROW LEVEL SECURITY` en las 27 tablas.
+13. **[`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md)** — Gobernanza Thin-Repo v2.20.3, Higiene AST `--code-only` sin daemons, `Rule Zero` (`Makefile` unificado + CI/CD GitHub Actions en verde), Infraestructura Productiva Multi-Stage No-Root, Worker AVIF/SMTP (`QA-HEALTH-01`), Bootstrap Día 0 (`python -m src.bootstrap`) y Certificación `v1.0.0`.
 
 ---
 

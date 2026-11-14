@@ -5,7 +5,7 @@
 
 **Condominio App — Sistema Integral de Gestión Residencial y PropTech**  
 *Conforme a la Ley de Propiedad Horizontal (LPH) y al Estándar Corporativo de Calidad Nivel 11X*  
-**Versión de Documentación:** 3.0 (Hito 18)  
+**Versión de Documentación:** 1.0.0 (Lanzamiento Oficial — Hitos 1 al 18)  
 **Fecha de Emisión:** Noviembre 2026
 
 ---

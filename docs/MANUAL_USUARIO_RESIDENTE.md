@@ -5,7 +5,7 @@
 
 **Condominio App — Tu Comunidad al Alcance de tu Mano**  
 *Manual de Uso para Propietarios, Inquilinos y Conserjes*  
-**Versión:** 2.0 (Hito 14)  
+**Versión:** 1.0.0 (Lanzamiento Oficial)  
 **Fecha de Publicación:** Noviembre 2026
 
 ---

@@ -12,7 +12,7 @@ En **Condominio App**, la seguridad de los fondos comunitarios, la privacidad de
 
 | Versión | Estado de Soporte | Requisitos de Infraestructura |
 | :--- | :--- | :--- |
-| **`main` (`1.x`)** | ✅ Soporte Activo | Docker 26+, PostgreSQL 17, KeyDB Multi-Hilo, MinIO |
+| **`1.0.x` (`v1.0.0` / `main`)** | ✅ Soporte Activo | Docker 26+, PostgreSQL 17, KeyDB Multi-Hilo, MinIO |
 | **`< 1.0`** | ❌ No Soportado | Versiones preliminares descontinuadas |
 
 ---
