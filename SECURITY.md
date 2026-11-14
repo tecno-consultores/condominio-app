@@ -4,7 +4,7 @@
 **Licencia:** MIT  
 **Estándar de Certificación:** QA 11X DevSecOps (`qa-testing-blueprints`)
 
-En **Condominio App**, la seguridad de los fondos comunitarios, la privacidad de los propietarios e inquilinos y la integridad contable son la máxima prioridad. Este documento establece los estándares de **Seguridad por Diseño (Security-by-Design)**, la mitigación de los 19 vectores de ataque en arquitecturas híbridas (SPA Vue 3 + API Asíncrona FastAPI) y la política de auditoría preventiva **Shift-Left**.
+En **Condominio App**, la seguridad de los fondos comunitarios, la privacidad de los propietarios e inquilinos y la integridad contable son la máxima prioridad. Este documento establece los estándares de **Seguridad por Diseño (Security-by-Design)**, la mitigación de los 20 vectores de ataque en arquitecturas híbridas (SPA Vue 3 + API Asíncrona FastAPI + Infraestructura Productiva) y la política de auditoría preventiva **Shift-Left**.
 
 ---
 
@@ -57,7 +57,7 @@ flowchart TD
 
 ---
 
-## 4. Mitigación Integral de los 19 Vectores de Ataque Híbridos (SPA + API)
+## 4. Mitigación Integral de los 20 Vectores de Ataque Híbridos (SPA + API)
 
 ### 4.1. Prevención de Asignación Masiva (*Mass Assignment / Over-posting*)
 - **Riesgo:** Un atacante inyecta atributos no autorizados en el JSON de registro o pago (ej. `"rol": "TESORERO"`, `"es_activo": true`, `"estado": "APROBADO"`).
@@ -139,6 +139,12 @@ flowchart TD
   - **Row-Level Security Forzado en PostgreSQL 17 (`backend/alembic/versions/0008_hito17_integridad_y_rls.py`, `backend/src/database.py`):** Columna `condominio_id`, política `tenant_isolation_policy` (`ENABLE` + `FORCE ROW LEVEL SECURITY`) en las 27 tablas del esquema ORM, rol runtime no privilegiado `condominio_app_runtime` (`NOBYPASSRLS`) e inyección transaccional `set_config('app.current_tenant_id', ...)` / `app.is_superadmin` en cada inicio de transacción SQLAlchemy (`after_begin`), con comportamiento *fail-closed* si no existe tenant asignado.
   - **Anti-Replay `jti` y Vigencia Viva en Solvencia/Votos (`backend/src/finanzas.py`, `routers/consultas.py`, `routers/finanzas.py`):** Identificador único UUIDv4 (`jti`) en `VotoConsulta` y `CertificadoSolvencia` vinculado a firma `HMAC-SHA256` (`v2`) y verificación dinámica de deuda viva (`deuda_viva == 0`) al consultar `/api/finanzas/solvencia/verificar/{folio}`.
   - **Privacidad de Catálogo Público (`backend/src/dependencies.py`, `routers/administracion.py`):** `GET /api/estructura/unidades` entrega exclusivamente `UnidadPublicaResponse` (`id`, `identificador`, `estructura_id`) cuando no existe usuario activo autenticado, ocultando `alicuota`, `cuota_fija_usd` y `credito_disponible_usd`.
+
+### 4.22. Endurecimiento de Contenedores No-Root, Worker Supervisado y Respaldos Cifrados (Hito 18)
+- **Mitigación Implementada:**
+  - **Imágenes Productivas Multi-Stage No-Root (`backend/Dockerfile`, `frontend/Dockerfile`):** Runtime backend (`python:3.13-slim-bookworm`) sin herramientas de desarrollo (`uv sync --frozen --no-dev`) ni `pip`/`ensurepip` ejecutándose como `10001:10001` (`appuser`), y frontend `nginx:1.27-alpine` endurecido como `101:101` en el puerto `8080`, ambos certificados con **`Trivy HIGH/CRITICAL = 0`**.
+  - **Aislamiento Runtime y Red (`docker-compose.yml`, `frontend/nginx.conf`):** Bandera `read_only: true` + `tmpfs /tmp`, `cap_drop: [ALL]`, `no-new-privileges:true`, red interna aislada `backend_net` (`internal: true`), exposición únicamente de `127.0.0.1:${FRONTEND_PORT:-8080}:8080`, `server_tokens off`, `client_max_body_size 2M` y cabeceras OWASP OSHP (`CSP`, `X-Frame-Options: DENY`, `COOP`, `CORP`).
+  - **Worker Real Endurecido (`backend/src/worker.py`) y Respaldos (`scripts/backup-diario.sh`):** Sanitización anti-inyección CRLF en cabeceras SMTP (`STARTTLS`), reintentos acotados con Dead-Letter Queue (`queue:notifications:dlq`), carga MinIO autenticada con `AWS4-HMAC-SHA256`, supervisión `QA-HEALTH-01` por heartbeat físico, integridad `.sha256`, cifrado opcional `AES-256-CBC + PBKDF2` (`100000` iteraciones) y alerta operativa `APSC-DV-001090` al superar el `75%` de uso en disco.
 
 ---
 

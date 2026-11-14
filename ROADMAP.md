@@ -25,7 +25,7 @@
 | **Hito 14** | Ayuda Contextual en Cada Pantalla y Manuales en Markdown (Fase 4) | `05_ARQUITECTURA_GUI...` | ✅ Completado | `100%` |
 | **Hito 16** | Gobernanza Thin-Repo v2.20.3, Grafo AST `--code-only`, Saneamiento QA/CI y Docs (Fase 5) | `12_GOBERNANZA_DESPLIEGUE...` | ✅ Completado | `100%` |
 | **Hito 17** | Endurecimiento `--no-dev`, Seguridad Real, Concurrencia LPH y Sesión/Modales (Fase 5) | `11_ENDURECIMIENTO_BACKEND...` | ✅ Completado | `100%` |
-| **Hito 18** | Infraestructura Productiva Docker No-Root, Worker Real y Respaldos (Fase 5) | `12_GOBERNANZA_DESPLIEGUE...` | ⏳ Pendiente | `0%` |
+| **Hito 18** | Infraestructura Productiva Docker No-Root, Worker Real y Respaldos (Fase 5) | `12_GOBERNANZA_DESPLIEGUE...` | ✅ Completado | `100%` |
 | **Hito 15** | Rediseño UX/UI "Hospitalidad Residencial", Tokens `OKLCH` y Transiciones (Fase 4) | `10_DISENO_UX_UI_AMIGABLE...` | ⏳ Pendiente | `0%` |
 | **Hito 8** | Certificación Integral E2E, Geometría Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Fase 6) | `05_ARQUITECTURA_GUI...` | ⏳ Pendiente | `0%` |
 
@@ -193,12 +193,12 @@
   - [x] **Sub-tarea 17.4 (Integridad en Gobernanza, Reservas, Administración y SQL):** Validada `fecha_cierre` (`409`) y bloqueo `.with_for_update()` al votar/cerrar consultas, incorporado `jti` UUIDv4 en `VotoConsulta`/`CertificadoSolvencia` y verificación dinámica de deuda viva en `GET /api/finanzas/solvencia/verificar/{folio}`; sustituida unicidad de `ReservaAreaSocial` por índice único parcial `uq_reserva_area_fecha_activa` (`WHERE estado != 'CANCELADA'`), implementados `PUT /api/reservas/{reserva_id}/cancelar` + `accessAmenitiesStore.cancelarReserva` + `AmenitiesReservationView.vue` y cargo atómico (`Recibo` + `ReciboItem` `DANOS_AREA_SOCIAL` + `AuditoriaRecibo`) en `FINALIZADA_CON_DANOS`; restringido `GET /api/estructura/unidades` a `UnidadPublicaResponse` para anónimos/Fantasmas, preservado histórico en `ContratoOcupacion` (`fecha_fin`), restringidos cargos de Junta a propietarios vigentes sin `fecha_fin`, eliminados `SELECT *` en RAM/N+1 y activadas políticas RLS multi-tenant PG17 (`condominio_id`, `FORCE ROW LEVEL SECURITY` en 27 tablas, migración `0008_hito17_integridad_y_rls`).
   - [x] **Sub-tarea 17.5 (Certificación QA 11X del Hito 17):** Certificadas `241/241` pruebas backend (`97.07%` global, `0 skipped` con `POSTGRES_TEST_URL` validando 27 políticas RLS PG17 y ciclo `upgrade head -> downgrade base -> upgrade head`), arranque `--no-dev`, `48/48` suites frontend (`117/117`, `99.52%` líneas, `0/38` huérfanos), `2/2` corridas Karate Labs (`23/23` escenarios) y AST Graphify (`0` violaciones topológicas).
 
-## ⏳ Hito 18: Infraestructura Productiva Docker Multi-Stage No-Root, Worker Real y Respaldos Automatizados
+## ✅ Hito 18: Infraestructura Productiva Docker Multi-Stage No-Root, Worker Real y Respaldos Automatizados (Completado — 100%)
 - **Especificación:** [`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md) (Sección 2)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 18.1 (Dockerfiles Multi-Stage No-Root y `nginx.conf` OSHP):** Crear `backend/Dockerfile` (`uv sync --frozen --no-dev`, usuario `10001`), `frontend/Dockerfile` (`nginx-unprivileged`, proxy `/api` + `/health` + cabeceras OSHP) y `docker-compose.yml` productivo (`postgres:17-alpine`, `keydb` autenticado, `minio`, `api`, `worker`, `frontend`).
-  - [ ] **Sub-tarea 18.2 (Worker Asíncrono Ejecutable AVIF/MinIO/SMTP y `QA-HEALTH-01`):** Implementar entrypoint `python -m src.worker` con conversión AVIF real y subida a MinIO, consumidor BLPOP SMTP en KeyDB, scheduler idempotente (`UniqueConstraint` en `TareaDiaria`) y heartbeat verificable sin mocks (`QA-HEALTH-01`).
-  - [ ] **Sub-tarea 18.3 (Plantilla `.env.example`, Respaldos y Certificación Trivy Prod):** Crear `.env.example` de Condominio App y `scripts/backup-diario.sh` (PostgreSQL 17 + MinIO), certificar `Trivy HIGH/CRITICAL = 0` sobre imágenes y `docker-compose.yml`, y actualizar `docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md`.
+  - [x] **Sub-tarea 18.1 (Dockerfiles Multi-Stage No-Root y `nginx.conf` OSHP):** Crear `backend/Dockerfile` (`uv sync --frozen --no-dev`, usuario `10001`), `frontend/Dockerfile` (`nginx-unprivileged`, proxy `/api` + `/health` + cabeceras OSHP) y `docker-compose.yml` productivo (`postgres:17-alpine`, `keydb` autenticado, `minio`, `api`, `worker`, `frontend`).
+  - [x] **Sub-tarea 18.2 (Worker Asíncrono Ejecutable AVIF/MinIO/SMTP y `QA-HEALTH-01`):** Implementar entrypoint `python -m src.worker` con conversión AVIF real y subida a MinIO, consumidor BLPOP SMTP en KeyDB, scheduler idempotente (`UniqueConstraint` en `TareaDiaria`) y heartbeat verificable sin mocks (`QA-HEALTH-01`).
+  - [x] **Sub-tarea 18.3 (Plantilla `.env.example`, Respaldos y Certificación Trivy Prod):** Crear `.env.example` de Condominio App y `scripts/backup-diario.sh` (PostgreSQL 17 + MinIO), certificar `Trivy HIGH/CRITICAL = 0` sobre imágenes y `docker-compose.yml`, y actualizar `docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md`.
 
 ---
 

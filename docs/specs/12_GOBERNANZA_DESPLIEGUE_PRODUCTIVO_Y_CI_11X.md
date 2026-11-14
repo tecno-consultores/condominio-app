@@ -1,6 +1,6 @@
 # ⚙️ Especificación 12: Gobernanza Thin-Repo, Infraestructura Productiva Docker, Worker Real y CI/CD Nivel 11X
 
-**Estado:** Especificación Formal Activa (Hito 16 ejecutándose; Hito 18 planificado)  
+**Estado:** Especificación Formal Activa (Hitos 16 y 18 implementados y certificados al 100%)  
 **Ecosistema:** `@sinfallas/mcp-qa-11x` (`v2.20.3+`), Docker Multi-Stage, Trivy, Graphify AST (`--code-only`), GitHub Actions y Lefthook  
 **Origen de Auditoría:** Diagnóstico integral de gobernanza, despliegue y pipelines CI/CD (2026-11-13)
 

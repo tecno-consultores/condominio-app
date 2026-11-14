@@ -1,0 +1,236 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 Condominio App Contributors
+# Orquestación productiva endurecida Nivel 11X (Hito 18): redes aisladas, no-root, read_only y healthchecks.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: condominio_prod_postgres
+    hostname: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Defina POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend_net
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  keydb:
+    image: eqalpha/keydb:alpine
+    container_name: condominio_prod_keydb
+    hostname: keydb
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32M,noexec,nosuid,nodev
+    environment:
+      KEYDB_PASSWORD: ${KEYDB_PASSWORD:?Defina KEYDB_PASSWORD en .env}
+    command:
+      - sh
+      - -c
+      - |
+        exec keydb-server \
+          --server-threads 2 \
+          --protected-mode yes \
+          --appendonly no \
+          --save "" \
+          --maxmemory 256mb \
+          --maxmemory-policy volatile-lru \
+          --tcp-keepalive 300 \
+          --requirepass "$${KEYDB_PASSWORD}" \
+          --rename-command FLUSHALL "" \
+          --rename-command FLUSHDB "" \
+          --rename-command DEBUG "" \
+          --rename-command CONFIG ""
+    networks:
+      - backend_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$KEYDB_PASSWORD\" keydb-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    container_name: condominio_prod_minio
+    hostname: minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Defina MINIO_ROOT_USER en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Defina MINIO_ROOT_PASSWORD en .env}
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio_data:/data
+    networks:
+      - backend_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: condominio-app-backend:1.0.0
+    container_name: condominio_prod_api
+    hostname: api
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,noexec,nosuid,nodev
+    environment:
+      TZ: 'America/Caracas'
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY en .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      CSRF_ENFORCE: ${CSRF_ENFORCE:-true}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Defina ALLOWED_ORIGINS en .env}
+      DATABASE_URL: ${DATABASE_URL:?Defina DATABASE_URL en .env}
+      REDIS_URL: ${REDIS_URL:?Defina REDIS_URL en .env}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Defina MINIO_ROOT_USER en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Defina MINIO_ROOT_PASSWORD en .env}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET:-condominio-media}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - backend_net
+      - frontend_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; c=http.client.HTTPConnection('127.0.0.1', 8000, timeout=3); c.request('GET', '/health'); r=c.getresponse(); raise SystemExit(0 if r.status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: condominio-app-backend:1.0.0
+    container_name: condominio_prod_worker
+    hostname: worker
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,noexec,nosuid,nodev
+    command: ["python", "-m", "src.worker"]
+    environment:
+      TZ: 'America/Caracas'
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY en .env}
+      DATABASE_URL: ${DATABASE_URL:?Defina DATABASE_URL en .env}
+      REDIS_URL: ${REDIS_URL:?Defina REDIS_URL en .env}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Defina MINIO_ROOT_USER en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Defina MINIO_ROOT_PASSWORD en .env}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET:-condominio-media}
+      WORKER_HEARTBEAT_PATH: ${WORKER_HEARTBEAT_PATH:-/tmp/worker_heartbeat}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
+      WORKER_MEDIA_ENABLED: ${WORKER_MEDIA_ENABLED:-false}
+      SMTP_ENABLED: ${SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-responder@condominio.local}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - backend_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-m", "src.worker", "--check-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: condominio-app-frontend:1.0.0
+    container_name: condominio_prod_frontend
+    hostname: frontend
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32M,noexec,nosuid,nodev
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - frontend_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/nginx-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  backend_net:
+    driver: bridge
+    internal: true
+  frontend_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:

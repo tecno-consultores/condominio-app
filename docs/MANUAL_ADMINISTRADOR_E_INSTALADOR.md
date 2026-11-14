@@ -5,7 +5,7 @@
 
 **Condominio App — Sistema Integral de Gestión Residencial y PropTech**  
 *Conforme a la Ley de Propiedad Horizontal (LPH) y al Estándar Corporativo de Calidad Nivel 11X*  
-**Versión de Documentación:** 2.0 (Hito 14)  
+**Versión de Documentación:** 3.0 (Hito 18)  
 **Fecha de Emisión:** Noviembre 2026
 
 ---
@@ -56,60 +56,69 @@ Esta sección está destinada al personal técnico de sistemas, DevOps o soporte
 
 La plataforma se despliega íntegramente mediante contenedores Docker orquestados con Docker Compose:
 
-1. **`postgres` (Motor de Base de Datos Principal):** PostgreSQL versión 17 oficial sobre Alpine Linux (`postgres:17-alpine`), configurado con volumen persistente cifrado y optimizado para transacciones ACID con aritmética `NUMERIC(12,2)`.
-2. **`keydb` (Motor de Caché en Memoria y Bloqueo de Idempotencia):** KeyDB Multi-Threaded (`eqalpha/keydb:alpine`) configurado con `--server-threads 2`. Gestiona tokens de revocación, nonces anti-reutilización de pases QR (`qr_used:{jti}`), llaves de idempotencia (`idemp:{scope}:{key}`) y listas de control en tiempo constante.
-3. **`minio` (Almacenamiento de Objetos S3 Compatible):** MinIO Server para almacenar de forma inmutable fotografías de comprobantes de pago, imágenes de incidencias vecinales y firmas digitales.
-4. **`backend` (API REST y Lógica de Negocio):** FastAPI asíncrono con Python 3.12, SQLAlchemy 2.0 y Pydantic v2 bajo el servidor ASGI `Uvicorn` con trabajadores asíncronos.
-5. **`frontend` (Lienzo Web Progresivo SPA):** Aplicación Vue 3 compilada servida a través de Nginx optimizado con compresión Brotli/Gzip y encabezados de alta seguridad.
+1. **`postgres` (Motor de Base de Datos Principal):** PostgreSQL versión 17 oficial sobre Alpine Linux (`postgres:17-alpine`), conectado exclusivamente a la red interna `backend_net` con volumen persistente y aritmética `NUMERIC(12,2)`.
+2. **`keydb` (Motor de Caché en Memoria, Colas y Bloqueo de Idempotencia):** KeyDB Multi-Threaded (`eqalpha/keydb:alpine`) ejecutado en modo `--read-only` con autenticación `--requirepass`, comandos administrativos peligrosos deshabilitados (`FLUSHALL`, `FLUSHDB`, `CONFIG`, `DEBUG`, `SHUTDOWN`) y soporte de `--server-threads 2`.
+3. **`minio` (Almacenamiento de Objetos S3 Compatible):** MinIO Server (`minio/minio:RELEASE.2025-02-18T16-25-55Z`) en red interna para resguardar fotografías AVIF, evidencias de pagos e imágenes de incidencias vecinales.
+4. **`api` (API REST y Lógica de Negocio):** FastAPI asíncrono con Python 3.13 construyendo una imagen multi-stage sin dependencias dev (`uv sync --frozen --no-dev`), sin `pip`/`ensurepip`, en modo `--read-only` bajo usuario no privilegiado `UID/GID 10001`.
+5. **`worker` (Worker Asíncrono Real `python -m src.worker` y Supervisor `QA-HEALTH-01`):** Contenedor hermano no-root (`10001:10001`, `--read-only`) encargado de conversión real `Pillow` AVIF + carga autenticada `AWS4-HMAC-SHA256` a MinIO, consumidor `BLPOP` SMTP `STARTTLS` con Dead-Letter Queue (`queue:notifications:dlq`), scheduler diario idempotente (`uq_tarea_diaria_plantilla_fecha`) y heartbeat físico verificado por `python -m src.worker --check-health`.
+6. **`frontend` (Lienzo Web Progresivo SPA + Proxy Reverso):** Aplicación Vue 3 compilada y servida por `nginx:1.27-alpine` endurecido no-root (`UID/GID 101:101`, `--read-only`, puerto `8080`), único puerto expuesto hacia `127.0.0.1:${FRONTEND_PORT:-8080}:8080`, con proxy inverso hacia `/api/`, `/health` y `/ws/`, `server_tokens off`, cuota `2M` y cabeceras OSHP/STIG.
 
 ---
 
 ## 2. Configuración de Variables de Entorno (.env) y Secretos Criptográficos
 
-Antes del despliegue, copie la plantilla de configuración y genere las claves criptográficas de producción:
+Antes del despliegue, copie la plantilla unificada en la raíz del proyecto, proteja los permisos del archivo y genere las claves criptográficas de producción:
 
 ```bash
 cd /opt/condominio-app
-cp backend/.env.example backend/.env
+cp .env.example .env && chmod 600 .env
 ```
 
-### 2.1. Parámetros Críticos de Seguridad en `backend/.env`
+### 2.1. Parámetros Críticos de Seguridad en `.env` (Raíz Unificada)
 
 ```ini
 # ==============================================================================
-# CONFIGURACIÓN DE NÚCLEO Y SEGURIDAD CRIPTOGRÁFICA (Variables Reales del Backend)
+# CONFIGURACIÓN DE NÚCLEO Y SEGURIDAD CRIPTOGRÁFICA (Variables Reales en .env)
 # ==============================================================================
 APP_ENV=production
 ALLOWED_ORIGINS="https://condominio.mi-comunidad.com,https://www.condominio.mi-comunidad.com"
+COOKIE_SECURE=true
+CSRF_ENFORCE=true
+FRONTEND_PORT=8080
 
 # Clave secreta simétrica HS256/HMAC-SHA256 para JWT, CSRF, firmas de solvencia, votos LPH y pases QR.
-# En APP_ENV=production el arranque aborta (Fail-Fast) si mide < 32 caracteres o conserva el valor dev.
-SECRET_KEY="GENERE_UNA_CADENA_ALEATORIA_DE_64_CARACTERES_HEXADECIMALES"
+# En APP_ENV=production el arranque aborta (Fail-Fast) si mide < 32 caracteres o conserva el valor placeholder.
+SECRET_KEY="CAMBIAR_PLACEHOLDER_GENERAR_CON_OPENSSL_RAND_HEX_32"
 
 # ==============================================================================
 # BASE DE DATOS POSTGRESQL 17
 # ==============================================================================
-POSTGRES_USER=condo_admin
-POSTGRES_PASSWORD=PASSWORD_ULTRA_SEGURO_POSTGRES_2026
 POSTGRES_DB=condominio_db
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
+POSTGRES_USER=condominio_admin
+POSTGRES_PASSWORD=CAMBIAR_PLACEHOLDER_POSTGRES_PASSWORD
 # En APP_ENV=production el arranque aborta si esta variable falta o usa SQLite (:memory:)
-DATABASE_URL=postgresql+asyncpg://condo_admin:PASSWORD_ULTRA_SEGURO_POSTGRES_2026@postgres:5432/condominio_db
+DATABASE_URL=postgresql+asyncpg://condominio_admin:CAMBIAR_PLACEHOLDER_POSTGRES_PASSWORD@postgres:5432/condominio_db
 
 # ==============================================================================
 # MOTOR KEYDB (MULTI-HILO, PROTOCOLO REDIS)
 # ==============================================================================
-REDIS_URL=redis://:PASSWORD_SEGURO_KEYDB_2026@keydb:6379/0
+KEYDB_PASSWORD=CAMBIAR_PLACEHOLDER_KEYDB_PASSWORD
+REDIS_URL=redis://:CAMBIAR_PLACEHOLDER_KEYDB_PASSWORD@keydb:6379/0
 
 # ==============================================================================
-# ALMACENAMIENTO S3 / MINIO (Referencia de Despliegue)
+# ALMACENAMIENTO S3 / MINIO, WORKER Y RESPALDOS
 # ==============================================================================
-MINIO_ENDPOINT=minio:9000
-MINIO_ROOT_USER=minio_admin
-MINIO_ROOT_PASSWORD=PASSWORD_SEGURO_MINIO_2026
-MINIO_BUCKET_NAME=condominio-evidencias
+MINIO_ENDPOINT=http://minio:9000
+MINIO_ROOT_USER=condominio_minio
+MINIO_ROOT_PASSWORD=CAMBIAR_PLACEHOLDER_MINIO_PASSWORD
+MINIO_BUCKET=condominio-media
 MINIO_USE_SSL=false
+WORKER_HEARTBEAT_PATH=/tmp/worker_heartbeat
+WORKER_POLL_SECONDS=1
+WORKER_MEDIA_ENABLED=false
+BACKUP_DIR=/var/backups/condominio
+BACKUP_RETENTION_DAYS=30
+BACKUP_PASSPHRASE=
 ```
 
 > [!IMPORTANT]
@@ -138,12 +147,13 @@ Siguiendo el estándar de calidad corporativo **QA Nivel 11X**, ningún servicio
    ```
 3. Ejecute las migraciones automáticas de base de datos Alembic (PostgreSQL 17):
    ```bash
-   docker compose exec backend alembic upgrade head
+   docker compose exec api alembic upgrade head
    ```
-4. Compruebe la salud y conectividad de todos los servicios:
+4. Compruebe la salud y conectividad de todos los servicios (API, Frontend Nginx y Worker `QA-HEALTH-01`):
    ```bash
-   curl -i http://localhost:8000/health
+   curl -i http://127.0.0.1:8080/health
    # Debe responder HTTP/1.1 200 OK con cuerpo JSON: {"status": "healthy"}
+   docker compose exec worker python -m src.worker --check-health
    ```
 
 ---
@@ -220,24 +230,14 @@ server {
 
 ### 5.1. Respaldo Diario Automatizado (Script `scripts/backup-diario.sh`)
 
-Configure una tarea programada en el crontab del servidor que genere respaldos diarios comprimidos y cifrados:
+Utilice el script certificado [`scripts/backup-diario.sh`](../scripts/backup-diario.sh) desde una tarea programada en `cron` o `systemd timer`. El script lee `.env` de forma segura, verifica capacidad en disco (emitiendo alerta `APSC-DV-001090` si el sistema de archivos supera el `75%` de ocupación), genera volcados de PostgreSQL 17 (`pg_dump --format=custom | gzip -9`) y espejo de MinIO comprimido, calcula sumas `.sha256`, aplica cifrado opcional `AES-256-CBC + PBKDF2` (`100000` iteraciones) cuando se define `BACKUP_PASSPHRASE` y depura respaldos antiguos según `BACKUP_RETENTION_DAYS`:
 
 ```bash
-#!/bin/bash
-set -euo pipefail
-BACKUP_DIR="/var/backups/condominio"
-FECHA=$(date +%Y%m%d_%H%M%S)
-mkdir -p "$BACKUP_DIR"
+# Ejecución diaria estándar (lectura de .env en la raíz del proyecto)
+/opt/condominio-app/scripts/backup-diario.sh --retention-days 30
 
-echo "💾 [1/2] Respaldando PostgreSQL 17..."
-docker compose exec -T postgres pg_dump -U condo_admin -d condominio_db -Fc | gzip > "$BACKUP_DIR/db_$FECHA.dump.gz"
-
-echo "📦 [2/2] Respaldando evidencias de comprobantes MinIO..."
-tar -czf "$BACKUP_DIR/minio_data_$FECHA.tar.gz" -C /opt/condominio-app/data/minio .
-
-# Mantener solo los últimos 30 días de respaldos
-find "$BACKUP_DIR" -type f -name "*.gz" -mtime +30 -delete
-echo "✅ Respaldo $FECHA completado exitosamente."
+# Ejemplo crontab diario a las 02:30 AM (registrando bitácora operativa)
+30 2 * * * /opt/condominio-app/scripts/backup-diario.sh >> /var/log/condominio-backup.log 2>&1
 ```
 
 ### 5.2. Procedimiento de Restauración en Caliente

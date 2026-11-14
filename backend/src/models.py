@@ -218,6 +218,7 @@ class TareaDiaria(Base):
     """Tarea diaria asignada al conserje (generada desde plantilla o vinculada a una incidencia)."""
 
     __tablename__ = "tareas_diarias"
+    __table_args__ = (UniqueConstraint("plantilla_id", "fecha", name="uq_tarea_diaria_plantilla_fecha"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     condominio_id: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False, index=True)
     plantilla_id: Mapped[int | None] = mapped_column(ForeignKey("plantillas_tareas.id"), nullable=True)

@@ -634,5 +634,58 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method put
     Then status 403
 
+  Scenario: 24. Contrato productivo /health, ocultamiento de /metrics y RBAC de scheduler diario (Hito 18)
+    # 1. Endpoint /health saludable con cabeceras OSHP y /metrics fuera de OpenAPI público
+    Given path '/health'
+    When method get
+    Then status 200
+    And match response.status == 'healthy'
+    And match header X-Content-Type-Options == 'nosniff'
+    And match header X-Frame-Options == 'DENY'
+    And match header Content-Security-Policy contains "frame-ancestors 'none'"
+
+    Given path '/openapi.json'
+    When method get
+    Then status 200
+    * match response.paths['/api/tareas/generar-diarias'].post != null
+    * match response.paths['/metrics'] == '#notpresent'
+
+    # 2. Disparo manual del cronjob de tareas diarias exige autenticación y rol directiva
+    Given path '/api/tareas/generar-diarias'
+    When method post
+    Then status 401
+
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def email = 'hito18.' + uid + '@condominio.com'
+    Given path '/api/auth/register'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request
+      """
+      {
+        "nombre": "Usuario BDD Hito 18",
+        "cedula": "#('V-180' + uid)",
+        "correo": "#(email)",
+        "telefono": "+584145550088",
+        "password": "Password123!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "#(email)", password: "Password123!" }
+    When method post
+    Then status 200
+    * def csrfTok = response.csrf_token
+
+    Given path '/api/tareas/generar-diarias'
+    And header X-CSRF-Token = csrfTok
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    When method post
+    Then status 403
+
+
 
 

@@ -26,6 +26,7 @@ condominio-app/
 │   ├── tests/              # Suites unitarias aisladas (test_*.unit.py, cobertura >= 95%)
 │   ├── test/               # Escenarios BDD Gherkin (Karate Labs: api_test.feature)
 │   ├── alembic/            # Migraciones verificadas contra PostgreSQL 17 real
+│   ├── Dockerfile          # Build multi-stage productivo no-root (UID/GID 10001)
 │   ├── Makefile            # Orquestación de gates QA efímeros en Docker
 │   ├── docker-compose.qa.yml
 │   └── TESTING.md          # Bitácora detallada de pruebas del backend
@@ -33,6 +34,8 @@ condominio-app/
 │   ├── src/                # Componentes Anti-JSDOM, vistas, stores Pinia no destructivos, router RBAC y apiClient
 │   ├── test/               # Escenarios BDD UI Gherkin (Karate Labs: ui_business_flow.feature)
 │   ├── e2e/                # Auditoría E2E y accesibilidad WCAG 2.1 AA (Playwright + axe-core)
+│   ├── Dockerfile          # Build multi-stage Vue 3 + nginx:1.27-alpine no-root (UID/GID 101, puerto 8080)
+│   ├── nginx.conf          # Proxy inverso /api + /health + /ws + cabeceras OSHP/STIG
 │   ├── Makefile            # Orquestación de gates QA frontend en Docker efímero
 │   ├── docker-compose.qa.yml
 │   └── TESTING.md          # Bitácora detallada de pruebas del frontend
@@ -44,15 +47,19 @@ condominio-app/
 ├── scripts/
 │   ├── actualizar-grafos-graphify.sh # Extractor AST --code-only sin daemons (sinfallas/remote-graphify)
 │   ├── auditar-infra.sh              # Escáner Trivy IaC + FS (HIGH/CRITICAL = 0, caché SHA-256)
+│   ├── backup-diario.sh              # Respaldo diario PG17 + MinIO con .sha256, AES-256 opcional y alerta 75%
 │   ├── limpieza.sh                   # Purga efímera sin sudo ni docker system prune global
 │   └── verificar-secretos.sh         # Escáner global de credenciales y llaves privadas
 ├── Makefile                # Orquestación unificada QA 11X (qa-lint, qa-unit, qa-parity, qa-bdd, qa-infra)
+├── .env.example            # Plantilla productiva unificada (API, PG17, KeyDB, MinIO, Worker, SMTP, Backup)
+├── docker-compose.yml      # Stack productivo no-root endurecido (postgres, keydb, minio, api, worker, frontend)
 ├── limpieza.sh             # Wrapper unificado en la raíz hacia scripts/limpieza.sh
 ├── test/limpieza.bats      # Suite BATS 11X que certifica limpieza.sh y .gitignore
+├── test/backup_diario.bats # Suite BATS 11X que certifica scripts/backup-diario.sh
 ├── .npmrc                  # Política supply-chain ignore-scripts=true
 ├── .trivy.yaml             # Exclusiones corporativas para Trivy IaC y File System
 ├── AGENTS.md               # Directivas supremas para agentes de IA y desarrolladores (Thin-Repo v2.20.3)
-├── SECURITY.md             # Política de seguridad y arquitectura defensiva 11X (18+ vectores)
+├── SECURITY.md             # Política de seguridad y arquitectura defensiva 11X (20+ vectores)
 ├── ROADMAP.md              # Plan maestro de hitos y sub-tareas (Hitos 1..18)
 ├── TESTING.md              # Resumen ejecutivo de certificación QA 11X
 ├── CHANGELOG.md            # Historial semántico de cambios

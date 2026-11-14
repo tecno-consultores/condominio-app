@@ -7,6 +7,18 @@ Todos los cambios notables en este proyecto son documentados en este archivo sig
 ## [Unreleased]
 
 ### Added
+- **Hito 18 — Infraestructura Productiva Docker Multi-Stage No-Root (`backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`, `docker-compose.yml`):** Imágenes productivas endurecidas sin dependencias dev (`backend` con usuario `10001:10001` sin `pip`/`ensurepip`; `frontend` con Vue 3 + `nginx:1.27-alpine` `101:101` en puerto `8080`, proxy hacia `/api/`, `/health` y `/ws/`, `server_tokens off`, cuota `2M` y cabeceras OSHP/STIG), orquestación Compose productiva con `postgres:17-alpine`, `keydb` autenticado con comandos peligrosos deshabilitados, `minio`, `api`, `worker`, `frontend`, red interna `backend_net`, `read_only: true` + `tmpfs` y `cap_drop: [ALL]`.
+- **Worker Asíncrono Ejecutable AVIF/MinIO/SMTP & `QA-HEALTH-01` (`backend/src/worker.py`, `backend/pyproject.toml`, `backend/alembic/versions/0009_hito18_tarea_diaria_unica.py`, `backend/tests/test_hito18_worker_prod.unit.py`):** Entrypoint productivo `python -m src.worker` (`--check-health`, `--once`) con conversión real `Pillow` AVIF (`pillow==13.0.0`), carga MinIO S3 autenticada con `AWS4-HMAC-SHA256`, consumidor `BLPOP` SMTP `STARTTLS` con sanitización CRLF y cola DLQ (`queue:notifications:dlq`), scheduler diario idempotente con restricción única `uq_tarea_diaria_plantilla_fecha` en `TareaDiaria` y supervisor `QA-HEALTH-01` con heartbeat físico verificable sin mocks.
+- **Plantilla `.env.example`, Script de Respaldos (`scripts/backup-diario.sh`) y Suites QA 11X (`test/backup_diario.bats`, Escenario 24 Karate):** Plantilla de entorno unificada y respaldos diarios de PostgreSQL 17 (`pg_dump -Fc | gzip -9`) + MinIO (`mc mirror | tar.gz`) con manifiestos `.sha256`, cifrado opcional `AES-256-CBC + PBKDF2`, rotación por retención y alerta operativa `APSC-DV-001090` (`>= 75%` disco); certificación integral (`248/248` unitarias `96.98%` cov, `24/24` Karate `2x`, `8/8` BATS, `Trivy image/IaC/FS HIGH/CRITICAL = 0`).
+
+### Changed
+- Sincronizado el manual de despliegue y operación ([`docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md`](./docs/MANUAL_ADMINISTRADOR_E_INSTALADOR.md)), el tablero maestro ([`ROADMAP.md`](./ROADMAP.md)) y la bitácora de pruebas ([`TESTING.md`](./TESTING.md), [`backend/TESTING.md`](./backend/TESTING.md)) al 100% del Hito 18.
+- **Higiene `.gitignore`:** Añadida exclusión `backups/` para impedir el versionado accidental de volcados y archivos cifrados locales.
+
+### Removed
+- *(Hito 17.5)* Eliminado el árbol heredado de herramientas de compilación `pip`/`ensurepip` en la etapa `runtime` de `backend/Dockerfile` bajo el principio de mínimo privilegio DISA STIG y cero hallazgos Trivy (`HIGH/CRITICAL = 0`).
+
+### Added (Previos Hito 17)
 - **Higiene de Repositorio y Saneamiento QA (`limpieza.sh`, `scripts/limpieza.sh`, `.gitignore`, `test/limpieza.bats`, `Makefile`):**
   - Creado el wrapper ejecutable raíz `./limpieza.sh` (referenciado por `Makefile clean-cache`, `README.md` y `TESTING.md`) delegando en `scripts/limpieza.sh`.
   - Endurecido `scripts/limpieza.sh` para admitir `-h|--help`, detener perfiles `docker-compose.qa.yml`, purgar residuos de entornos locales (`.venv/`, `node_modules/`, SQLite `*.db*`/`*.sqlite*` incluyendo `-wal`/`-shm`/`-journal`, reportes/cachés multi-stack y `.agents/` espurios en subdirectorios) preservando intactos los grafos `graphify-out/` y `.agents/ACTIVE_TASK.md`, y restringir `--deep` a `container prune -f` + `network prune -f` (sin `docker system prune -af --volumes`).

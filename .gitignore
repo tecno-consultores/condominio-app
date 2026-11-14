@@ -34,7 +34,8 @@ wheels/
 .eggs/
 .uv/
 
-# Bases de datos efímeras de desarrollo y pruebas
+# Bases de datos efímeras de desarrollo y pruebas y respaldos locales
+backups/
 *.db
 *.sqlite
 *.sqlite3
