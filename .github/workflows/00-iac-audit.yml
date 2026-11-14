@@ -48,7 +48,7 @@ jobs:
 
       - name: 🧭 Validadores Estáticos de Gobernanza 11X (Docker)
         run: |
-          docker run --rm -u "$$(id -u):$$(id -g)" -v "$$(pwd):/workspace:ro" -w /workspace sinfallas/base-python-uv:3.13 bash -c "
+          docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/workspace:ro" -w /workspace sinfallas/base-python-uv:3.13 bash -c "
             python3 .agents/scripts/verify_json_no_duplicate_keys.py &&
             python3 .agents/scripts/verify_zero_orphan_vue_components.py &&
             python3 .agents/scripts/verify_no_orphan_api_endpoints.py &&

@@ -30,7 +30,7 @@
 | **Seguridad Dinámica (DAST)** | `make -C backend qa-dast` (`zaproxy/zap-stable`) | `FAIL-NEW: 0` | ✅ **0 fallos (`PASS: 67`, `FAIL-NEW: 0`)** |
 | **Ingeniería del Caos & Carga** | `make -C backend qa-chaos` (`Pumba` + `Locust` + `Prometheus`) | 0 errores bajo `netem 500ms` | ✅ **2.786 peticiones, 0 fallos** |
 | **Auditoría IaC & Contenedores** | `./scripts/auditar-infra.sh` + `trivy image` (`condominio-backend:hito18`, `condominio-frontend:hito18`) | 0 HIGH/CRITICAL misconfigs & CVEs | ✅ **0 hallazgos + smoke checks `--read-only` no-root (`10001:10001` y `101:101`)** |
-| **Scripts Bash & Respaldos (`BATS`)** | `sinfallas/base-bash-qa:latest` (`shfmt -i 2 -ci`, `shellcheck`, `bats test/limpieza.bats test/backup_diario.bats`) | 0 advertencias / 100% pass | ✅ **8/8 pass (0 warnings)** |
+| **Scripts Bash & Respaldos (`BATS`)** | `sinfallas/base-bash-qa:latest` (`shfmt -i 2 -ci`, `shellcheck`, `bats test/limpieza.bats test/backup_diario.bats test/ci_workflows.bats`) | 0 advertencias / 100% pass | ✅ **10/10 pass (0 warnings)** |
 
 ---
 
@@ -100,8 +100,8 @@ make -C backend qa-unit
 make -C backend qa-parity
 
 # Validar scripts Bash (shfmt, ShellCheck y BATS) y purgar residuos efímeros
-docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app sinfallas/base-bash-qa:latest \
-  bash -c "shfmt -d -i 2 -ci limpieza.sh scripts/limpieza.sh backend/limpieza.sh frontend/limpieza.sh && shellcheck limpieza.sh scripts/limpieza.sh backend/limpieza.sh frontend/limpieza.sh && bats test/limpieza.bats"
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/workspace:ro" -w /workspace sinfallas/base-bash-qa:latest \
+  bash -c "shfmt -d -i 2 -ci limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh test/*.bats && shellcheck limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh && bats test/limpieza.bats test/backup_diario.bats test/ci_workflows.bats"
 ./limpieza.sh
 
 # Ejecutar el gate integral de cierre de tarea (.agents)

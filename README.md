@@ -57,6 +57,7 @@ condominio-app/
 ├── limpieza.sh             # Wrapper unificado en la raíz hacia scripts/limpieza.sh
 ├── test/limpieza.bats      # Suite BATS 11X que certifica limpieza.sh y .gitignore
 ├── test/backup_diario.bats # Suite BATS 11X que certifica scripts/backup-diario.sh
+├── test/ci_workflows.bats  # Suite BATS 11X que certifica workflows GitHub Actions y Makefiles
 ├── .npmrc                  # Política supply-chain ignore-scripts=true
 ├── .trivy.yaml             # Exclusiones corporativas para Trivy IaC y File System
 ├── AGENTS.md               # Directivas supremas para agentes de IA y desarrolladores (Thin-Repo v2.20.3)
@@ -99,7 +100,7 @@ make -C frontend qa-perf        # Auditoría Lighthouse CI (Performance >= 90%, 
 make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs + sidecar chrome-cdp)
 
 # Orquestación unificada y limpieza desde la raíz
-make qa-bash                    # shfmt, ShellCheck y suites BATS (limpieza + backup)
+make qa-bash                    # shfmt, ShellCheck y suites BATS (limpieza + backup + workflows CI)
 make qa-all
 ./limpieza.sh --quiet          # Purga residuos de pruebas (--deep para pruned local seguro)
 

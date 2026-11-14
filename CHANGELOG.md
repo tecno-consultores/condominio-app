@@ -6,6 +6,9 @@ Todos los cambios notables en este proyecto son documentados en este archivo sig
 
 ## [Unreleased]
 
+### Fixed
+- **Corrección de Expansión Bash en GitHub Actions y Resolución `CURDIR` en Sub-Makefile (`.github/workflows/00-iac-audit.yml`, `backend/Makefile`, `Makefile`, `test/ci_workflows.bats`):** Reemplazados los escapes estilo Makefile (`$$(id -u):$$(id -g)` y `$$(pwd)`, que `bash` expandía al PID numérico produciendo `create <PID>(pwd): invalid characters for a local volume name` / `exit code 125`) por sustitución estándar `$(...)` en el paso de gobernanza de `00-iac-audit.yml`; homologado `HOST_PWD ?= $(CURDIR)` en `backend/Makefile` para ejecuciones vía `make -C backend`; e incorporada la suite de regresión `test/ci_workflows.bats` (`10/10` pruebas BATS en verde con `0` advertencias `shfmt`/`ShellCheck`).
+
 ---
 
 ## [1.0.0] - 2026-11-14

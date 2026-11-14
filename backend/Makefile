@@ -6,7 +6,7 @@ USER_FLAGS = -u "$$(id -u):$$(id -g)"
 # Detección automática de la ruta host para Docker-in-Docker / bind mounts
 HOST_WORKSPACE ?= $(shell docker inspect $$(hostname) 2>/dev/null | grep -B1 '"Destination": "/workspace"' | grep '"Source"' | sed -E 's/.*"Source": "([^"]+)".*/\1/')
 ifeq ($(HOST_WORKSPACE),)
-  HOST_PWD ?= $(PWD)
+  HOST_PWD ?= $(CURDIR)
 else
   HOST_PWD ?= $(HOST_WORKSPACE)/condominio-app/backend
 endif

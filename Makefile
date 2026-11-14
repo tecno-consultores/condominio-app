@@ -14,7 +14,7 @@ qa-infra:
 
 qa-bash:
 	@echo "🐚 Validando scripts Bash (shfmt, ShellCheck) y suites BATS..."
-	docker run --rm -u "$$(id -u):$$(id -g)" -v "$$(pwd):/workspace:ro" -w /workspace sinfallas/base-bash-qa:latest bash -c "shfmt -d -i 2 -ci limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh test/*.bats && shellcheck limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh && bats test/limpieza.bats test/backup_diario.bats"
+	docker run --rm -u "$$(id -u):$$(id -g)" -v "$$(pwd):/workspace:ro" -w /workspace sinfallas/base-bash-qa:latest bash -c "shfmt -d -i 2 -ci limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh test/*.bats && shellcheck limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh && bats test/limpieza.bats test/backup_diario.bats test/ci_workflows.bats"
 
 qa-lint:
 	$(MAKE) -C backend qa-lint
