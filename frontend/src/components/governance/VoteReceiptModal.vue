@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
+import CopyButton from '../common/CopyButton.vue';
 import type { ReciboVotoDTO, VotoReciboResumenDTO } from '../../stores/governanceStore';
 
 const props = defineProps<{
@@ -130,14 +131,21 @@ function handleBackdropClick(event: MouseEvent): void {
         </div>
         <div class="vote-receipt-modal__row">
           <dt>Alícuota Ponderada Capturada:</dt>
-          <dd id="receipt-alicuota-capturada" class="tabular-num">
+          <dd id="receipt-alicuota-capturada" class="tabular-nums">
             <strong>{{ recibo.alicuota_capturada }}%</strong>
           </dd>
         </div>
       </dl>
 
       <div class="vote-receipt-modal__signature-box">
-        <span class="vote-receipt-modal__signature-label">Sello Criptográfico HMAC-SHA256:</span>
+        <div class="vote-receipt-modal__signature-header">
+          <span class="vote-receipt-modal__signature-label">Sello Criptográfico HMAC-SHA256:</span>
+          <CopyButton
+            id="btn-copy-vote-hmac"
+            target-id="receipt-firma-hmac"
+            label="Copiar sello criptográfico HMAC-SHA256"
+          />
+        </div>
         <code id="receipt-firma-hmac" class="vote-receipt-modal__signature">
           {{ recibo.firma_hmac }}
         </code>
@@ -197,7 +205,7 @@ dialog::backdrop,
   border-radius: var(--radius-lg, 1rem);
   padding: clamp(1rem, 3cqi, 1.5rem);
   border: 1px solid var(--border-subtle, #cbd5e1);
-  box-shadow: var(--shadow-modal);
+  box-shadow: var(--surface-hairline), var(--shadow-modal);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -274,6 +282,13 @@ dialog::backdrop,
   gap: 0.375rem;
 }
 
+.vote-receipt-modal__signature-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .vote-receipt-modal__signature-label {
   font-size: 0.75rem;
   font-weight: 700;
@@ -307,10 +322,6 @@ dialog::backdrop,
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
-}
-
-.tabular-num {
-  font-variant-numeric: tabular-nums;
 }
 
 @media (pointer: coarse) {

@@ -67,6 +67,10 @@ describe('SolvencyCertificateView.vue', () => {
     expect(emitirSpy).toHaveBeenCalledOnce();
     expect(wrapper.find('#qr-solvencia-badge').exists()).toBe(true);
     expect(wrapper.find('#qr-solvencia-badge').text()).toContain('SOLV-202610-0001-ABCD');
+    expect(wrapper.find('#solvency-qr-token').text()).toContain('U09MVnx2MQ');
+    expect(wrapper.find('#btn-copy-solvency-token').attributes('commandfor')).toBe(
+      'solvency-qr-token',
+    );
 
     // Validación con firma vacía
     await wrapper.find('#input-verificar-folio').setValue('SOLV-202610-0001-ABCD');

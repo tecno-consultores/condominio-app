@@ -43,6 +43,8 @@ describe('VoteReceiptModal.vue', () => {
     expect(wrapper.find('#receipt-opcion').text()).toBe('APROBAR PRESUPUESTO A');
     expect(wrapper.find('#receipt-alicuota-capturada').text()).toBe('33.3333%');
     expect(wrapper.find('#receipt-firma-hmac').text()).toBe('b'.repeat(64));
+    expect(wrapper.find('#btn-copy-vote-hmac').attributes('command')).toBe('--copy');
+    expect(wrapper.find('#btn-copy-vote-hmac').attributes('commandfor')).toBe('receipt-firma-hmac');
     expect(wrapper.find('#receipt-mensaje-verificacion').text()).toContain('VOTO|v1|4|3|10');
 
     await wrapper.find('#btn-close-vote-receipt').trigger('click');

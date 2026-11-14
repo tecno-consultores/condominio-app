@@ -174,7 +174,7 @@ async function openConsultationDetail(id: number): Promise<void> {
       </button>
     </form>
 
-    <div class="consultations-view__list">
+    <div class="consultations-view__list defer-feed-list">
       <SkeletonCard
         v-if="govStore.isLoading && !govStore.consultas.length"
         :lines="3"

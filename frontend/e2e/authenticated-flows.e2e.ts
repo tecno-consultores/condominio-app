@@ -96,6 +96,8 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
 
     await tesorero.attemptsTo(IssueAndVerifySolvency.forActiveUnit());
     expect(await tesorero.asks(TextOfElement.matching('#qr-solvencia-badge'))).toContain('SOLV-');
+    await page.locator('#btn-copy-solvency-token').click();
+    await expect(page.locator('#btn-copy-solvency-token')).toHaveAttribute('data-copied', '');
     await tesorero.attemptsTo(ExecuteMonthlyClosing.now());
     expect(await tesorero.asks(TextOfElement.matching('.banner--success'))).toContain('Candado');
     await assertNoOcclusionOrOverflow(tesorero, true);
@@ -125,6 +127,8 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     await votante.attemptsTo(VoteInConsultation.firstOpenOption());
     expect(await votante.asks(IsElementVisible.matching('#modal-vote-receipt'))).toBe(true);
     expect(await votante.asks(TextOfElement.matching('#receipt-firma-hmac'))).toContain('hmac_');
+    await page.locator('#btn-copy-vote-hmac').click();
+    await expect(page.locator('#btn-copy-vote-hmac')).toHaveAttribute('data-copied', '');
     await page.locator('#btn-close-vote-receipt').click();
     await assertNoOcclusionOrOverflow(votante, false);
   });

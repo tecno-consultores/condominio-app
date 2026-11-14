@@ -39,6 +39,14 @@
   --status-info-text-light: oklch(0.37 0.12 235);
   --status-info-border-light: oklch(0.58 0.13 235);
 
+  --selection-bg-light: oklch(0.88 0.08 235);
+  --selection-text-light: oklch(0.18 0.03 250);
+  --scrollbar-thumb-light: oklch(0.53 0.025 250);
+  --scrollbar-track-light: oklch(0.95 0.008 230);
+  --autofill-bg-light: oklch(0.96 0.025 235);
+  --focus-ring-light: oklch(0.44 0.16 235);
+  --surface-hairline-color-light: oklch(1 0 0 / 0.65);
+
   /* --- Paleta Base OKLCH (Modo Oscuro) --- */
   --surface-canvas-dark: oklch(0.16 0.02 255);
   --surface-card-dark: oklch(0.21 0.022 255);
@@ -73,6 +81,14 @@
   --status-info-text-dark: oklch(0.87 0.11 225);
   --status-info-border-dark: oklch(0.68 0.14 225);
 
+  --selection-bg-dark: oklch(0.38 0.12 235);
+  --selection-text-dark: oklch(0.97 0.01 250);
+  --scrollbar-thumb-dark: oklch(0.62 0.025 250);
+  --scrollbar-track-dark: oklch(0.2 0.02 255);
+  --autofill-bg-dark: oklch(0.25 0.04 235);
+  --focus-ring-dark: oklch(0.76 0.14 220);
+  --surface-hairline-color-dark: oklch(1 0 0 / 0.08);
+
   /* --- Tokens Semánticos por Defecto (Fallback pre-light-dark) --- */
   --surface-canvas: var(--surface-canvas-light);
   --surface-card: var(--surface-card-light);
@@ -106,6 +122,16 @@
   --status-info-bg: var(--status-info-bg-light);
   --status-info-text: var(--status-info-text-light);
   --status-info-border: var(--status-info-border-light);
+
+  --selection-bg: var(--selection-bg-light);
+  --selection-text: var(--selection-text-light);
+  --scrollbar-thumb: var(--scrollbar-thumb-light);
+  --scrollbar-track: var(--scrollbar-track-light);
+  --autofill-bg: var(--autofill-bg-light);
+  --focus-ring: var(--focus-ring-light);
+  --surface-hairline-color: var(--surface-hairline-color-light);
+  --surface-hairline: inset 0 1px 0 var(--surface-hairline-color);
+  --btn-raised-shadow: inset 0 1px 0 oklch(1 0 0 / 0.18), 0 1px 2px oklch(0.15 0.02 250 / 0.18);
 
   /* --- Tintes seguros vía color-mix() --- */
   --brand-tint: color-mix(in oklab, var(--brand-accent) 12%, var(--surface-card));
@@ -157,6 +183,13 @@
   --status-info-bg: var(--status-info-bg-dark);
   --status-info-text: var(--status-info-text-dark);
   --status-info-border: var(--status-info-border-dark);
+  --selection-bg: var(--selection-bg-dark);
+  --selection-text: var(--selection-text-dark);
+  --scrollbar-thumb: var(--scrollbar-thumb-dark);
+  --scrollbar-track: var(--scrollbar-track-dark);
+  --autofill-bg: var(--autofill-bg-dark);
+  --focus-ring: var(--focus-ring-dark);
+  --surface-hairline-color: var(--surface-hairline-color-dark);
 }
 
 :root:is(.theme-light, :has(> head > meta[name='color-scheme'][content='light'])) {
@@ -190,6 +223,13 @@
     --status-info-bg: var(--status-info-bg-dark);
     --status-info-text: var(--status-info-text-dark);
     --status-info-border: var(--status-info-border-dark);
+    --selection-bg: var(--selection-bg-dark);
+    --selection-text: var(--selection-text-dark);
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+    --scrollbar-track: var(--scrollbar-track-dark);
+    --autofill-bg: var(--autofill-bg-dark);
+    --focus-ring: var(--focus-ring-dark);
+    --surface-hairline-color: var(--surface-hairline-color-dark);
   }
 }
 
@@ -239,6 +279,17 @@
       var(--status-info-border-light),
       var(--status-info-border-dark)
     );
+
+    --selection-bg: light-dark(var(--selection-bg-light), var(--selection-bg-dark));
+    --selection-text: light-dark(var(--selection-text-light), var(--selection-text-dark));
+    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+    --autofill-bg: light-dark(var(--autofill-bg-light), var(--autofill-bg-dark));
+    --focus-ring: light-dark(var(--focus-ring-light), var(--focus-ring-dark));
+    --surface-hairline-color: light-dark(
+      var(--surface-hairline-color-light),
+      var(--surface-hairline-color-dark)
+    );
   }
 }
 
@@ -246,6 +297,19 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+html {
+  accent-color: var(--brand-accent);
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scroll-padding-block-start: 1.5rem;
+}
+
+@media (max-width: 767px) {
+  html {
+    /* WCAG 2.2 SC 2.4.11 Focus Not Obscured: despeja BottomNavBar fijo */
+    scroll-padding-block-end: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 body {
@@ -257,7 +321,52 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.tabular-nums {
+::selection {
+  background-color: var(--selection-bg);
+  color: var(--selection-text);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  text-wrap: balance;
+}
+
+p,
+blockquote,
+li,
+dd {
+  text-wrap: pretty;
+}
+
+textarea {
+  resize: vertical;
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2.5px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:is(input, select, textarea):is(:autofill, :-webkit-autofill) {
+  box-shadow:
+    inset 0 0 0 2px var(--brand-accent),
+    inset 0 0 0 100vmax var(--autofill-bg);
+  -webkit-text-fill-color: var(--text-primary);
+  caret-color: var(--text-primary);
+  border-color: var(--brand-accent);
+}
+
+:is(input, select, textarea):is(:autofill, :-webkit-autofill):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.tabular-nums,
+.tabular-num {
   font-variant-numeric: tabular-nums;
 }
 
@@ -438,4 +547,10 @@ dialog.top-layer-dialog:is([open]):where(:not([data-closing]))::backdrop {
   dialog[open] {
     outline: 1px solid transparent;
   }
+}
+
+/* --- Renderizado diferido bajo el pliegue (content-visibility: auto) --- */
+.defer-feed-list > :nth-child(n + 5) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 180px;
 }

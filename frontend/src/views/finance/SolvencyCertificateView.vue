@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import CopyButton from '../../components/common/CopyButton.vue';
 import AppShellLayout from '../../components/layout/AppShellLayout.vue';
 import { useIdempotency } from '../../composables/useIdempotency';
 import { useFinanceStore } from '../../stores/financeStore';
@@ -134,7 +135,7 @@ async function handleVerifySolvency(): Promise<void> {
             </div>
             <div class="solvency-view__cert-row">
               <span>Deuda Verificada:</span>
-              <strong class="tabular-num">
+              <strong class="tabular-nums">
                 ${{ financeStore.data.certificadoSolvenciaActivo.deuda_verificada_usd }} USD
               </strong>
             </div>
@@ -143,8 +144,15 @@ async function handleVerifySolvency(): Promise<void> {
               <strong>{{ financeStore.data.certificadoSolvenciaActivo.fecha_vencimiento }}</strong>
             </div>
             <div class="solvency-view__qr-box">
-              <span class="solvency-view__qr-label">Sello QR HMAC-SHA256</span>
-              <code class="solvency-view__qr-code">
+              <div class="solvency-view__qr-header">
+                <span class="solvency-view__qr-label">Sello QR HMAC-SHA256</span>
+                <CopyButton
+                  id="btn-copy-solvency-token"
+                  target-id="solvency-qr-token"
+                  label="Copiar sello QR HMAC-SHA256 de solvencia"
+                />
+              </div>
+              <code id="solvency-qr-token" class="solvency-view__qr-code">
                 {{ financeStore.data.certificadoSolvenciaActivo.qr_token }}
               </code>
             </div>
@@ -272,12 +280,13 @@ async function handleVerifySolvency(): Promise<void> {
 .solvency-view__card {
   background-color: var(--surface-card, #ffffff);
   border: 1px solid var(--border-subtle, #cbd5e1);
+  border-block-start: 3px solid var(--brand-accent, #0369a1);
   border-radius: var(--radius-md, 0.875rem);
   padding: clamp(1rem, 2.5cqi, 1.25rem);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--surface-hairline), var(--shadow-card);
 }
 
 .solvency-view__card-title {
@@ -349,6 +358,13 @@ async function handleVerifySolvency(): Promise<void> {
   gap: 0.25rem;
 }
 
+.solvency-view__qr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .solvency-view__qr-label {
   font-size: 0.72rem;
   font-weight: 700;
@@ -359,10 +375,6 @@ async function handleVerifySolvency(): Promise<void> {
   font-size: 0.72rem;
   word-break: break-all;
   color: var(--text-primary, #0f172a);
-}
-
-.tabular-num {
-  font-variant-numeric: tabular-nums;
 }
 
 @media (pointer: coarse) {

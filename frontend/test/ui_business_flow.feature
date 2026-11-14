@@ -126,5 +126,15 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     Then match script("document.documentElement.scrollWidth <= window.innerWidth") == true
     And match script("document.querySelector('#btn-register-submit').getBoundingClientRect().height >= 44") == true
 
+  Scenario: 13. Validación de theming nativo (accent-color, scrollbar-color) y text-wrap balance en /login y /register
+    Given driver baseUrl + '/login'
+    And waitFor('#login-heading')
+    Then match script("getComputedStyle(document.querySelector('#login-heading')).textWrap") == 'balance'
+    And match script("getComputedStyle(document.documentElement).scrollbarColor") != 'auto'
+    And match script("getComputedStyle(document.documentElement).accentColor") != 'auto'
+    Given driver baseUrl + '/register'
+    And waitFor('#register-heading')
+    Then match script("getComputedStyle(document.querySelector('#register-heading')).textWrap") == 'balance'
+
 
 

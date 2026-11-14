@@ -130,7 +130,14 @@ function glyphFor(estado: string): string {
 thead {
   position: sticky;
   inset-block-start: 0;
-  z-index: 1;
+  z-index: 2;
+  background-color: var(--surface-subtle, #f8fafc);
+}
+
+thead th:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 3;
   background-color: var(--surface-subtle, #f8fafc);
 }
 
@@ -146,14 +153,22 @@ td {
 tbody th {
   position: sticky;
   inset-inline-start: 0;
+  z-index: 1;
   background-color: var(--surface-card, #ffffff);
   font-weight: 700;
   color: var(--text-primary, #0f172a);
 }
 
-.collection-row--own tbody th,
-.collection-row--own td {
+tbody tr.collection-row--own th,
+tbody tr.collection-row--own td {
   background-color: var(--brand-tint, #f0f9ff);
+}
+
+@container (min-width: 600px) {
+  th:nth-child(4),
+  td:nth-child(4) {
+    text-align: right;
+  }
 }
 
 .own-badge {

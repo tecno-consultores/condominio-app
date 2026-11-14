@@ -147,7 +147,7 @@ async function handleAdherir(incidenciaId: number): Promise<void> {
         action-label="Reportar Nueva Falla"
         @action="showNewForm = true"
       />
-      <div v-else class="incident-list">
+      <div v-else class="incident-list defer-feed-list">
         <IncidentCard
           v-for="inc in operationsStore.data.incidencias"
           :key="inc.id"

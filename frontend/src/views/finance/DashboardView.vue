@@ -264,7 +264,7 @@ async function switchTab(tab: 'cobranza' | 'gastos'): Promise<void> {
   background-color: var(--surface-card, #ffffff);
   border: 1px solid var(--border-subtle, #cbd5e1);
   border-block-start: 4px solid var(--brand-accent, #0369a1);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--surface-hairline), var(--shadow-card);
 }
 
 .hero-solvency--ok {

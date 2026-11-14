@@ -94,7 +94,7 @@ async function handleSaveActa(): Promise<void> {
       <p v-if="operationsStore.data.bitacora.length === 0" class="empty-state">
         No existen actas registradas en la bitácora.
       </p>
-      <div v-else class="acta-list">
+      <div v-else class="acta-list defer-feed-list">
         <article v-for="acta in operationsStore.data.bitacora" :key="acta.id" class="acta-card">
           <header class="acta-card__header">
             <strong>Acta #{{ acta.id }} — {{ acta.fecha }} ({{ acta.hora }})</strong>

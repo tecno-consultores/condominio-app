@@ -228,3 +228,18 @@ Todos los modales `<dialog>` del sistema (`RejectPaymentModal.vue`, `ReceiptBrea
 | `SidebarNav.vue` y `BottomNavBar.vue` | Iconos SVG de trazo fino, agrupación en 3 secciones semánticas filtradas por rol, píldora activa y botón `#btn-theme-toggle`. | `SidebarNav.unit.ts`, `BottomNavBar.unit.ts` |
 | `DashboardView.vue` y `CollectionTrafficLight.vue` | Tarjeta Hero de solvencia con borde de acento, cuadrícula `#dashboard-quick-actions`, iconos de estado para daltónicos y cambio de pestañas con View Transition. | `DashboardView.unit.ts`, `CollectionTrafficLight.unit.ts` |
 | Modales `<dialog>` (`RejectPaymentModal.vue`, `ReceiptBreakdownModal.vue`, `VoteReceiptModal.vue`) | Animación `@starting-style` + `allow-discrete` + `overlay`, diseño Bottom Sheet en móvil y cierre suave con `closeTopLayerDialog`. | Suites `.unit.ts` respectivas |
+| `CopyButton.vue` (`common/`) | Botón accesible de copia declarativo (`command="--copy"` + `commandfor`), región viva `[role="status"]` con deduplicación `\u00A0` y fallback `execCommand` para contextos HTTP efímeros. | `frontend/src/components/common/CopyButton.unit.ts` |
+
+---
+
+## 6. Refinamientos Modern Web Guidance y Refactoring UI
+
+1. **Theming Nativo del Navegador (`browser-ui-theming` + `autofill-highlight-inputs`):**
+   - `frontend/src/assets/tokens.css` declara `accent-color: var(--brand-accent)`, `::selection`, `scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track)` (contraste $\ge 3:1$ preservando `scrollbar-width: auto`), `textarea { resize: vertical; }` y estilizado progresivo `:is(:autofill, :-webkit-autofill)` basado en `box-shadow` inset opaco + `-webkit-text-fill-color` sin alterar dimensiones de layout.
+2. **Enfoque No Oculto, Profundidad Nocturna y Bordes de Acento (`refactoring-ui` + WCAG 2.2 SC 2.4.11):**
+   - `html` define `scroll-padding-block-start: 1.5rem` y, en `@media (max-width: 767px)`, `scroll-padding-block-end: calc(5rem + env(safe-area-inset-bottom, 0px))` para despejar `BottomNavBar` al navegar por teclado.
+   - Se añaden `--surface-hairline` (highlight superior en modo claro/oscuro) y `--btn-raised-shadow` en tarjetas (`VoteReceiptModal.vue`, `SolvencyCertificateView.vue`, `DashboardView.vue`, `LoginView.vue`, `RegisterView.vue`, `PendingApprovalView.vue`) junto con tokenización `OKLCH` completa en `PendingApprovalView.vue` e integración de `ThemeToggleButton`.
+3. **Tipografía Equilibrada, Tablas 2D Sticky y Renderizado Diferido (`improve-text-layout-and-legibility`, `responsive-table`, `defer-rendering-heavy-content`):**
+   - `text-wrap: balance` aplicado selectivamente a encabezados `h1..h6` y `text-wrap: pretty` a párrafos, listas y descripciones, unificando `.tabular-nums, .tabular-num`.
+   - `CollectionTrafficLight.vue` corrige el selector de fila propia sticky (`tbody tr.collection-row--own th`), agrega sticky bidimensional (`thead th:first-child`) y alinea numéricamente a la derecha la columna de saldos en escritorio.
+   - `.defer-feed-list > :nth-child(n + 5)` aplica `content-visibility: auto; contain-intrinsic-size: auto none auto 180px` exclusivamente bajo el pliegue en feeds repetitivos (`IncidentsFeedView.vue`, `ConsultationsListView.vue`, `ParcelsTrackerView.vue`, `VisitorPassesView.vue`, `SecretaryLogbookView.vue`).

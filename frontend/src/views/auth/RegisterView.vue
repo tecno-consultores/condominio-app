@@ -228,8 +228,9 @@ async function onSubmit(): Promise<void> {
   max-width: 460px;
   background-color: var(--surface-card, #ffffff);
   border: 1px solid var(--border-subtle, #e2e8f0);
+  border-block-start: 4px solid var(--brand-accent, #0369a1);
   border-radius: var(--radius-lg, 1rem);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: var(--surface-hairline), var(--shadow-elevated);
   padding: 1.75rem 1.5rem;
 }
 
@@ -313,7 +314,16 @@ async function onSubmit(): Promise<void> {
   color: #ffffff;
   font-size: 1rem;
   font-weight: 700;
+  box-shadow: var(--btn-raised-shadow);
   cursor: pointer;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 
 .auth-card__header-row {

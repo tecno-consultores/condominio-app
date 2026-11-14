@@ -173,7 +173,7 @@ async function handleRevocarPase(paseId: number): Promise<void> {
         Aún no ha emitido pases de visita QR para su unidad.
       </p>
 
-      <div class="cards-grid">
+      <div class="cards-grid defer-feed-list">
         <article
           v-for="pase in store.pases"
           :id="`qr-pass-card-${pase.id}`"

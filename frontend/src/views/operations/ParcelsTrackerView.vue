@@ -144,7 +144,7 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
         No hay paquetes pendientes ni registrados actualmente.
       </p>
 
-      <div class="cards-grid">
+      <div class="cards-grid defer-feed-list">
         <article
           v-for="paquete in store.paquetes"
           :id="`parcel-card-${paquete.id}`"
