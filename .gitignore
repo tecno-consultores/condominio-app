@@ -1,72 +1,153 @@
-# Entorno y Diario Local de Agentes
+# Secretos y configuración local
 .env
 .env.*
 !.env.example
-.agents/ACTIVE_TASK.md
-.agents/backups/
-.agents/.qa-evidence.json
-ACTIVE_TASK.md
+!**/.env.example
+.local
 
-# Python / uv
+# Diario local de agentes IA y evidencias efímeras
+.agents/ACTIVE_TASK.md
+**/ACTIVE_TASK.md
+!.agents/ACTIVE_TASK.md.example
+.agents/backups/
+**/.agents/backups/
+.agents/proposals/
+**/.agents/proposals/
+.agents/.qa-evidence.json
+**/.qa-evidence.json
+.task_scratchpad.md
+*.scratchpad.md
+
+# Python / FastAPI / uv
 venv/
 .venv/
+ENV/
 __pycache__/
 *.py[cod]
-*.sqlite3
-*.db
+*$py.class
 .Python
 build/
 dist/
+dist-ssr/
+wheels/
+*.egg-info/
+.eggs/
 .uv/
 
-# Herramientas QA (cachés y reportes)
+# Bases de datos efímeras de desarrollo y pruebas
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Pruebas, cobertura, análisis estático, mutación y perfilado
 .tox/
+.nox/
 .coverage
+.coverage.*
 coverage.xml
+coverage.json
+lcov.info
+junit.xml
+pytest-report.xml
+test-report.xml
 htmlcov/
+coverage_report/
 .pytest_cache/
 .mypy_cache/
+.dmypy.json
+dmypy.json
 .ruff_cache/
+.hypothesis/
 .schemathesis/
 schemathesis-report/
 mutants/
 .mutmut-cache/
+mutmut-stats.json
+mutmut-*.json
 profile.svg
-
-# Reportes de auditoría (DAST / Caos / Observabilidad / Graphify HTML)
-zap-report.html
-chaos-report.html
-chaos-report.json
 profile.speedscope.json
+locust-report.html
+locust_*.csv
+
+# Seguridad, DAST, Trivy, SBOM, Caos, Observabilidad y Graphify AST
+zap-report*
+zap_out/
+!backend/zap.yaml
+chaos-report*
 graphify-out/
+.graphify_*
 trivy-results*
+.trivycache/
 sbom*
-backend/graphify-out/
-frontend/graphify-out/
+*.cdx.json
+*.spdx.json
 prometheus_data/
 
-# BDD / Karate
+# BDD / Karate / Maven
 target/
-test/target/
+**/test/target/
+karate.jar
+dependency-reduced-pom.xml
 
-# Logs
-*.log
-
-# Node / Frontend (hooks / commitlint / Vite / Vitest / Playwright / Stryker / Lighthouse)
+# Node / Vue 3 / Vite / Playwright / Stryker / Lighthouse
 node_modules/
 package-lock.json
-coverage/
+yarn.lock
+.pnp
+.pnp.js
 .pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.turbo/
+.parcel-cache/
+.vite/
+.vite-ssg-temp/
+*.tsbuildinfo
+coverage/
+.nyc_output/
+.eslintcache
+.stylelintcache
 playwright-report/
 blob-report/
 test-results/
+playwright/.cache/
 .lighthouseci/
 lhci-reports/
 .lhcache/
 .stryker-tmp/
+reports/
+.clinic/
+*.clinic-*.html
 .nuxt/
 
-# Editores
+# Logs, respaldos temporales y editores / SO
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*~
+*.swp
+*.swo
+*.sw?
 .vscode/
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 .DS_Store
+Thumbs.db
+Desktop.ini

@@ -25,6 +25,7 @@
 | **Seguridad Dinámica (DAST)** | `make -C backend qa-dast` (`zaproxy/zap-stable`) | `FAIL-NEW: 0` | ✅ **0 fallos (66 reglas PASS)** |
 | **Ingeniería del Caos & Carga** | `make -C backend qa-chaos` (`Pumba` + `Locust` + `Prometheus`) | 0 errores bajo `netem 500ms` | ✅ **2.786 peticiones, 0 fallos** |
 | **Auditoría IaC & Contenedores** | `./scripts/auditar-infra.sh` (`trivy config` + `trivy fs`) | 0 HIGH/CRITICAL misconfigs & CVEs | ✅ **0 hallazgos** |
+| **Scripts Bash & Higiene Git (`limpieza.sh`)** | `sinfallas/base-bash-qa:latest` (`shfmt -i 2 -ci`, `shellcheck`, `bats test/limpieza.bats`) | 0 advertencias / 100% pass | ✅ **4/4 pass (0 warnings)** |
 
 ---
 
@@ -88,6 +89,11 @@ make -C backend qa-complexity
 make -C backend qa-deps
 make -C backend qa-unit
 make -C backend qa-parity
+
+# Validar scripts Bash (shfmt, ShellCheck y BATS) y purgar residuos efímeros
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app sinfallas/base-bash-qa:latest \
+  bash -c "shfmt -d -i 2 -ci limpieza.sh scripts/limpieza.sh backend/limpieza.sh frontend/limpieza.sh && shellcheck limpieza.sh scripts/limpieza.sh backend/limpieza.sh frontend/limpieza.sh && bats test/limpieza.bats"
+./limpieza.sh
 
 # Ejecutar el gate integral de cierre de tarea (.agents)
 ./.agents/scripts/certify_task_completion.sh

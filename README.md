@@ -47,6 +47,8 @@ condominio-app/
 │   ├── limpieza.sh                   # Purga efímera sin sudo ni docker system prune global
 │   └── verificar-secretos.sh         # Escáner global de credenciales y llaves privadas
 ├── Makefile                # Orquestación unificada QA 11X (qa-lint, qa-unit, qa-parity, qa-bdd, qa-infra)
+├── limpieza.sh             # Wrapper unificado en la raíz hacia scripts/limpieza.sh
+├── test/limpieza.bats      # Suite BATS 11X que certifica limpieza.sh y .gitignore
 ├── .npmrc                  # Política supply-chain ignore-scripts=true
 ├── .trivy.yaml             # Exclusiones corporativas para Trivy IaC y File System
 ├── AGENTS.md               # Directivas supremas para agentes de IA y desarrolladores (Thin-Repo v2.20.3)
@@ -82,8 +84,9 @@ make -C frontend qa-unit        # Vitest + Cobertura V8 (>= 95%) + Compilación 
 make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs)
 make -C frontend qa-a11y        # Accesibilidad WCAG 2.1 AA (Playwright + @axe-core/playwright)
 
-# Orquestación unificada desde la raíz
+# Orquestación unificada y limpieza desde la raíz
 make qa-all
+./limpieza.sh --quiet          # Purga residuos de pruebas (--deep para pruned local seguro)
 
 # Gate Integral de Certificación de Cierre (.agents + @sinfallas/mcp-qa-11x)
 ./.agents/scripts/certify_task_completion.sh

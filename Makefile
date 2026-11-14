@@ -36,4 +36,4 @@ qa-all: qa-secrets qa-infra qa-lint qa-unit qa-parity qa-bdd
 	@echo "✅ Suite unificada QA 11X completada exitosamente."
 
 clean-cache:
-	./scripts/limpieza.sh
+	./limpieza.sh
