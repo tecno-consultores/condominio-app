@@ -43,6 +43,7 @@ DEFERRED_HITO22_ROUTES: set[tuple[str, str]] = {
     ("POST", "/api/tareas/generar-diarias"),
     ("POST", "/api/comunicados"),
     ("GET", "/api/comunicados/recientes"),
+    ("POST", "/api/evidencias/subir"),
 }
 
 

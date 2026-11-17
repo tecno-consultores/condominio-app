@@ -99,7 +99,7 @@ def test_registrar_tasa_nueva(client: TestClient) -> None:
     session = _mock_session(_result(None))
     _setup(session)
 
-    response = client.post("/api/finanzas/tasa", json={"tasa_usd_ves": "36.5000"})
+    response = client.post("/api/finanzas/tasa", headers=HEADERS, json={"tasa_usd_ves": "36.5000"})
 
     assert response.status_code == 201
     assert float(response.json()["tasa_usd_ves"]) == 36.5
@@ -115,6 +115,7 @@ def test_registrar_tasa_existente_actualiza(client: TestClient) -> None:
 
     response = client.post(
         "/api/finanzas/tasa",
+        headers=HEADERS,
         json={"fecha": "2026-10-12", "tasa_usd_ves": "40.0000"},
     )
 
@@ -127,7 +128,7 @@ def test_registrar_tasa_existente_actualiza(client: TestClient) -> None:
 
 def test_registrar_tasa_invalida_es_422(client: TestClient) -> None:
     _setup(_mock_session())
-    response = client.post("/api/finanzas/tasa", json={"tasa_usd_ves": "0"})
+    response = client.post("/api/finanzas/tasa", headers=HEADERS, json={"tasa_usd_ves": "0"})
     assert response.status_code == 422
     app.dependency_overrides = {}
 
@@ -325,10 +326,10 @@ def test_resumen_financiero(client: TestClient) -> None:
 def test_cierre_mensual_success(client: TestClient) -> None:
     recibo = _recibo()
     egreso = _egreso()
-    session = _mock_session(_result(None), _result_list([recibo]), _result_list([egreso]))
+    session = _mock_session(_result(None), _result(None), _result_list([recibo]), _result_list([egreso]))
     _setup(session)
 
-    response = client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-10"})
+    response = client.post("/api/finanzas/cierre-mensual", headers=HEADERS, json={"periodo": "2026-10"})
 
     assert response.status_code == 200
     assert response.json()["estado"] == "CERRADO"
@@ -344,7 +345,7 @@ def test_cierre_mensual_ya_cerrado_es_inmutable(client: TestClient) -> None:
     session = _mock_session(_result(reporte))
     _setup(session)
 
-    response = client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-10"})
+    response = client.post("/api/finanzas/cierre-mensual", headers=HEADERS, json={"periodo": "2026-10"})
 
     assert response.status_code == 409
     assert "inmutable" in response.json()["detail"]
@@ -354,7 +355,7 @@ def test_cierre_mensual_ya_cerrado_es_inmutable(client: TestClient) -> None:
 
 def test_cierre_mensual_periodo_invalido_es_422(client: TestClient) -> None:
     _setup(_mock_session())
-    response = client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-1"})
+    response = client.post("/api/finanzas/cierre-mensual", headers=HEADERS, json={"periodo": "2026-1"})
     assert response.status_code == 422
     app.dependency_overrides = {}
 
@@ -377,7 +378,7 @@ def test_finanzas_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
     assert client.get("/api/finanzas/tasa").status_code == 403
 
     _setup(_mock_session(), user=PropietarioUser())
-    assert client.post("/api/finanzas/tasa", json={"tasa_usd_ves": "36.5000"}).status_code == 403
+    assert client.post("/api/finanzas/tasa", headers=HEADERS, json={"tasa_usd_ves": "36.5000"}).status_code == 403
     assert (
         client.post(
             "/api/finanzas/egresos",
@@ -386,5 +387,5 @@ def test_finanzas_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
         ).status_code
         == 403
     )
-    assert client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-10"}).status_code == 403
+    assert client.post("/api/finanzas/cierre-mensual", headers=HEADERS, json={"periodo": "2026-10"}).status_code == 403
     app.dependency_overrides = {}

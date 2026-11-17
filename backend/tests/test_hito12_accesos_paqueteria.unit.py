@@ -475,13 +475,13 @@ def test_registrar_listar_y_entregar_paqueteria(client: TestClient) -> None:
             _mock_session(_result(paquete), _result_list([1]), _result(unidad)),
             FakeUser(user_id=2, rol="PROPIETARIO"),
         )
-        r_ent = client.put("/api/paqueteria/70/entregar")
+        r_ent = client.put("/api/paqueteria/70/entregar", headers=HEADERS)
         assert r_ent.status_code == 200
         assert r_ent.json()["estado"] == "ENTREGADO"
 
         # 4. Intentar entregar paquete ya entregado -> 409 Conflict
         _setup(_mock_session(_result(paquete)), FakeUser(user_id=5, rol="CONSERJE"))
-        r_ent_dup = client.put("/api/paqueteria/70/entregar")
+        r_ent_dup = client.put("/api/paqueteria/70/entregar", headers=HEADERS)
         assert r_ent_dup.status_code == 409
     finally:
         app.dependency_overrides.clear()
@@ -525,7 +525,7 @@ def test_paqueteria_errores_ssrf_permisos_y_404(client: TestClient) -> None:
 
         # Entregar paquete inexistente -> 404
         _setup(_mock_session(_result(None)), FakeUser(user_id=5, rol="CONSERJE"))
-        assert client.put("/api/paqueteria/999/entregar").status_code == 404
+        assert client.put("/api/paqueteria/999/entregar", headers=HEADERS).status_code == 404
 
         # Entregar paquete por residente de otra unidad -> 403
         paquete_ajeno = PaqueteRecibido(
@@ -538,6 +538,6 @@ def test_paqueteria_errores_ssrf_permisos_y_404(client: TestClient) -> None:
             fecha_recepcion=datetime.now(UTC),
         )
         _setup(_mock_session(_result(paquete_ajeno), _result_list([2])), FakeUser(user_id=9, rol="PROPIETARIO"))
-        assert client.put("/api/paqueteria/71/entregar").status_code == 403
+        assert client.put("/api/paqueteria/71/entregar", headers=HEADERS).status_code == 403
     finally:
         app.dependency_overrides.clear()

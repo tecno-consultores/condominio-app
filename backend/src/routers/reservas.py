@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
-import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import DEFAULT_CONDOMINIO_ID, get_db, sellar_cadena_worm
-from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
-from src.finanzas import calcular_deuda_total, cuantizar
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia,
+    get_current_user,
+    verificar_roles,
+    verificar_usuario_activo,
+)
+from src.finanzas import calcular_deuda_total, cuantizar, determinar_estado_recibo
 from src.models import (
     AreaSocial,
     AuditoriaRecibo,
@@ -25,7 +31,6 @@ from src.models import (
     Unidad,
     Usuario,
 )
-from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import (
     AreaSocialCreate,
     AreaSocialResponse,
@@ -37,6 +42,7 @@ from src.schemas import (
 router = APIRouter(
     prefix="/api",
     tags=["Reservas de Áreas Sociales"],
+    route_class=IdempotentAPIRoute,
     responses={401: {"description": "No autenticado"}},
 )
 
@@ -44,6 +50,18 @@ _ROLES_GESTION_AREAS = ("PRESIDENTE", "TESORERO")
 _ROLES_CANCELACION_JUNTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO")
 _ROLES_INSPECCION = ("CONSERJE", "PRESIDENTE", "TESORERO")
 _ROLES_JUNTA_Y_GARITA = ("CONSERJE", "PRESIDENTE", "VICEPRESIDENTE", "SECRETARIO", "TESORERO")
+
+
+@dataclass(frozen=True)
+class _CargoReservaSpec:
+    unidad_id: int
+    fecha_evento: date
+    monto: Decimal
+    tipo_item: str
+    descripcion: str
+    motivo_auditoria: str
+    usuario_id: int
+    condominio_id: int
 
 
 async def _unidades_activas_usuario(db: AsyncSession, usuario_id: int) -> set[int]:
@@ -141,6 +159,7 @@ def _serializar_reserva(
     "/reservas/areas",
     status_code=status.HTTP_201_CREATED,
     response_model=AreaSocialResponse,
+    dependencies=[Depends(exigir_idempotencia("crear_area", roles=_ROLES_GESTION_AREAS))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Solo Presidente o Tesorero pueden configurar áreas sociales"},
@@ -149,19 +168,11 @@ def _serializar_reserva(
 )
 async def crear_area_social(
     datos: AreaSocialCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> AreaSocial:
     """Registra una nueva área común reservable con políticas de aforo, depósito y solvencia."""
     verificar_roles(usuario, _ROLES_GESTION_AREAS)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"crear_area:{usuario.id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     nombre_limpio = datos.nombre.strip()
     res_dup = await db.execute(select(AreaSocial).where(AreaSocial.nombre == nombre_limpio))
@@ -191,12 +202,20 @@ async def crear_area_social(
     responses={403: {"description": "Usuario Fantasma o inactivo"}},
 )
 async def listar_areas_sociales(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[AreaSocial]:
     """Lista las áreas sociales activas disponibles para reserva en el condominio."""
     verificar_usuario_activo(usuario)
-    res = await db.execute(select(AreaSocial).where(AreaSocial.es_activa.is_(True)).order_by(AreaSocial.id.asc()))
+    res = await db.execute(
+        select(AreaSocial)
+        .where(AreaSocial.es_activa.is_(True))
+        .order_by(AreaSocial.id.asc())
+        .limit(limit)
+        .offset(offset)
+    )
     return list(res.scalars().all())
 
 
@@ -206,6 +225,8 @@ async def listar_areas_sociales(
     responses={403: {"description": "Usuario Fantasma o inactivo"}},
 )
 async def listar_reservas_areas(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[ReservaAreaResponse]:
@@ -222,7 +243,9 @@ async def listar_reservas_areas(
             return []
         stmt = stmt.where(ReservaAreaSocial.unidad_id.in_(unidades_propias))
 
-    res = await db.execute(stmt.order_by(ReservaAreaSocial.fecha_evento.desc(), ReservaAreaSocial.id.desc()))
+    res = await db.execute(
+        stmt.order_by(ReservaAreaSocial.fecha_evento.desc(), ReservaAreaSocial.id.desc()).limit(limit).offset(offset)
+    )
     return [_serializar_reserva(r, nombre_area, identificador) for r, nombre_area, identificador in res.all()]
 
 
@@ -230,6 +253,7 @@ async def listar_reservas_areas(
     "/reservas/solicitar",
     status_code=status.HTTP_201_CREATED,
     response_model=ReservaAreaResponse,
+    dependencies=[Depends(exigir_idempotencia("reservar"))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Unidad morosa (Candado de Solvencia Estricta) o sin contrato activo"},
@@ -239,19 +263,11 @@ async def listar_reservas_areas(
 )
 async def solicitar_reserva_area_social(
     datos: ReservaAreaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> ReservaAreaResponse:
-    """Solicita la reserva exclusiva de un área social verificando solvencia ($0.00 USD) y agenda tarea de conserje."""
+    """Solicita la reserva exclusiva de un área social verificando solvencia ($0.00 USD) y agenda tarea."""
     verificar_usuario_activo(usuario)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"reservar:{datos.unidad_id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     unidad = await _obtener_unidad_autorizada(db, usuario, datos.unidad_id)
     area = await _obtener_area_activa_o_404(db, datos.area_id)
@@ -281,6 +297,26 @@ async def solicitar_reserva_area_social(
         creado_en=ahora,
     )
     db.add(reserva)
+    await db.flush()
+
+    costo_uso = cuantizar(area.costo_uso_usd)
+    if costo_uso > Decimal("0.00"):
+        condo_raw = getattr(usuario, "condominio_id", None)
+        condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
+        await _registrar_cargo_reserva(
+            db,
+            _CargoReservaSpec(
+                unidad_id=unidad.id,
+                fecha_evento=datos.fecha_evento,
+                monto=costo_uso,
+                tipo_item="USO_AREA_SOCIAL",
+                descripcion=f"Uso área social ({area.nombre} - Reserva #{reserva.id})",
+                motivo_auditoria=f"Cargo por uso de área social en reserva #{reserva.id}",
+                usuario_id=usuario.id,
+                condominio_id=condo_id,
+            ),
+        )
+
     await db.commit()
     await db.refresh(reserva)
     return _serializar_reserva(reserva, area.nombre, unidad.identificador)
@@ -307,13 +343,89 @@ async def _verificar_permiso_cancelacion(db: AsyncSession, usuario: Usuario, res
         )
 
 
-async def _resolver_periodo_cargo_danos(db: AsyncSession, fecha_evento: object) -> str:
-    periodo_evento = fecha_evento.strftime("%Y-%m")  # type: ignore[attr-defined]
+async def _resolver_periodo_cargo_abierto(db: AsyncSession, fecha_evento: date) -> str:
+    periodo_evento = fecha_evento.strftime("%Y-%m")
     res_rep = await db.execute(select(ReporteMensual).where(ReporteMensual.periodo == periodo_evento))
     reporte = res_rep.scalars().first()
     if reporte is not None and reporte.estado == "CERRADO":
         return datetime.now(UTC).strftime("%Y-%m")
     return str(periodo_evento)
+
+
+async def _obtener_recibo_abierto_reserva(
+    db: AsyncSession,
+    spec: _CargoReservaSpec,
+) -> tuple[Recibo, str]:
+    periodo_cargo = await _resolver_periodo_cargo_abierto(db, spec.fecha_evento)
+    res_rec = await db.execute(
+        select(Recibo).where(Recibo.unidad_id == spec.unidad_id, Recibo.periodo == periodo_cargo).with_for_update()
+    )
+    recibo = res_rec.scalars().first()
+
+    if recibo is not None and recibo.bloqueado:
+        periodo_cargo = datetime.now(UTC).strftime("%Y-%m")
+        res_rec = await db.execute(
+            select(Recibo).where(Recibo.unidad_id == spec.unidad_id, Recibo.periodo == periodo_cargo).with_for_update()
+        )
+        recibo = res_rec.scalars().first()
+
+    if recibo is not None and not recibo.bloqueado:
+        estado_viejo = recibo.estado
+        recibo.monto_usd = cuantizar(recibo.monto_usd + spec.monto)
+        pagado_raw = getattr(recibo, "monto_pagado_usd", None)
+        pagado = Decimal("0.00") if pagado_raw is None else cuantizar(pagado_raw)
+        recibo.estado = determinar_estado_recibo(recibo.monto_usd, pagado)
+        return recibo, estado_viejo
+
+    recibo_nuevo = Recibo(
+        condominio_id=spec.condominio_id,
+        unidad_id=spec.unidad_id,
+        periodo=periodo_cargo,
+        monto_usd=spec.monto,
+        monto_pagado_usd=Decimal("0.00"),
+        estado="PENDIENTE",
+        bloqueado=False,
+    )
+    db.add(recibo_nuevo)
+    await db.flush()
+    return recibo_nuevo, "INEXISTENTE"
+
+
+async def _registrar_cargo_reserva(db: AsyncSession, spec: _CargoReservaSpec) -> None:
+    """Registra un cargo contable individual de reserva (Recibo, ReciboItem y AuditoriaRecibo WORM)."""
+    if spec.monto <= Decimal("0.00"):
+        return
+    recibo, estado_viejo = await _obtener_recibo_abierto_reserva(db, spec)
+    condo_raw = getattr(recibo, "condominio_id", None)
+    condo_id = int(spec.condominio_id if condo_raw is None else condo_raw)
+
+    db.add(
+        ReciboItem(
+            condominio_id=condo_id,
+            recibo_id=recibo.id,
+            tipo_item=spec.tipo_item,
+            descripcion=spec.descripcion,
+            monto_usd=spec.monto,
+        )
+    )
+    prev_hash, rec_hash = await sellar_cadena_worm(
+        db,
+        "auditoria_recibos",
+        condo_id,
+        f"{recibo.id}|None|{spec.usuario_id}|{estado_viejo}->{recibo.estado}|{spec.motivo_auditoria}",
+    )
+    db.add(
+        AuditoriaRecibo(
+            condominio_id=condo_id,
+            recibo_id=recibo.id,
+            usuario_id=spec.usuario_id,
+            estado_viejo=estado_viejo,
+            estado_nuevo=recibo.estado,
+            motivo=spec.motivo_auditoria,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
+        )
+    )
 
 
 async def _registrar_cargo_danos_reserva(
@@ -326,55 +438,71 @@ async def _registrar_cargo_danos_reserva(
     monto_danos = cuantizar(area.deposito_garantia_usd)
     if monto_danos <= Decimal("0.00"):
         return
-
-    periodo_cargo = await _resolver_periodo_cargo_danos(db, reserva.fecha_evento)
-    res_rec = await db.execute(
-        select(Recibo).where(Recibo.unidad_id == reserva.unidad_id, Recibo.periodo == periodo_cargo).with_for_update()
-    )
-    recibo = res_rec.scalars().first()
-
-    if recibo is not None and recibo.bloqueado:
-        periodo_cargo = datetime.now(UTC).strftime("%Y-%m")
-        res_rec = await db.execute(
-            select(Recibo)
-            .where(Recibo.unidad_id == reserva.unidad_id, Recibo.periodo == periodo_cargo)
-            .with_for_update()
-        )
-        recibo = res_rec.scalars().first()
-
-    if recibo is not None and not recibo.bloqueado:
-        estado_viejo = recibo.estado
-        recibo.monto_usd = cuantizar(recibo.monto_usd + monto_danos)
-        pagado = recibo.monto_pagado_usd or Decimal("0.00")
-        recibo.estado = "PAGADO_PARCIAL" if pagado > Decimal("0.00") else "PENDIENTE"
-    else:
-        estado_viejo = "INEXISTENTE"
-        recibo = Recibo(
+    condo_raw = getattr(reserva, "condominio_id", None)
+    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
+    await _registrar_cargo_reserva(
+        db,
+        _CargoReservaSpec(
             unidad_id=reserva.unidad_id,
-            periodo=periodo_cargo,
-            monto_usd=monto_danos,
-            monto_pagado_usd=Decimal("0.00"),
-            estado="PENDIENTE",
-            bloqueado=False,
-        )
-        db.add(recibo)
-        await db.flush()
-
-    db.add(
-        ReciboItem(
-            recibo_id=recibo.id,
+            fecha_evento=reserva.fecha_evento,
+            monto=monto_danos,
             tipo_item="DANOS_AREA_SOCIAL",
             descripcion=f"Cargo por daños post-evento en {area.nombre} ({reserva.fecha_evento.isoformat()})",
-            monto_usd=monto_danos,
-        )
+            motivo_auditoria=f"Retención/cargo de depósito por daños en reserva #{reserva.id}",
+            usuario_id=usuario_id,
+            condominio_id=condo_id,
+        ),
     )
-    condo_id = int(getattr(recibo, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
-    motivo_auditoria = f"Retención/cargo de depósito por daños en reserva #{reserva.id}"
+
+
+async def _revertir_cargo_uso_cancelacion(
+    db: AsyncSession,
+    reserva: ReservaAreaSocial,
+    area: AreaSocial,
+    usuario_id: int,
+) -> None:
+    if cuantizar(area.costo_uso_usd) <= Decimal("0.00"):
+        return
+    res_item = await db.execute(
+        select(ReciboItem, Recibo)
+        .join(Recibo, Recibo.id == ReciboItem.recibo_id)
+        .where(
+            Recibo.unidad_id == reserva.unidad_id,
+            ReciboItem.tipo_item == "USO_AREA_SOCIAL",
+            ReciboItem.descripcion.contains(f"Reserva #{reserva.id})"),
+        )
+        .with_for_update()
+    )
+    fila = res_item.first()
+    if fila is None:
+        return
+    item, recibo = fila
+    condo_raw = getattr(recibo, "condominio_id", None)
+    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
+    pagado_raw = getattr(recibo, "monto_pagado_usd", None)
+    pagado = Decimal("0.00") if pagado_raw is None else cuantizar(pagado_raw)
+    nuevo_monto = cuantizar(recibo.monto_usd - item.monto_usd)
+    estado_viejo = recibo.estado
+
+    if not recibo.bloqueado and nuevo_monto >= pagado:
+        recibo.monto_usd = nuevo_monto
+        recibo.estado = determinar_estado_recibo(recibo.monto_usd, pagado)
+        await db.delete(item)
+        motivo = f"Reverso de cargo por uso tras cancelación de reserva #{reserva.id}"
+    else:
+        res_u = await db.execute(select(Unidad).where(Unidad.id == reserva.unidad_id).with_for_update())
+        unidad_obj = res_u.scalars().first()
+        if unidad_obj is not None:
+            cred_raw = getattr(unidad_obj, "credito_disponible_usd", None)
+            cred_prev = Decimal("0.00") if cred_raw is None else cuantizar(cred_raw)
+            unidad_obj.credito_disponible_usd = cuantizar(cred_prev + item.monto_usd)
+        motivo = f"Crédito a favor por cancelación de reserva #{reserva.id}"
+
     prev_hash, rec_hash = await sellar_cadena_worm(
         db,
         "auditoria_recibos",
         condo_id,
-        f"{recibo.id}|None|{usuario_id}|{estado_viejo}->{recibo.estado}|{motivo_auditoria}",
+        f"{recibo.id}|None|{usuario_id}|{estado_viejo}->{recibo.estado}|{motivo}",
     )
     db.add(
         AuditoriaRecibo(
@@ -383,7 +511,7 @@ async def _registrar_cargo_danos_reserva(
             usuario_id=usuario_id,
             estado_viejo=estado_viejo,
             estado_nuevo=recibo.estado,
-            motivo=motivo_auditoria,
+            motivo=motivo,
             prev_hash=prev_hash,
             record_hash=rec_hash,
         )
@@ -393,6 +521,7 @@ async def _registrar_cargo_danos_reserva(
 @router.put(
     "/reservas/{reserva_id}/cancelar",
     response_model=ReservaAreaResponse,
+    dependencies=[Depends(exigir_idempotencia("cancelar_reserva:{reserva_id}"))],
     responses={
         403: {"description": "Sin permisos sobre la reserva"},
         404: {"description": "Reserva no encontrada"},
@@ -401,19 +530,11 @@ async def _registrar_cargo_danos_reserva(
 )
 async def cancelar_reserva_area_social(
     reserva_id: int,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> ReservaAreaResponse:
-    """Cancela una reserva CONFIRMADA liberando la fecha del área social y cerrando la tarea asociada."""
+    """Cancela una reserva CONFIRMADA liberando fecha, tarea asociada y revirtiendo cargo de uso."""
     verificar_usuario_activo(usuario)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"cancelar_reserva:{reserva_id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     res = await db.execute(select(ReservaAreaSocial).where(ReservaAreaSocial.id == reserva_id).with_for_update())
     reserva = res.scalars().first()
@@ -427,13 +548,16 @@ async def cancelar_reserva_area_social(
             detail="Solo pueden cancelarse reservas en estado CONFIRMADA.",
         )
 
+    res_area = await db.execute(select(AreaSocial).where(AreaSocial.id == reserva.area_id))
+    area = res_area.scalars().first()
+    if area is not None:
+        await _revertir_cargo_uso_cancelacion(db, reserva, area, usuario.id)
+
     reserva.estado = "CANCELADA"
     await _completar_tarea_inspeccion(db, reserva.tarea_inspeccion_id)
     await db.commit()
     await db.refresh(reserva)
 
-    res_area = await db.execute(select(AreaSocial).where(AreaSocial.id == reserva.area_id))
-    area = res_area.scalars().first()
     res_unidad = await db.execute(select(Unidad).where(Unidad.id == reserva.unidad_id))
     unidad = res_unidad.scalars().first()
     return _serializar_reserva(
@@ -446,6 +570,7 @@ async def cancelar_reserva_area_social(
 @router.put(
     "/reservas/{reserva_id}/inspeccionar",
     response_model=ReservaAreaResponse,
+    dependencies=[Depends(exigir_idempotencia("inspeccionar_reserva:{reserva_id}", roles=_ROLES_INSPECCION))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Solo Conserje, Presidente o Tesorero pueden registrar la inspección"},

@@ -4,7 +4,7 @@ from typing import Any
 
 import jwt
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
@@ -12,11 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import DEFAULT_CONDOMINIO_ID, bind_rls_tenant, get_db
-from src.dependencies import extract_bearer_or_cookie_token
-from src.models import ContratoOcupacion, Usuario
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia_anonima,
+    extract_bearer_or_cookie_token,
+)
+from src.models import ContratoOcupacion, Unidad, Usuario
 from src.redis_client import (
     REVOKED_USER_TTL_SECONDS,
-    check_and_set_idempotency_key,
     clear_login_failures,
     get_redis_client,
     get_refresh_token_from_grace_period,
@@ -29,7 +32,13 @@ from src.redis_client import (
     revoke_user_session,
     rotate_refresh_token_with_grace_period,
 )
-from src.schemas import UsuarioCreate, UsuarioResponse
+from src.schemas import (
+    AuthMeResponse,
+    AuthSessionResponse,
+    LogoutResponse,
+    UsuarioCreate,
+    UsuarioResponse,
+)
 from src.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -44,7 +53,7 @@ from src.security import (
     verify_password_async,
 )
 
-router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
+router = APIRouter(prefix="/api/auth", tags=["Autenticación"], route_class=IdempotentAPIRoute)
 
 
 class LoginData(BaseModel):
@@ -156,25 +165,18 @@ async def _resolver_unidad_activa_id(db: AsyncSession, user: Any) -> int | None:
     "/register",
     response_model=UsuarioResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia_anonima("register"))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
+        404: {"description": "Unidad inmobiliaria solicitada no encontrada"},
         409: {"description": "Usuario ya registrado o petición duplicada (Idempotency-Key ya procesada)"},
     },
 )
 async def register_user(
     user: UsuarioCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> Any:
     try:
-        is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope="register")
-        if not is_unique:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
-            )
-
         await bind_rls_tenant(db, DEFAULT_CONDOMINIO_ID)
         result = await db.execute(
             select(Usuario).where((Usuario.correo == user.correo) | (Usuario.cedula == user.cedula))
@@ -182,6 +184,13 @@ async def register_user(
         existing_user = result.scalars().first()
         if existing_user:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Usuario ya registrado")
+
+        res_unidad = await db.execute(select(Unidad.id).where(Unidad.id == user.unidad_solicitada_id))
+        if res_unidad.scalars().first() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Unidad inmobiliaria solicitada no encontrada",
+            )
 
         password_hash = await get_password_hash_async(user.password)
         new_user = Usuario(
@@ -242,6 +251,7 @@ async def _verificar_estado_cuenta_login(redis_conn: aioredis.Redis, user: Usuar
 
 @router.post(
     "/login",
+    response_model=AuthSessionResponse,
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "Credenciales inválidas"},
@@ -255,7 +265,7 @@ async def login(
     login_data: LoginData,
     db: AsyncSession = Depends(get_db),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
-) -> dict[str, str]:
+) -> AuthSessionResponse:
     """Autentica credenciales PBKDF2 en hilo separado, aplica lockout Lua y emite cookies + CSRF."""
     client_ip = _extract_client_ip(request)
     if await is_login_locked_out(redis_conn, client_ip, login_data.correo):
@@ -282,7 +292,7 @@ async def login(
     sid = secrets.token_urlsafe(24)
     access_token, refresh_token, csrf_token = _crear_par_tokens(user, sid)
     _emitir_cookies_sesion(response, access_token, refresh_token, csrf_token)
-    return {"message": "Login exitoso", "rol": user.rol, "csrf_token": csrf_token}
+    return AuthSessionResponse(message="Login exitoso", rol=user.rol, csrf_token=csrf_token)
 
 
 async def _revocar_payload_sesion(redis_conn: aioredis.Redis, payload: dict[str, Any]) -> None:
@@ -303,16 +313,16 @@ async def _revocar_tokens_entrantes(request: Request, redis_conn: aioredis.Redis
             await _revocar_payload_sesion(redis_conn, payload)
 
 
-@router.post("/logout", status_code=status.HTTP_200_OK)
+@router.post("/logout", response_model=LogoutResponse, status_code=status.HTTP_200_OK)
 async def logout(
     request: Request,
     response: Response,
     redis_conn: aioredis.Redis = Depends(get_redis_client),
-) -> dict[str, str]:
+) -> LogoutResponse:
     """Revoca la sesión activa (sid/jti) en KeyDB y purga cookies de autenticación del cliente."""
     await _revocar_tokens_entrantes(request, redis_conn)
     _limpiar_cookies_sesion(response)
-    return {"message": "Sesión cerrada exitosamente"}
+    return LogoutResponse(message="Sesión cerrada exitosamente")
 
 
 def _validar_refresh_token_payload(raw_token: str | None) -> dict[str, Any]:
@@ -394,6 +404,7 @@ async def _resolver_replay_refresh(
 
 @router.post(
     "/refresh",
+    response_model=AuthSessionResponse,
     responses={401: {"description": "Refresh token ausente, expirado, inválido o reutilizado"}},
 )
 async def refresh_session(
@@ -417,7 +428,7 @@ async def refresh_session(
     grace_payload = json.dumps({"access": access_token, "refresh": new_refresh_token, "csrf": csrf_token})
     await rotate_refresh_token_with_grace_period(redis_conn, jti, grace_payload)
     _emitir_cookies_sesion(response, access_token, new_refresh_token, csrf_token)
-    return {"message": "Sesión renovada", "rol": user.rol, "csrf_token": csrf_token}
+    return AuthSessionResponse(message="Sesión renovada", rol=user.rol, csrf_token=csrf_token)
 
 
 def _decodificar_access_token_me(token: str | None) -> dict[str, Any]:
@@ -436,6 +447,7 @@ def _decodificar_access_token_me(token: str | None) -> dict[str, Any]:
 
 @router.get(
     "/me",
+    response_model=AuthMeResponse,
     responses={
         401: {"description": "No autenticado"},
         404: {"description": "Usuario no encontrado"},
@@ -446,7 +458,7 @@ async def get_me(
     response: Response,
     db: AsyncSession = Depends(get_db),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
-) -> dict[str, Any]:
+) -> AuthMeResponse:
     """Devuelve el perfil completo del usuario autenticado y rehidrata la cookie CSRF."""
     payload = _decodificar_access_token_me(extract_bearer_or_cookie_token(request))
     condo_id = int(payload.get("condominio_id") or DEFAULT_CONDOMINIO_ID)
@@ -472,13 +484,13 @@ async def get_me(
         path="/",
     )
     unidad_activa_id = await _resolver_unidad_activa_id(db, user)
-    return {
-        "id": user.id,
-        "nombre": user.nombre,
-        "cedula": str(getattr(user, "cedula", "")),
-        "correo": user.correo,
-        "telefono": str(getattr(user, "telefono", "")),
-        "es_activo": user.es_activo,
-        "rol": user.rol,
-        "unidad_activa_id": unidad_activa_id,
-    }
+    return AuthMeResponse(
+        id=user.id,
+        nombre=user.nombre,
+        cedula=str(getattr(user, "cedula", "")),
+        correo=user.correo,
+        telefono=str(getattr(user, "telefono", "")),
+        es_activo=user.es_activo,
+        rol=user.rol,
+        unidad_activa_id=unidad_activa_id,
+    )

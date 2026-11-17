@@ -99,7 +99,7 @@ def _setup(session: AsyncMock, user: FakeUser | None = None, redis_new: bool = T
 
 def test_umbral_quorum_por_regla_y_error() -> None:
     assert umbral_quorum_por_regla("DOS_TERCIOS") == Decimal("66.6667")
-    assert umbral_quorum_por_regla("MAYORIA_SIMPLE") == Decimal("50.0100")
+    assert umbral_quorum_por_regla("MAYORIA_SIMPLE") == Decimal("50.0000")
     assert umbral_quorum_por_regla("UNANIMIDAD") == Decimal("100.0000")
     with pytest.raises(ErrorFinanciero, match="Regla de quórum inválida"):
         umbral_quorum_por_regla("CUARTO")
@@ -467,8 +467,8 @@ def test_cerrar_consulta_genera_acta_bitacora_y_maneja_errores(client: TestClien
         tipo_consulta="CARTA_CONSULTA_1RA",
         regla_quorum="DOS_TERCIOS",
         quorum_minimo_alicuota=Decimal("66.6700"),
-        fecha_apertura=ahora,
-        fecha_cierre=ahora + timedelta(days=1),
+        fecha_apertura=ahora - timedelta(days=1),
+        fecha_cierre=ahora - timedelta(minutes=1),
         estado="ABIERTA",
         creada_por_id=1,
     )

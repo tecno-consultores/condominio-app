@@ -33,16 +33,33 @@ def cuantizar(valor: Decimal) -> Decimal:
     return valor.quantize(CENTAVO, rounding=ROUND_HALF_UP)
 
 
+def _validar_monto_positivo(monto: Decimal) -> None:
+    if monto <= CERO:
+        raise ErrorFinanciero("El monto debe ser estrictamente mayor que cero")
+
+
+def _validar_montos_pago(monto_usd: Decimal, monto_pagado_usd: Decimal, pago_usd: Decimal) -> None:
+    if min(monto_usd, monto_pagado_usd) < CERO:
+        raise ErrorFinanciero("Los montos base y pagado no pueden ser negativos")
+    if pago_usd <= CERO:
+        raise ErrorFinanciero("El monto del pago debe ser mayor que cero")
+
+
 def convertir_a_usd(monto: Decimal, moneda: str, tasa_cambio: Decimal) -> Decimal:
     """Convierte un monto en la moneda indicada a USD usando la tasa del día."""
     moneda_normalizada = moneda.upper()
     if moneda_normalizada not in MONEDAS_VALIDAS:
         raise ErrorFinanciero(f"Moneda no soportada: {moneda}")
+    _validar_monto_positivo(monto)
     if moneda_normalizada == "USD":
-        return cuantizar(monto)
-    if tasa_cambio <= 0:
-        raise ErrorFinanciero("La tasa de cambio debe ser mayor que cero")
-    return cuantizar(monto / tasa_cambio)
+        resultado = cuantizar(monto)
+    else:
+        if tasa_cambio <= 0:
+            raise ErrorFinanciero("La tasa de cambio debe ser mayor que cero")
+        resultado = cuantizar(monto / tasa_cambio)
+    if resultado <= CERO:
+        raise ErrorFinanciero("El monto convertido a USD debe ser mayor que cero")
+    return resultado
 
 
 def requiere_referencia(metodo_pago: str) -> bool:
@@ -81,6 +98,7 @@ def aplicar_pago(
     pago_usd: Decimal,
 ) -> tuple[Decimal, str]:
     """Aplica un pago aprobado y devuelve (nuevo_monto_pagado_usd, nuevo_estado)."""
+    _validar_montos_pago(monto_usd, monto_pagado_usd, pago_usd)
     nuevo_pagado = cuantizar(monto_pagado_usd) + cuantizar(pago_usd)
     estado = determinar_estado_recibo(monto_usd, nuevo_pagado)
     return nuevo_pagado, estado
@@ -100,6 +118,7 @@ def calcular_excedente_pago(
     pago_usd: Decimal,
 ) -> Decimal:
     """Calcula el excedente a favor (sobrepago) que debe acreditarse en Unidad.credito_disponible_usd."""
+    _validar_montos_pago(monto_usd, monto_pagado_usd, pago_usd)
     saldo_pendiente = calcular_saldo_pendiente(monto_usd, monto_pagado_usd)
     pago = cuantizar(pago_usd)
     if pago > saldo_pendiente:
@@ -268,7 +287,7 @@ UMBRAL_DOS_TERCIOS_PCT = (FRACCION_DOS_TERCIOS * Decimal("100")).quantize(CUATRO
 
 _UMBRALES_QUORUM: dict[str, Decimal] = {
     "DOS_TERCIOS": UMBRAL_DOS_TERCIOS_PCT,
-    "MAYORIA_SIMPLE": Decimal("50.0100"),
+    "MAYORIA_SIMPLE": Decimal("50.0000"),
     "UNANIMIDAD": Decimal("100.0000"),
 }
 
@@ -348,9 +367,16 @@ def calcular_ip_hash_voto(ip_origen: str, consulta_id: int, secret_key: str) -> 
     ).hexdigest()
 
 
-def _cumple_umbral_quorum(valor_pct: Decimal, quorum_min: Decimal, usa_dos_tercios: bool) -> bool:
+def _cumple_umbral_quorum(
+    valor_pct: Decimal,
+    quorum_min: Decimal,
+    usa_dos_tercios: bool,
+    regla_quorum: str | None = None,
+) -> bool:
     if usa_dos_tercios:
         return (valor_pct / Decimal("100")) >= FRACCION_DOS_TERCIOS
+    if regla_quorum == "MAYORIA_SIMPLE" or quorum_min == Decimal("50.0000"):
+        return valor_pct > quorum_min
     return valor_pct >= quorum_min
 
 
@@ -378,9 +404,9 @@ def evaluar_escrutinio_consulta(
     participacion_total = participacion_total.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
     alicuota_aprobatoria = alicuota_aprobatoria.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
 
-    if not _cumple_umbral_quorum(participacion_total, quorum_min, usa_dos_tercios):
+    if not _cumple_umbral_quorum(participacion_total, quorum_min, usa_dos_tercios, regla_quorum):
         return "CERRADA_SIN_QUORUM", participacion_total, alicuota_aprobatoria
-    if _cumple_umbral_quorum(alicuota_aprobatoria, quorum_min, usa_dos_tercios):
+    if _cumple_umbral_quorum(alicuota_aprobatoria, quorum_min, usa_dos_tercios, regla_quorum):
         return "CERRADA_APROBADA", participacion_total, alicuota_aprobatoria
     return "CERRADA_RECHAZADA", participacion_total, alicuota_aprobatoria
 

@@ -2,21 +2,27 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import get_db
-from src.dependencies import get_current_user, verificar_usuario_activo
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia,
+    get_current_user,
+    verificar_usuario_activo,
+)
 from src.models import Incidencia, IncidenciaAdhesion, Usuario
-from src.redis_client import check_and_set_idempotency_key, get_redis_client
+from src.redis_client import get_redis_client
 from src.schemas import IncidenciaCreate, IncidenciaResponse
 from src.worker import encolar_notificacion_correo
 
 router = APIRouter(
     prefix="/api/incidencias",
     tags=["Incidencias"],
+    route_class=IdempotentAPIRoute,
     responses={401: {"description": "No autenticado"}},
 )
 
@@ -27,6 +33,8 @@ router = APIRouter(
     responses={403: {"description": "Usuario fantasma sin activar"}},
 )
 async def listar_incidencias_abiertas(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[Incidencia]:
@@ -36,6 +44,8 @@ async def listar_incidencias_abiertas(
         select(Incidencia)
         .where(Incidencia.estado.in_(("ABIERTO", "EN_PROCESO")))
         .order_by(Incidencia.adhesiones_count.desc(), Incidencia.id.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return list(res.scalars().all())
 
@@ -44,6 +54,7 @@ async def listar_incidencias_abiertas(
     "/crear",
     response_model=IncidenciaResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("incidencia"))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Usuario fantasma sin activar"},
@@ -53,24 +64,12 @@ async def listar_incidencias_abiertas(
 )
 async def crear_incidencia(
     datos: IncidenciaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> Incidencia:
     """Crea un nuevo reporte de incidencia vecinal y encola notificación a la Junta de Condominio."""
     verificar_usuario_activo(usuario)
-
-    es_nueva = await check_and_set_idempotency_key(
-        redis_client,
-        idempotency_key,
-        scope=f"incidencia:{usuario.id}",
-    )
-    if not es_nueva:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta incidencia ya fue procesada.",
-        )
 
     incidencia = Incidencia(
         usuario_creador_id=usuario.id,
@@ -110,6 +109,7 @@ async def crear_incidencia(
 @router.post(
     "/{incidencia_id}/adherir",
     response_model=IncidenciaResponse,
+    dependencies=[Depends(exigir_idempotencia("adherir_incidencia:{incidencia_id}"))],
     responses={
         403: {"description": "Usuario fantasma sin activar"},
         404: {"description": "Incidencia no encontrada"},
@@ -124,7 +124,7 @@ async def adherir_a_incidencia(
     """Suma al vecino actual a una incidencia abierta ('Me Sumo'), incrementando su prioridad."""
     verificar_usuario_activo(usuario)
 
-    res_inc = await db.execute(select(Incidencia).where(Incidencia.id == incidencia_id))
+    res_inc = await db.execute(select(Incidencia).where(Incidencia.id == incidencia_id).with_for_update())
     incidencia = res_inc.scalars().first()
     if not incidencia:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incidencia no encontrada.")

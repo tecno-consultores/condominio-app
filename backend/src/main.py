@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.database import Base, engine
 from src.routers import accesos, administracion, auth, consultas, finanzas, incidencias, operaciones, pagos, reservas
+from src.schemas import HealthResponse
 from src.security import (
     decode_token_unverified_exp,
     is_csrf_enforced,
@@ -106,6 +107,8 @@ def _is_allowed_host(request: Request) -> bool:
     host = _extract_host_from_header(request.headers.get("host", ""))
     if not host:
         return False
+    if request.url.path == "/health" and host in {"127.0.0.1", "localhost", "::1"}:
+        return True
     return host in _allowed_hosts_set()
 
 
@@ -315,6 +318,6 @@ app.include_router(accesos.router)
 app.include_router(reservas.router)
 
 
-@app.get("/health", tags=["System"])
-async def health_check() -> dict[str, str]:
-    return {"status": "healthy"}
+@app.get("/health", response_model=HealthResponse, tags=["System"])
+async def health_check() -> HealthResponse:
+    return HealthResponse(status="healthy")

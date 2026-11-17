@@ -4,14 +4,19 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import DEFAULT_CONDOMINIO_ID, get_db, sellar_cadena_worm
-from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia,
+    get_current_user,
+    verificar_roles,
+    verificar_usuario_activo,
+)
 from src.finanzas import (
     ErrorFinanciero,
     aplicar_pago,
@@ -29,10 +34,9 @@ from src.models import (
     Unidad,
     Usuario,
 )
-from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import PagoRechazo, PagoReportar, PagoResponse
 
-router = APIRouter(prefix="/api/pagos", tags=["Pagos"])
+router = APIRouter(prefix="/api/pagos", tags=["Pagos"], route_class=IdempotentAPIRoute)
 
 _ROLES_TESORERIA = ("TESORERO", "PRESIDENTE")
 
@@ -131,6 +135,7 @@ def _normalizar_referencia_pago(pago: PagoReportar) -> tuple[str, str | None]:
     "/reportar",
     response_model=PagoResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("reportar_pago"))],
     responses={
         400: {"description": "Tasa del día no registrada o referencia inválida"},
         401: {"description": "No autenticado"},
@@ -141,20 +146,11 @@ def _normalizar_referencia_pago(pago: PagoReportar) -> tuple[str, str | None]:
 )
 async def reportar_pago(
     pago: PagoReportar,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_usuario_activo(usuario)
     try:
-        is_unique = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"user:{usuario.id}")
-        if not is_unique:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
-            )
-
         metodo_norm, ref_limpia = _normalizar_referencia_pago(pago)
         await _verificar_referencia_no_duplicada(db, metodo_norm, ref_limpia)
 
@@ -168,7 +164,10 @@ async def reportar_pago(
             )
 
         monto_usd = convertir_a_usd(pago.monto, pago.moneda, tasa.tasa_usd_ves)
+        condo_raw = getattr(recibo, "condominio_id", None)
+        condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
         nuevo_pago = PagoReportado(
+            condominio_id=condo_id,
             recibo_id=recibo.id,
             usuario_id=usuario.id,
             monto=pago.monto,
@@ -211,17 +210,26 @@ async def reportar_pago(
     },
 )
 async def listar_pagos_en_revision(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    result = await db.execute(select(PagoReportado).where(PagoReportado.estado == "EN_REVISION"))
+    result = await db.execute(
+        select(PagoReportado)
+        .where(PagoReportado.estado == "EN_REVISION")
+        .order_by(PagoReportado.id.asc())
+        .limit(limit)
+        .offset(offset)
+    )
     return list(result.scalars().all())
 
 
 @router.put(
     "/{pago_id}/aprobar",
     response_model=PagoResponse,
+    dependencies=[Depends(exigir_idempotencia("aprobar_pago:{pago_id}", roles=_ROLES_TESORERIA))],
     responses={
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes o usuario fantasma"},
@@ -231,18 +239,10 @@ async def listar_pagos_en_revision(
 )
 async def aprobar_pago(
     pago_id: int,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"aprobar_pago:{pago_id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
-        )
 
     pago = await _obtener_pago(db, pago_id, for_update=True)
     if pago.estado != "EN_REVISION":
@@ -256,23 +256,26 @@ async def aprobar_pago(
         )
 
     unidad = await _obtener_unidad_bloqueada(db, recibo.unidad_id)
+    estado_previo_recibo = recibo.estado
     excedente = calcular_excedente_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
     nuevo_pagado, nuevo_estado = aplicar_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
     recibo.monto_pagado_usd = recibo.monto_usd if excedente > Decimal("0.00") else nuevo_pagado
     recibo.estado = nuevo_estado
     pago.estado = "APROBADO"
-    motivo_auditoria: str | None = None
+    motivo_auditoria = f"Pago #{pago.id} aprobado ({pago.monto_usd} USD)"
     if excedente > Decimal("0.00"):
-        credito_previo = getattr(unidad, "credito_disponible_usd", None) or Decimal("0.00")
+        credito_raw = getattr(unidad, "credito_disponible_usd", None)
+        credito_previo = Decimal("0.00") if credito_raw is None else credito_raw
         unidad.credito_disponible_usd = cuantizar(credito_previo + excedente)
         motivo_auditoria = f"Sobrepago acreditado a saldo a favor: +{excedente} USD"
 
-    condo_id = int(getattr(recibo, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    condo_raw = getattr(recibo, "condominio_id", None)
+    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
     prev_hash, rec_hash = await sellar_cadena_worm(
         db,
         "auditoria_recibos",
         condo_id,
-        f"{recibo.id}|{pago.id}|{usuario.id}|EN_REVISION->APROBADO|{motivo_auditoria or ''}",
+        f"{recibo.id}|{pago.id}|{usuario.id}|{estado_previo_recibo}->{recibo.estado}|{motivo_auditoria}",
     )
     db.add(
         AuditoriaRecibo(
@@ -280,8 +283,8 @@ async def aprobar_pago(
             recibo_id=recibo.id,
             pago_id=pago.id,
             usuario_id=usuario.id,
-            estado_viejo="EN_REVISION",
-            estado_nuevo="APROBADO",
+            estado_viejo=estado_previo_recibo,
+            estado_nuevo=recibo.estado,
             motivo=motivo_auditoria,
             prev_hash=prev_hash,
             record_hash=rec_hash,
@@ -295,12 +298,13 @@ async def aprobar_pago(
 @router.put(
     "/{pago_id}/rechazar",
     response_model=PagoResponse,
+    dependencies=[Depends(exigir_idempotencia("rechazar_pago:{pago_id}", roles=_ROLES_TESORERIA))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes o usuario fantasma"},
         404: {"description": "Pago o recibo no encontrado"},
-        409: {"description": "El pago no está en revisión o periodo cerrado"},
+        409: {"description": "El pago no está en revisión, periodo cerrado o Idempotency-Key repetida"},
     },
 )
 async def rechazar_pago(
@@ -310,11 +314,11 @@ async def rechazar_pago(
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    pago = await _obtener_pago(db, pago_id)
+    pago = await _obtener_pago(db, pago_id, for_update=True)
     if pago.estado != "EN_REVISION":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El pago no está en revisión")
 
-    recibo = await _obtener_recibo(db, pago.recibo_id)
+    recibo = await _obtener_recibo(db, pago.recibo_id, for_update=True)
     if recibo.bloqueado:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -322,12 +326,13 @@ async def rechazar_pago(
         )
 
     pago.estado = "RECHAZADO"
-    condo_id = int(getattr(recibo, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    condo_raw = getattr(recibo, "condominio_id", None)
+    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
     prev_hash, rec_hash = await sellar_cadena_worm(
         db,
         "auditoria_recibos",
         condo_id,
-        f"{recibo.id}|{pago.id}|{usuario.id}|EN_REVISION->RECHAZADO|{body.motivo}",
+        f"{recibo.id}|{pago.id}|{usuario.id}|{recibo.estado}->{recibo.estado}|{body.motivo}",
     )
     db.add(
         AuditoriaRecibo(
@@ -335,8 +340,8 @@ async def rechazar_pago(
             recibo_id=recibo.id,
             pago_id=pago.id,
             usuario_id=usuario.id,
-            estado_viejo="EN_REVISION",
-            estado_nuevo="RECHAZADO",
+            estado_viejo=recibo.estado,
+            estado_nuevo=recibo.estado,
             motivo=body.motivo,
             prev_hash=prev_hash,
             record_hash=rec_hash,

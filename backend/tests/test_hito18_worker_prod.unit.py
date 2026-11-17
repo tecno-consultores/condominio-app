@@ -222,8 +222,10 @@ async def test_qa_health_01_arranque_productivo_sin_mocks_y_cli(
         await conn.run_sync(Base.metadata.create_all)
 
     class _FakeRedisEmpty:
-        async def blpop(self, key: str, timeout: int = 1) -> None:
-            del key, timeout
+        async def blmove(
+            self, src: str, dst: str, timeout: int = 1, src_dir: str = "LEFT", dst_dir: str = "RIGHT"
+        ) -> None:
+            del src, dst, timeout, src_dir, dst_dir
             await asyncio.sleep(0)
             return None
 
@@ -279,8 +281,10 @@ def test_worker_cli_once_ejecuta_asyncio_run(
     asyncio.run(_init_db())
 
     class _FakeRedisSyncCli:
-        async def blpop(self, key: str, timeout: int = 1) -> None:
-            del key, timeout
+        async def blmove(
+            self, src: str, dst: str, timeout: int = 1, src_dir: str = "LEFT", dst_dir: str = "RIGHT"
+        ) -> None:
+            del src, dst, timeout, src_dir, dst_dir
             await asyncio.sleep(0)
             return None
 
@@ -357,24 +361,38 @@ async def test_consumidor_notificaciones_y_media_opcional(monkeypatch: pytest.Mo
     payload = json.dumps({"destinatarios": ["ok@test.com"], "asunto": "Aviso", "cuerpo": "Todo bien"}).encode("utf-8")
 
     class _RedisNotif:
-        async def blpop(self, key: str, timeout: int = 1) -> tuple[str, bytes] | None:
-            del key, timeout
+        def __init__(self) -> None:
+            self.lrem_calls = 0
+
+        async def blmove(
+            self, src: str, dst: str, timeout: int = 1, src_dir: str = "LEFT", dst_dir: str = "RIGHT"
+        ) -> bytes | None:
+            del src, dst, timeout, src_dir, dst_dir
             llamadas["notif"] += 1
             if llamadas["notif"] == 1:
                 raise RuntimeError("KeyDB reconectando")
             stop_notif.set()
-            return ("queue:notifications", payload)
+            return payload
 
+        async def lrem(self, queue: str, count: int, item: object) -> int:
+            del queue, count, item
+            self.lrem_calls += 1
+            return 1
+
+    redis_notif = _RedisNotif()
     monkeypatch.setenv("APP_ENV", "development")
     cfg = WorkerSettings(smtp_enabled=False, poll_seconds=0.01, media_enabled=True)
-    await worker_mod._loop_notificaciones(cfg, stop_notif, lambda: _RedisNotif())
+    await worker_mod._loop_notificaciones(cfg, stop_notif, lambda: redis_notif)
     assert llamadas["notif"] == 2
+    assert redis_notif.lrem_calls == 1
 
     stop_media = asyncio.Event()
 
     class _RedisMedia:
-        async def blpop(self, key: str, timeout: int = 1) -> None:
-            del key, timeout
+        async def blmove(
+            self, src: str, dst: str, timeout: int = 1, src_dir: str = "LEFT", dst_dir: str = "RIGHT"
+        ) -> None:
+            del src, dst, timeout, src_dir, dst_dir
             llamadas["media"] += 1
             if llamadas["media"] == 1:
                 raise RuntimeError("Cola media ocupada")

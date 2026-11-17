@@ -32,6 +32,8 @@ from src.worker import (
     generar_tareas_diarias_desde_plantillas,
 )
 
+HEADERS = {"Idempotency-Key": "44444444-4444-4444-4444-444444444444"}
+
 
 class FakeUser:
     def __init__(self, user_id: int = 1, rol: str = "PRESIDENTE", es_activo: bool = True) -> None:
@@ -243,6 +245,7 @@ def test_usuarios_pendientes_asignar_y_junta_cargos() -> None:
     )
     r_asig = client.put(
         "/api/usuarios/9/asignar",
+        headers=HEADERS,
         json={"unidad_id": 3, "tipo_ocupante": "PROPIETARIO", "rol": "PROPIETARIO"},
     )
     assert r_asig.status_code == 200
@@ -256,6 +259,7 @@ def test_usuarios_pendientes_asignar_y_junta_cargos() -> None:
     )
     r_asig_nuevo = client.put(
         "/api/usuarios/9/asignar",
+        headers=HEADERS,
         json={"unidad_id": 3, "tipo_ocupante": "INQUILINO", "rol": "INQUILINO"},
     )
     assert r_asig_nuevo.status_code == 200
@@ -266,6 +270,7 @@ def test_usuarios_pendientes_asignar_y_junta_cargos() -> None:
     assert (
         client.put(
             "/api/usuarios/999/asignar",
+            headers=HEADERS,
             json={"unidad_id": 3, "tipo_ocupante": "PROPIETARIO", "rol": "PROPIETARIO"},
         ).status_code
         == 404
@@ -274,6 +279,7 @@ def test_usuarios_pendientes_asignar_y_junta_cargos() -> None:
     assert (
         client.put(
             "/api/usuarios/9/asignar",
+            headers=HEADERS,
             json={"unidad_id": 999, "tipo_ocupante": "PROPIETARIO", "rol": "PROPIETARIO"},
         ).status_code
         == 404
@@ -281,19 +287,22 @@ def test_usuarios_pendientes_asignar_y_junta_cargos() -> None:
 
     # 5. Asignar cargo de Junta: usuario inexistente -> 404
     _setup(_mock_session(_result(None)), user=FakeUser(rol="PRESIDENTE"))
-    assert client.put("/api/junta/cargos", json={"usuario_id": 999, "cargo": "TESORERO"}).status_code == 404
+    assert (
+        client.put("/api/junta/cargos", headers=HEADERS, json={"usuario_id": 999, "cargo": "TESORERO"}).status_code
+        == 404
+    )
 
     # 6. Asignar cargo de Junta: inquilino sin contrato de propietario -> 400
     fantasma.es_activo = True
     _setup(_mock_session(_result(fantasma), _result(None)), user=FakeUser(rol="PRESIDENTE"))
-    r_junta_fail = client.put("/api/junta/cargos", json={"usuario_id": 9, "cargo": "TESORERO"})
+    r_junta_fail = client.put("/api/junta/cargos", headers=HEADERS, json={"usuario_id": 9, "cargo": "TESORERO"})
     assert r_junta_fail.status_code == 400
 
     # 7. Asignar cargo de Junta: propietario activo con contrato -> 200
     contrato.es_activo = True
     contrato.tipo_ocupante = "PROPIETARIO"
     _setup(_mock_session(_result(fantasma), _result(contrato)), user=FakeUser(rol="PRESIDENTE"))
-    r_junta_ok = client.put("/api/junta/cargos", json={"usuario_id": 9, "cargo": "TESORERO"})
+    r_junta_ok = client.put("/api/junta/cargos", headers=HEADERS, json={"usuario_id": 9, "cargo": "TESORERO"})
     assert r_junta_ok.status_code == 200
     assert r_junta_ok.json()["rol"] == "TESORERO"
     app.dependency_overrides.clear()
@@ -354,29 +363,29 @@ def test_flujo_completo_incidencias_y_me_sumo() -> None:
 
     # 5. Adherir ('Me sumo') exitoso -> incrementa adhesiones_count a 4
     _setup(_mock_session(_result(inc), _result(None)), user=FakeUser(user_id=8, rol="INQUILINO"))
-    r_adh = client.post("/api/incidencias/5/adherir")
+    r_adh = client.post("/api/incidencias/5/adherir", headers=HEADERS)
     assert r_adh.status_code == 200
     assert r_adh.json()["adhesiones_count"] == 4
 
     # 6. Adherir a incidencia inexistente -> 404
     _setup(_mock_session(_result(None)), user=FakeUser(user_id=8, rol="INQUILINO"))
-    assert client.post("/api/incidencias/999/adherir").status_code == 404
+    assert client.post("/api/incidencias/999/adherir", headers=HEADERS).status_code == 404
 
     # 7. Adherir cuando el vecino ya se sumó -> 409
     adh_existente = IncidenciaAdhesion(id=1, incidencia_id=5, usuario_id=8)
     _setup(_mock_session(_result(inc), _result(adh_existente)), user=FakeUser(user_id=8, rol="INQUILINO"))
-    assert client.post("/api/incidencias/5/adherir").status_code == 409
+    assert client.post("/api/incidencias/5/adherir", headers=HEADERS).status_code == 409
 
     # 8. Adherir con colisión concurrente IntegrityError -> 409
     session_race = _mock_session(_result(inc), _result(None))
     session_race.commit.side_effect = IntegrityError("dup", {}, Exception("dup"))
     _setup(session_race, user=FakeUser(user_id=8, rol="INQUILINO"))
-    assert client.post("/api/incidencias/5/adherir").status_code == 409
+    assert client.post("/api/incidencias/5/adherir", headers=HEADERS).status_code == 409
 
     # 9. Adherir a incidencia CERRADA -> 409
     inc.estado = "CERRADO"
     _setup(_mock_session(_result(inc)), user=FakeUser(user_id=8, rol="INQUILINO"))
-    assert client.post("/api/incidencias/5/adherir").status_code == 409
+    assert client.post("/api/incidencias/5/adherir", headers=HEADERS).status_code == 409
     app.dependency_overrides.clear()
 
 
@@ -392,6 +401,7 @@ def test_conserjeria_plantillas_tareas_y_cierre_automatico_incidencia() -> None:
     _setup(_mock_session(), user=FakeUser(rol="PRESIDENTE"))
     r_plant = client.post(
         "/api/tareas/plantillas",
+        headers=HEADERS,
         json={"titulo": "Baldeo de entrada", "area": "Planta Baja", "frecuencia": "DIARIA"},
     )
     assert r_plant.status_code == 201
@@ -410,6 +420,7 @@ def test_conserjeria_plantillas_tareas_y_cierre_automatico_incidencia() -> None:
     _setup(_mock_session(_result(inc)), user=FakeUser(rol="PRESIDENTE"))
     r_td = client.post(
         "/api/tareas/diarias",
+        headers=HEADERS,
         json={"titulo": "Lubricar riel de portón", "area": "Portón", "incidencia_id": 12},
     )
     assert r_td.status_code == 201
@@ -419,6 +430,7 @@ def test_conserjeria_plantillas_tareas_y_cierre_automatico_incidencia() -> None:
     _setup(_mock_session(_result(None)), user=FakeUser(rol="PRESIDENTE"))
     r_td_404 = client.post(
         "/api/tareas/diarias",
+        headers=HEADERS,
         json={"titulo": "Revisar foco", "area": "Pasillo", "incidencia_id": 999},
     )
     assert r_td_404.status_code == 404
@@ -427,6 +439,7 @@ def test_conserjeria_plantillas_tareas_y_cierre_automatico_incidencia() -> None:
     _setup(_mock_session(), user=FakeUser(rol="VICEPRESIDENTE"))
     r_td_simple = client.post(
         "/api/tareas/diarias",
+        headers=HEADERS,
         json={"titulo": "Limpiar vidrios", "area": "Lobby"},
     )
     assert r_td_simple.status_code == 201
@@ -458,6 +471,7 @@ def test_conserjeria_plantillas_tareas_y_cierre_automatico_incidencia() -> None:
     _setup(_mock_session(_result(tarea_obj), _result(inc)), user=FakeUser(rol="CONSERJE"))
     r_comp = client.put(
         "/api/tareas/20/completar",
+        headers=HEADERS,
         json={"url_evidencia": "s3://condominio-media/evidencias/porton.avif"},
     )
     assert r_comp.status_code == 200
@@ -476,11 +490,11 @@ def test_conserjeria_plantillas_tareas_y_cierre_automatico_incidencia() -> None:
         url_evidencia=None,
     )
     _setup(_mock_session(_result(tarea_simple)), user=FakeUser(rol="CONSERJE"))
-    assert client.put("/api/tareas/21/completar", json={}).status_code == 200
+    assert client.put("/api/tareas/21/completar", headers=HEADERS, json={}).status_code == 200
 
     # 9. Completar tarea inexistente -> 404
     _setup(_mock_session(_result(None)), user=FakeUser(rol="CONSERJE"))
-    assert client.put("/api/tareas/999/completar", json={}).status_code == 404
+    assert client.put("/api/tareas/999/completar", headers=HEADERS, json={}).status_code == 404
     app.dependency_overrides.clear()
 
 
@@ -502,6 +516,7 @@ def test_galeria_voceros_limite_estricto_30_fotos_por_mes() -> None:
     _setup(_mock_session(_result_list(fotos_previas)), user=FakeUser(user_id=4, rol="VOCERO"))
     r_ok = client.post(
         "/api/voceros/fotos",
+        headers=HEADERS,
         json={
             "periodo": "2026-10",
             "area": "Jardines",
@@ -526,6 +541,7 @@ def test_galeria_voceros_limite_estricto_30_fotos_por_mes() -> None:
     _setup(_mock_session(_result_list(fotos_llenas)), user=FakeUser(user_id=4, rol="VOCERO"))
     r_limite = client.post(
         "/api/voceros/fotos",
+        headers=HEADERS,
         json={
             "periodo": "2026-10",
             "area": "Jardines",
@@ -552,6 +568,7 @@ def test_bitacora_secretario_y_comunicados_con_anti_ssrf() -> None:
     _setup(_mock_session(), user=FakeUser(user_id=6, rol="SECRETARIO"))
     r_acta = client.post(
         "/api/bitacora/acta",
+        headers=HEADERS,
         json={
             "fecha": "2026-10-29",
             "hora": "19:30",
@@ -578,6 +595,7 @@ def test_bitacora_secretario_y_comunicados_con_anti_ssrf() -> None:
     _setup(_mock_session(), user=FakeUser(user_id=6, rol="SECRETARIO"))
     r_com = client.post(
         "/api/comunicados",
+        headers=HEADERS,
         json={"titulo": "Corte programado de agua", "contenido": "Mantenimiento de tanque el sábado."},
     )
     assert r_com.status_code == 201
@@ -586,6 +604,7 @@ def test_bitacora_secretario_y_comunicados_con_anti_ssrf() -> None:
     _setup(_mock_session(), user=FakeUser(user_id=6, rol="SECRETARIO"))
     r_ssrf = client.post(
         "/api/comunicados",
+        headers=HEADERS,
         json={
             "titulo": "Enlace malicioso",
             "contenido": "Prueba SSRF",

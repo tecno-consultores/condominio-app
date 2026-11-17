@@ -30,7 +30,7 @@
 | **Hito 8** | Certificación Integral E2E, Geometría Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Fase 6) | `05_ARQUITECTURA_GUI...` | ✅ Completado | `100%` |
 | **Hito 19** | Contención Operativa, Gobernanza v3.1.0 y Docker Hub Multi-Arch (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
 | **Hito 20** | Defensa PG17 RLS Single-Condo, HKDF/JWT, KeyDB y RBAC/IDOR (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
-| **Hito 21** | Exactitud Contable LPH, Idempotencia con Replay y Worker Real (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 21** | Exactitud Contable LPH, Idempotencia con Replay y Worker Real (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
 | **Hito 22** | Rescate Frontend Mobile-First, Shell Unificado y WCAG 2.2 AA (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
 | **Hito 23** | Erradicación Anti-Mock Blindness QA 11X y Docs Thin-Repo (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
 | **Hito 24** | Recuperación de Contraseña, Multi-Inmueble y Estacionamientos/Maleteros (Fase 8) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
@@ -234,7 +234,7 @@
 
 ---
 
-> **🛠️ FASE 7: Remediación Integral Post-Auditoría `v1.0.0` (Hitos 19 al 23 — Spec 13) — `[40% EN PROGRESO]`**  
+> **🛠️ FASE 7: Remediación Integral Post-Auditoría `v1.0.0` (Hitos 19 al 23 — Spec 13) — `[60% EN PROGRESO]`**  
 > **Política de Distribución Aprobada:** Sin publicación en `npmjs.com` (`"private": true`); distribución exclusiva en Docker Hub mediante 2 imágenes multi-arquitectura (`linux/amd64,linux/arm64`): `sinfallas/condominio-backend` y `sinfallas/condominio-frontend` para despliegues Single-Condo con PostgreSQL 17 RLS activo.
 
 ## ✅ Hito 19: Contención Operativa, Gobernanza v3.1.0 y Docker Hub Multi-Arch
@@ -251,11 +251,11 @@
   - [x] **Sub-tarea 20.2 (Subclaves `HKDF-SHA256`, TTL Revocación 7d, KeyDB Fail-Closed y Anti-SSRF):** Derivar subclaves independientes en `security.py`, exigir `typ == "access"`, alinear TTL de revocación en KeyDB (`>= 7 días`) fail-closed sin fugas `_local_revoked_*` en RAM, aislar `logout` por `sid` sin borrar bloqueos admin en `login`, subir `PBKDF2 >= 600_000` en `asyncio.to_thread` con contraseñas `8..128`, implementar lockout Lua atómico (`ip` + `correo`), bloquear `javascript:`/`//` en `ComunicadoCreate` y usar DNS asíncrono normalizando minúsculas en `accesos.py`.
   - [x] **Sub-tarea 20.3 (Middleware HTTP, Cabeceras Nginx OSHP y Cierre RBAC/IDOR):** Exigir `X-CSRF-Token` cuando haya sesión por cookie, proteger `/metrics`, preservar cabeceras OSHP/CSP dentro de `location /assets/` + `gzip on` + directorios `/tmp/nginx_*_temp` en `frontend/nginx.conf`/`Dockerfile`, bloquear escalación `VICEPRESIDENTE -> PRESIDENTE`, exigir `ContratoOcupacion.fecha_fin.is_(None)` en `_verificar_acceso_unidad` y restringir exposición horizontal en `estructura/unidades`, `finanzas/resumen`, `paqueteria`, `reservas` y `accesos/pases/mios`.
 
-## ⏳ Hito 21: Exactitud Contable LPH, Idempotencia con Replay y Worker Real
+## ✅ Hito 21: Exactitud Contable LPH, Idempotencia con Replay y Worker Real
 - **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.3)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 21.1 (Desbloqueo Cross-Módulo y Cuadre Contable LPH):** Resolver el deadlock `HTTP 409` integrando cargos por daños/uso de `AreaSocial` en `facturar-periodo` vía `UPSERT` de `ReciboItem`, impedir `cierre-mensual` con pagos `EN_REVISION`, añadir `with_for_update()` + `Idempotency-Key` en `rechazar_pago`, cuadrar `Recibo` vs `ReciboItem` al cubrir con `credito_disponible_usd` + `AuditoriaRecibo`, proteger `FondoCondominio` contra saldos negativos, corregir `MAYORIA_SIMPLE > 50.0000%`, `Decimal("0.00")` falsy y acotar `Decimal` (`allow_inf_nan=False`, `le`) + mes `01..12` en `schemas.py`.
-  - [ ] **Sub-tarea 21.2 (Idempotencia Transaccional, Paginación y Worker Resiliente):** Implementar gestor `idemp:{condominio_id}:{usuario_id}:{scope}:{key}` con *response replay* y liberación en `4xx/5xx` en las 14 mutaciones faltantes, añadir `limit`/`offset` en los 14 listados `GET` y `response_model` en los 7 endpoints restantes, conectar subida segura de comprobantes/evidencias (`read_uploaded_file_safely` + `validate_file_magic_bytes`) con `convertir_y_subir_avif`, capturar `RedisError`/JSON inválido, migrar `BLPOP` a `BLMOVE` con backoff, respetar `PlantillaTarea.frecuencia` y desacoplar `HEALTHCHECK` por `CONTAINER_ROLE`.
+  - [x] **Sub-tarea 21.1 (Desbloqueo Cross-Módulo y Cuadre Contable LPH):** Resolver el deadlock `HTTP 409` integrando cargos por daños/uso de `AreaSocial` en `facturar-periodo` vía `UPSERT` de `ReciboItem`, impedir `cierre-mensual` con pagos `EN_REVISION`, añadir `with_for_update()` + `Idempotency-Key` en `rechazar_pago`, cuadrar `Recibo` vs `ReciboItem` al cubrir con `credito_disponible_usd` + `AuditoriaRecibo`, proteger `FondoCondominio` contra saldos negativos, corregir `MAYORIA_SIMPLE > 50.0000%`, `Decimal("0.00")` falsy y acotar `Decimal` (`allow_inf_nan=False`, `le`) + mes `01..12` en `schemas.py`.
+  - [x] **Sub-tarea 21.2 (Idempotencia Transaccional, Paginación y Worker Resiliente):** Implementar gestor `idemp:{condominio_id}:{usuario_id}:{scope}:{key}` con *response replay* y liberación en `4xx/5xx` en las 14 mutaciones faltantes, añadir `limit`/`offset` en los 14 listados `GET` y `response_model` en los 7 endpoints restantes, conectar subida segura de comprobantes/evidencias (`read_uploaded_file_safely` + `validate_file_magic_bytes`) con `convertir_y_subir_avif`, capturar `RedisError`/JSON inválido, migrar `BLPOP` a `BLMOVE` con backoff, respetar `PlantillaTarea.frecuencia` y desacoplar `HEALTHCHECK` por `CONTAINER_ROLE`.
 
 ## ⏳ Hito 22: Rescate Frontend Mobile-First, Shell Unificado y WCAG 2.2 AA
 - **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.4)

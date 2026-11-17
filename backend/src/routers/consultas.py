@@ -4,15 +4,20 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.database import DEFAULT_CONDOMINIO_ID, get_db, sellar_cadena_worm
-from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia,
+    get_current_user,
+    verificar_roles,
+    verificar_usuario_activo,
+)
 from src.finanzas import (
     CUATRO_DECIMALES,
     calcular_ip_hash_voto,
@@ -30,7 +35,6 @@ from src.models import (
     Usuario,
     VotoConsulta,
 )
-from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import (
     CerrarConsultaResponse,
     ConsultaCreate,
@@ -46,6 +50,7 @@ from src.security import get_vote_signing_key
 router = APIRouter(
     prefix="/api/consultas",
     tags=["Gobernanza y Cartas Consulta LPH"],
+    route_class=IdempotentAPIRoute,
     responses={401: {"description": "No autenticado"}},
 )
 
@@ -189,31 +194,30 @@ async def _armar_detalle_consulta(
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=ConsultaDetalleResponse,
+    dependencies=[Depends(exigir_idempotencia("crear_consulta", roles=_ROLES_GOBERNANZA))],
     responses={
-        400: {"description": "Cuerpo JSON malformado"},
+        400: {"description": "Cuerpo JSON malformado o fecha de cierre inválida"},
         403: {"description": "Solo Presidente o Secretario pueden convocar consultas"},
         409: {"description": "Petición duplicada (Idempotency-Key)"},
     },
 )
 async def crear_consulta(
     datos: ConsultaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> ConsultaDetalleResponse:
     """Crea una nueva Carta Consulta (Art. 23 LPH) o convocatoria de Asamblea (Art. 24 LPH)."""
     verificar_roles(usuario, _ROLES_GOBERNANZA)
 
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"crear_consulta:{usuario.id}")
-    if not es_unica:
+    ahora = datetime.now(UTC)
+    cierre_utc = datos.fecha_cierre if datos.fecha_cierre.tzinfo is not None else datos.fecha_cierre.replace(tzinfo=UTC)
+    if cierre_utc <= ahora:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha de cierre de la consulta debe ser posterior a la fecha actual.",
         )
 
     quorum_minimo = umbral_quorum_por_regla(datos.regla_quorum)
-    ahora = datetime.now(UTC)
     consulta = ConsultaComunitaria(
         titulo=datos.titulo.strip(),
         descripcion_legal=datos.descripcion_legal.strip(),
@@ -221,7 +225,7 @@ async def crear_consulta(
         regla_quorum=datos.regla_quorum,
         quorum_minimo_alicuota=quorum_minimo,
         fecha_apertura=ahora,
-        fecha_cierre=datos.fecha_cierre,
+        fecha_cierre=cierre_utc,
         estado="ABIERTA",
         creada_por_id=usuario.id,
     )
@@ -248,6 +252,8 @@ async def crear_consulta(
     responses={403: {"description": "Usuario Fantasma o inactivo"}},
 )
 async def listar_consultas(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[ConsultaResumenResponse]:
@@ -257,6 +263,8 @@ async def listar_consultas(
         select(ConsultaComunitaria)
         .options(selectinload(ConsultaComunitaria.opciones), selectinload(ConsultaComunitaria.votos))
         .order_by(ConsultaComunitaria.id.desc())
+        .limit(limit)
+        .offset(offset)
     )
     consultas = list(res.scalars().all())
     unidades_propias = await _unidades_usuario(db, usuario.id)
@@ -352,7 +360,7 @@ async def _validar_derecho_voto_unidad(
 
 
 async def _validar_consulta_abierta_en_plazo(db: AsyncSession, consulta_id: int) -> ConsultaComunitaria:
-    """Bloquea y valida que la consulta exista, siga abierta y esté dentro del plazo de cierre."""
+    """Bloquea y valida que la consulta exista, siga abierta y esté dentro del plazo de votación."""
     res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id).with_for_update())
     consulta = res_c.scalars().first()
     if not consulta:
@@ -363,10 +371,21 @@ async def _validar_consulta_abierta_en_plazo(db: AsyncSession, consulta_id: int)
             detail="La consulta ya se encuentra cerrada y no admite nuevos votos.",
         )
 
+    ahora = datetime.now(UTC)
+    apertura_utc = (
+        consulta.fecha_apertura
+        if consulta.fecha_apertura.tzinfo is not None
+        else consulta.fecha_apertura.replace(tzinfo=UTC)
+    )
+    if ahora < apertura_utc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La consulta aún no inicia su periodo de votación.",
+        )
     cierre_utc = (
         consulta.fecha_cierre if consulta.fecha_cierre.tzinfo is not None else consulta.fecha_cierre.replace(tzinfo=UTC)
     )
-    if datetime.now(UTC) > cierre_utc:
+    if ahora > cierre_utc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El plazo de votación de esta consulta ya venció.",
@@ -378,6 +397,7 @@ async def _validar_consulta_abierta_en_plazo(db: AsyncSession, consulta_id: int)
     "/{consulta_id}/votar",
     status_code=status.HTTP_201_CREATED,
     response_model=ReciboVotoResponse,
+    dependencies=[Depends(exigir_idempotencia("votar:{consulta_id}"))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         403: {"description": "Sin derecho a voto sobre la unidad o inquilino sin poder"},
@@ -389,22 +409,11 @@ async def votar_en_consulta(
     consulta_id: int,
     datos: VotarConsultaRequest,
     request: Request,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> ReciboVotoResponse:
     """Registra el voto inmutable de una unidad ponderado por su alícuota y emite recibo HMAC-SHA256."""
     verificar_usuario_activo(usuario)
-
-    es_unica = await check_and_set_idempotency_key(
-        redis_conn, idempotency_key, scope=f"votar:{consulta_id}:{datos.unidad_id}"
-    )
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     consulta = await _validar_consulta_abierta_en_plazo(db, consulta_id)
 
@@ -535,31 +544,38 @@ def _generar_texto_acta_cierre(
     )
 
 
+def _validar_plazo_cierre_consulta(
+    consulta: ConsultaComunitaria,
+    participacion: Decimal,
+    ahora: datetime,
+) -> None:
+    cierre_utc = (
+        consulta.fecha_cierre if consulta.fecha_cierre.tzinfo is not None else consulta.fecha_cierre.replace(tzinfo=UTC)
+    )
+    if ahora < cierre_utc and participacion < Decimal("100.0000"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede cerrar la consulta antes de su fecha de cierre mientras falten unidades por votar.",
+        )
+
+
 @router.post(
     "/{consulta_id}/cerrar",
     response_model=CerrarConsultaResponse,
+    dependencies=[Depends(exigir_idempotencia("cerrar_consulta:{consulta_id}", roles=_ROLES_GOBERNANZA))],
     responses={
         403: {"description": "Solo Presidente o Secretario pueden cerrar consultas"},
         404: {"description": "Consulta no encontrada"},
-        409: {"description": "La consulta ya fue cerrada o Idempotency-Key duplicada"},
+        409: {"description": "La consulta ya fue cerrada, aún está en plazo o Idempotency-Key duplicada"},
     },
 )
 async def cerrar_consulta(
     consulta_id: int,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> CerrarConsultaResponse:
     """Cierra el escrutinio de la consulta, determina su estado legal y asienta el acta en BitacoraActa."""
     verificar_roles(usuario, _ROLES_GOBERNANZA)
-
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"cerrar_consulta:{consulta_id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id).with_for_update())
     consulta = res_c.scalars().first()
@@ -576,6 +592,8 @@ async def cerrar_consulta(
     participacion, aprobatoria, opciones_resp = _calcular_metricas_consulta(
         opciones, votos, quorum_min, consulta.regla_quorum
     )
+    ahora = datetime.now(UTC)
+    _validar_plazo_cierre_consulta(consulta, participacion, ahora)
     aprobatorias_ids = {op.id for op in opciones if op.es_opcion_aprobatoria}
     alicuotas_map = {op.id: op.alicuota_acumulada for op in opciones_resp}
     estado_final, _, _ = evaluar_escrutinio_consulta(
@@ -589,7 +607,6 @@ async def cerrar_consulta(
         hashlib.sha256,
     ).hexdigest()
 
-    ahora = datetime.now(UTC)
     contenido_acta = _generar_texto_acta_cierre(
         consulta, estado_final, participacion, aprobatoria, opciones_resp, len(votos), hash_global
     )

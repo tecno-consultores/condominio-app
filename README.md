@@ -26,7 +26,7 @@ condominio-app/
 ├── architecture/           # Modelo arquitectónico FINOS CALM 1.2 (qa-11x.calm.json, 7 controles 11X)
 ├── artifacts/sbom/         # Inventario CycloneDX generado por scripts/generar-sbom-cyclonedx.sh (ignorado en git)
 ├── backend/                # API FastAPI + Worker Unificado (CONTAINER_ROLE=api|worker)
-│   ├── src/                # Código fuente (models, schemas, routers, finanzas, security, redis_client, worker, bootstrap)
+│   ├── src/                # Código fuente (models, schemas, routers, finanzas, security, redis_client/idempotency, worker*, bootstrap)
 │   ├── tests/              # Suites unitarias aisladas (test_*.unit.py, cobertura >= 95%)
 │   ├── test/               # Escenarios BDD Gherkin (Karate Labs: api_test.feature)
 │   ├── alembic/            # Migraciones verificadas contra PostgreSQL 17 real
@@ -138,7 +138,7 @@ docker compose -f docker-compose.prod.yml up -d
 11. **[`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)** — Diseño UX/UI de "Hospitalidad Residencial", Sistema de Tokens `OKLCH` + `light-dark()`, Navegación agrupada con SVG, Dashboard Contextual, Estados Vacíos ilustrados, `View Transitions API`, `@starting-style` + Bottom Sheet en `<dialog>` y `calc-size()`.
 12. **[`docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md`](./docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md)** — Endurecimiento Backend Fase 5 (Hito 17): packaging `--no-dev`, Fail-Fast en producción, eliminación de SHA-256 sin sal, ciclo de sesión/CSRF real, bloqueo pesimista PostgreSQL (`with_for_update()`), unicidad contable LPH y aislamiento multi-tenant PostgreSQL 17 `FORCE ROW LEVEL SECURITY` en las 27 tablas.
 13. **[`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md)** — Gobernanza Thin-Repo, Higiene AST `--code-only` sin daemons, `Rule Zero` (`Makefile` unificado + CI/CD GitHub Actions en verde), Infraestructura Productiva Multi-Stage No-Root, Worker AVIF/SMTP (`QA-HEALTH-01`), Bootstrap Día 0 (`python -m src.bootstrap`) y Certificación `v1.0.0`.
-14. **[`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md)** — Plan maestro Post-Auditoría `v1.1.0`–`v1.2.0`: Contención Operativa, Gobernanza Thin-Repo `v3.1.0`, FINOS CALM `1.2`, CI/CD Docker Hub Multi-Arch (`Hito 19` ✅), Defensa PG17 RLS/HKDF/RBAC (`Hito 20` ✅), Exactitud LPH (`Hito 21`), Rescate Frontend (`Hito 22`), Erradicación Anti-Mock (`Hito 23`) y Completitud Funcional PropTech (`Hitos 24–26`).
+14. **[`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md)** — Plan maestro Post-Auditoría `v1.1.0`–`v1.2.0`: Contención Operativa, Gobernanza Thin-Repo `v3.1.0`, FINOS CALM `1.2`, CI/CD Docker Hub Multi-Arch (`Hito 19` ✅), Defensa PG17 RLS/HKDF/RBAC (`Hito 20` ✅), Exactitud LPH/Replay/Worker (`Hito 21` ✅), Rescate Frontend (`Hito 22`), Erradicación Anti-Mock (`Hito 23`) y Completitud Funcional PropTech (`Hitos 24–26`).
 
 ---
 

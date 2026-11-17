@@ -2,21 +2,22 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import DEFAULT_CONDOMINIO_ID, bind_rls_tenant, get_db
-from src.dependencies import get_current_user, get_optional_active_user, verificar_roles
-from src.models import ContratoOcupacion, Estructura, Unidad, Usuario
-from src.redis_client import (
-    check_and_set_idempotency_key,
-    clear_user_session_revocation,
-    get_redis_client,
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia,
+    get_current_user,
+    get_optional_active_user,
+    verificar_roles,
 )
+from src.models import ContratoOcupacion, Estructura, Unidad, Usuario
+from src.redis_client import clear_user_session_revocation, get_redis_client
 from src.schemas import (
     AlicuotaUpdateRequest,
     EstructuraGenerarRequest,
@@ -28,7 +29,7 @@ from src.schemas import (
     UsuarioResponse,
 )
 
-router = APIRouter(prefix="/api", tags=["Administracion"])
+router = APIRouter(prefix="/api", tags=["Administracion"], route_class=IdempotentAPIRoute)
 
 _ROLES_DIRECTIVA = ("PRESIDENTE", "VICEPRESIDENTE")
 _ROLES_ALICUOTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO")
@@ -37,13 +38,15 @@ _ROLES_JUNTA_LPH = frozenset({"PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRE
 
 @router.get("/estructura/unidades", response_model=list[UnidadResponse] | list[UnidadPublicaResponse])
 async def listar_unidades(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario_activo: Usuario | None = Depends(get_optional_active_user),
 ) -> list[UnidadResponse] | list[UnidadPublicaResponse]:
     """Lista unidades (DTO financiero solo para Junta Directiva; DTO público mínimo para residentes/anónimos)."""
     if usuario_activo is None:
         await bind_rls_tenant(db, DEFAULT_CONDOMINIO_ID)
-    res = await db.execute(select(Unidad).order_by(Unidad.identificador.asc()))
+    res = await db.execute(select(Unidad).order_by(Unidad.identificador.asc()).limit(limit).offset(offset))
     unidades = list(res.scalars().all())
     if usuario_activo is not None and getattr(usuario_activo, "rol", "") in _ROLES_JUNTA_LPH:
         return [UnidadResponse.model_validate(u) for u in unidades]
@@ -54,6 +57,7 @@ async def listar_unidades(
     "/estructura/generar",
     response_model=EstructuraGenerarResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("estructura", roles=_ROLES_DIRECTIVA))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
@@ -64,24 +68,11 @@ async def listar_unidades(
 )
 async def generar_estructura(
     datos: EstructuraGenerarRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> EstructuraGenerarResponse:
     """Crea una estructura (EDIFICIO/CALLE) y autogenera su lote de unidades de forma idempotente."""
     verificar_roles(usuario, _ROLES_DIRECTIVA)
-
-    es_nueva = await check_and_set_idempotency_key(
-        redis_client,
-        idempotency_key,
-        scope=f"estructura:{usuario.id}",
-    )
-    if not es_nueva:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta operación de generación de estructura ya fue procesada.",
-        )
 
     estructura = Estructura(nombre=datos.nombre, tipo=datos.tipo)
     db.add(estructura)
@@ -133,12 +124,16 @@ async def generar_estructura(
     },
 )
 async def listar_usuarios_pendientes(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[Usuario]:
     """Lista los Usuarios Fantasma (es_activo=False) pendientes de aprobación por la Junta."""
     verificar_roles(usuario, _ROLES_DIRECTIVA)
-    res = await db.execute(select(Usuario).where(Usuario.es_activo.is_(False)).order_by(Usuario.id.asc()))
+    res = await db.execute(
+        select(Usuario).where(Usuario.es_activo.is_(False)).order_by(Usuario.id.asc()).limit(limit).offset(offset)
+    )
     return list(res.scalars().all())
 
 
@@ -215,11 +210,13 @@ def _validar_jerarquia_directiva_asignacion(
 @router.put(
     "/usuarios/{usuario_id}/asignar",
     response_model=UsuarioResponse,
+    dependencies=[Depends(exigir_idempotencia("asignar_usuario:{usuario_id}", roles=_ROLES_DIRECTIVA))],
     responses={
         400: {"description": "Inquilino no puede ejercer cargo de Junta Directiva"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Usuario o unidad no encontrada"},
+        409: {"description": "Petición duplicada (Idempotency-Key ya procesada)"},
     },
 )
 async def asignar_y_activar_usuario(
@@ -269,11 +266,13 @@ async def asignar_y_activar_usuario(
 @router.put(
     "/junta/cargos",
     response_model=UsuarioResponse,
+    dependencies=[Depends(exigir_idempotencia("junta_cargos", roles=("PRESIDENTE",)))],
     responses={
         400: {"description": "El usuario no cumple el requisito de ser propietario activo"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         404: {"description": "Usuario no encontrado"},
+        409: {"description": "Petición duplicada (Idempotency-Key ya procesada)"},
     },
 )
 async def asignar_cargo_junta(
@@ -313,6 +312,7 @@ async def asignar_cargo_junta(
 @router.put(
     "/estructura/unidades/{unidad_id}/alicuota",
     response_model=UnidadResponse,
+    dependencies=[Depends(exigir_idempotencia("alicuota:{unidad_id}", roles=_ROLES_ALICUOTA))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
@@ -324,24 +324,11 @@ async def asignar_cargo_junta(
 async def actualizar_alicuota_unidad(
     unidad_id: int,
     datos: AlicuotaUpdateRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_client: Any = Depends(get_redis_client),
     usuario_actual: Usuario = Depends(get_current_user),
 ) -> UnidadResponse:
     """Actualiza la alícuota y/o cuota fija mensual de una unidad (Art. 7 LPH)."""
     verificar_roles(usuario_actual, _ROLES_ALICUOTA)
-
-    es_nueva = await check_and_set_idempotency_key(
-        redis_client,
-        idempotency_key,
-        scope=f"alicuota:{unidad_id}",
-    )
-    if not es_nueva:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta actualización de alícuota ya fue procesada.",
-        )
 
     res_u = await db.execute(select(Unidad).where(Unidad.id == unidad_id))
     unidad = res_u.scalars().first()

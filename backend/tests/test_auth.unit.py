@@ -33,9 +33,11 @@ def _limpiar_estado_auth(client: TestClient) -> Any:
 def test_register_user_success(client: TestClient) -> None:
     """Simula el registro exitoso aislando la base de datos y Redis"""
     mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars().first.return_value = None
-    mock_session.execute.return_value = mock_result
+    mock_no_user = MagicMock()
+    mock_no_user.scalars().first.return_value = None
+    mock_unidad_ok = MagicMock()
+    mock_unidad_ok.scalars().first.return_value = 1
+    mock_session.execute.side_effect = [mock_no_user, mock_unidad_ok]
     mock_session.add = MagicMock()
 
     async def mock_flush(*args: object, **kwargs: object) -> None:
@@ -149,9 +151,11 @@ def test_register_missing_idempotency_key(client: TestClient) -> None:
 def test_register_user_db_failure(client: TestClient) -> None:
     """Simula una falla catastrófica en la BD durante el registro"""
     mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars().first.return_value = None
-    mock_session.execute.return_value = mock_result
+    mock_no_user = MagicMock()
+    mock_no_user.scalars().first.return_value = None
+    mock_unidad_ok = MagicMock()
+    mock_unidad_ok.scalars().first.return_value = 1
+    mock_session.execute.side_effect = [mock_no_user, mock_unidad_ok]
     mock_session.add = MagicMock()
     mock_session.commit.side_effect = Exception("DB Connection Lost")
 
@@ -182,9 +186,11 @@ def test_register_user_db_failure(client: TestClient) -> None:
 def test_register_user_integrity_error(client: TestClient) -> None:
     """Un error de integridad en BD se traduce en 400 (dato inválido), nunca en 500"""
     mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars().first.return_value = None
-    mock_session.execute.return_value = mock_result
+    mock_no_user = MagicMock()
+    mock_no_user.scalars().first.return_value = None
+    mock_unidad_ok = MagicMock()
+    mock_unidad_ok.scalars().first.return_value = 1
+    mock_session.execute.side_effect = [mock_no_user, mock_unidad_ok]
     mock_session.add = MagicMock()
     mock_session.commit.side_effect = IntegrityError("INSERT usuarios", {}, Exception("duplicado"))
 

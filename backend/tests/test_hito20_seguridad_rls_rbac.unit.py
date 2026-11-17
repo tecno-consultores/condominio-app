@@ -471,17 +471,22 @@ async def test_rbac_idor_fail_closed_fecha_fin_y_aislamiento_horizontal(client: 
     res_p.scalars().first.return_value = pres_actual
     db_vp = AsyncMock()
     db_vp.execute.side_effect = [res_f, res_p]
+    mock_redis_vp = AsyncMock()
+    mock_redis_vp.set.return_value = True
     app.dependency_overrides[get_current_user] = lambda: vp
     app.dependency_overrides[get_db] = lambda: db_vp
+    app.dependency_overrides[get_redis_client] = lambda: mock_redis_vp
 
     r_esc1 = client.put(
         "/api/usuarios/9/asignar",
+        headers={"Idempotency-Key": "20000000-0000-4000-8000-000000000001"},
         json={"unidad_id": 1, "tipo_ocupante": "PROPIETARIO", "rol": "PRESIDENTE"},
     )
     assert r_esc1.status_code == 403
 
     r_esc2 = client.put(
         "/api/usuarios/1/asignar",
+        headers={"Idempotency-Key": "20000000-0000-4000-8000-000000000002"},
         json={"unidad_id": 1, "tipo_ocupante": "PROPIETARIO", "rol": "PROPIETARIO"},
     )
     assert r_esc2.status_code == 403

@@ -337,21 +337,22 @@ def test_rechazar_pago_success(client: TestClient) -> None:
     session = _mock_session(_result(pago), _result(recibo))
     _setup(session)
 
-    response = client.put("/api/pagos/5/rechazar", json={"motivo": "Comprobante ilegible"})
+    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "Comprobante ilegible"})
 
     assert response.status_code == 200
     assert response.json()["estado"] == "RECHAZADO"
     assert pago.estado == "RECHAZADO"
     audit = session.add.call_args[0][0]
     assert audit.motivo == "Comprobante ilegible"
-    assert audit.estado_nuevo == "RECHAZADO"
+    assert audit.estado_viejo == "PENDIENTE"
+    assert audit.estado_nuevo == "PENDIENTE"
 
     app.dependency_overrides = {}
 
 
 def test_rechazar_pago_sin_motivo_es_422(client: TestClient) -> None:
     _setup(_mock_session())
-    response = client.put("/api/pagos/5/rechazar", json={"motivo": ""})
+    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": ""})
     assert response.status_code == 422
     app.dependency_overrides = {}
 
@@ -360,7 +361,7 @@ def test_rechazar_pago_no_encontrado(client: TestClient) -> None:
     session = _mock_session(_result(None))
     _setup(session)
 
-    response = client.put("/api/pagos/999/rechazar", json={"motivo": "X"})
+    response = client.put("/api/pagos/999/rechazar", headers=HEADERS, json={"motivo": "X"})
 
     assert response.status_code == 404
 
@@ -371,7 +372,7 @@ def test_rechazar_pago_no_esta_en_revision(client: TestClient) -> None:
     session = _mock_session(_result(_pago(estado="RECHAZADO")))
     _setup(session)
 
-    response = client.put("/api/pagos/5/rechazar", json={"motivo": "X"})
+    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "X"})
 
     assert response.status_code == 409
 
@@ -382,7 +383,7 @@ def test_rechazar_mes_bloqueado(client: TestClient) -> None:
     session = _mock_session(_result(_pago()), _result(_recibo(bloqueado=True)))
     _setup(session)
 
-    response = client.put("/api/pagos/5/rechazar", json={"motivo": "X"})
+    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "X"})
 
     assert response.status_code == 409
     assert "Candado Contable" in response.json()["detail"]
@@ -409,7 +410,7 @@ def test_pagos_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
     _setup(_mock_session(), user=PropietarioUser())
     assert client.get("/api/pagos/revision").status_code == 403
     assert client.put("/api/pagos/5/aprobar", headers=HEADERS).status_code == 403
-    assert client.put("/api/pagos/5/rechazar", json={"motivo": "Motivo válido"}).status_code == 403
+    assert client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "Motivo válido"}).status_code == 403
     app.dependency_overrides = {}
 
 

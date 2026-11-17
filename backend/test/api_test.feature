@@ -407,6 +407,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 403
 
     Given path '/api/reservas/1/inspeccionar'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
     And request { estado: "FINALIZADA_SIN_DANOS", observaciones_inspeccion: "Inspección BDD" }
     When method put
     Then status 403
@@ -890,6 +891,249 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Then status 200
     And match response[0].alicuota == '#notpresent'
     And match response[0].credito_disponible_usd == '#notpresent'
+
+  # ==============================================================================
+  # Grupo 14: Exactitud Contable LPH, Idempotencia con Replay y Evidencias (Hito 21)
+  # ==============================================================================
+
+  Scenario: 28. Idempotencia con replay 2xx (X-Idempotency-Replayed), conflicto por body y liberación en error 4xx (Hito 21)
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf = response.csrf_token
+
+    * def tasaKey = 'tasa-replay-' + java.util.UUID.randomUUID()
+    Given path '/api/finanzas/tasa'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = tasaKey
+    And request { fecha: '2099-01-15', tasa_usd_ves: '41.2500' }
+    When method post
+    Then status 201
+    * def firstBody = response
+
+    # Reintento con misma clave y mismo cuerpo -> Replay 201 + X-Idempotency-Replayed: true
+    Given path '/api/finanzas/tasa'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = tasaKey
+    And request { fecha: '2099-01-15', tasa_usd_ves: '41.2500' }
+    When method post
+    Then status 201
+    And match header X-Idempotency-Replayed == 'true'
+    And match response == firstBody
+
+    # Reintento con misma clave y cuerpo distinto -> 409 Conflict
+    Given path '/api/finanzas/tasa'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = tasaKey
+    And request { fecha: '2099-01-15', tasa_usd_ves: '42.0000' }
+    When method post
+    Then status 409
+
+    # Error 400 libera la Idempotency-Key para permitir reintento exitoso posterior
+    * def retryKey = 'cons-retry-' + java.util.UUID.randomUUID()
+    Given path '/api/consultas'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = retryKey
+    And request
+      """
+      {
+        "titulo": "Consulta Fallida H21",
+        "descripcion_legal": "Prueba de liberación en error 400",
+        "tipo_consulta": "CARTA_CONSULTA_1RA",
+        "regla_quorum": "DOS_TERCIOS",
+        "fecha_cierre": "2020-01-01T00:00:00Z",
+        "opciones": [
+          { "etiqueta": "Aprobar", "es_opcion_aprobatoria": true },
+          { "etiqueta": "Rechazar", "es_opcion_aprobatoria": false }
+        ]
+      }
+      """
+    When method post
+    Then status 400
+
+    Given path '/api/consultas'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = retryKey
+    And request
+      """
+      {
+        "titulo": "Consulta Corregida H21",
+        "descripcion_legal": "Prueba de reintento tras liberación",
+        "tipo_consulta": "CARTA_CONSULTA_1RA",
+        "regla_quorum": "DOS_TERCIOS",
+        "fecha_cierre": "2099-12-31T23:59:00Z",
+        "opciones": [
+          { "etiqueta": "Aprobar", "es_opcion_aprobatoria": true },
+          { "etiqueta": "Rechazar", "es_opcion_aprobatoria": false }
+        ]
+      }
+      """
+    When method post
+    Then status 201
+
+  Scenario: 29. Subida segura /api/evidencias/subir acepta PNG (202 ENCOLADO) y rechaza binario EXE (415) (Hito 21)
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf = response.csrf_token
+
+    * configure headers = null
+    * def pngBytes = java.util.Base64.getDecoder().decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
+    * def exeBytes = java.util.Base64.getDecoder().decode('TVqQAAMAAAA=')
+
+    Given path '/api/evidencias/subir'
+    And param categoria = 'comprobantes'
+    And header Content-Type = 'application/octet-stream'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'evid-ok-' + java.util.UUID.randomUUID()
+    And request pngBytes
+    When method post
+    Then status 202
+    And match response.estado == 'ENCOLADO'
+    And match response.formato_destino == 'image/avif'
+
+    Given path '/api/evidencias/subir'
+    And param categoria = 'comprobantes'
+    And header Content-Type = 'application/octet-stream'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'evid-exe-' + java.util.UUID.randomUUID()
+    And request exeBytes
+    When method post
+    Then status 415
+
+  Scenario: 30. Fusión UPSERT Reserva Área Social + Facturar Periodo y bloqueo de Cierre Mensual con pago EN_REVISION (Hito 21)
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf = response.csrf_token
+
+    # Asegura tasa de cambio del día para reporte de pagos
+    Given path '/api/finanzas/tasa'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h21-tasa-' + java.util.UUID.randomUUID()
+    And request { tasa_usd_ves: '42.0000' }
+    When method post
+    Then status 201
+
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def unidadIdent = 'H21-' + uid
+    Given path '/api/estructura/generar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h21-est-' + java.util.UUID.randomUUID()
+    And request { nombre: "#('Torre H21 ' + uid)", tipo: 'TORRE', identificadores: ["#('' + unidadIdent)"] }
+    When method post
+    Then status 201
+    * def unidadId = response.unidades[0].id
+
+    # Registrar y activar propietario aislado sobre unidadId
+    * def propEmail = 'prop.h21.' + uid + '@condominio.test'
+    * def propCedula = 'V-21' + uid
+    Given path '/api/auth/register'
+    And header Idempotency-Key = 'h21-reg-' + java.util.UUID.randomUUID()
+    And request
+      """
+      {
+        "nombre": "Propietario H21",
+        "cedula": "#(propCedula)",
+        "correo": "#(propEmail)",
+        "telefono": "+584145552100",
+        "password": "fake-qa-h21-123456!",
+        "unidad_solicitada_id": #(unidadId),
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    * def propId = response.id
+
+    Given path '/api/usuarios/' + propId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h21-asg-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), tipo_ocupante: 'PROPIETARIO', rol: 'PROPIETARIO' }
+    When method put
+    Then status 200
+
+    # Crear área social con costo de uso $15.00 y reservar en 2097-06-15 -> genera recibo preliminar 2097-06
+    Given path '/api/reservas/areas'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h21-area-' + java.util.UUID.randomUUID()
+    And request { nombre: "#('Salón H21 ' + uid)", aforo_maximo: 25, costo_uso_usd: '15.00', deposito_garantia_usd: '0.00', requiere_solvencia_estricta: false }
+    When method post
+    Then status 201
+    * def areaId = response.id
+
+    Given path '/api/reservas/solicitar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h21-res-' + java.util.UUID.randomUUID()
+    And request { area_id: #(areaId), unidad_id: #(unidadId), fecha_evento: '2097-06-15', motivo_evento: 'Asamblea y brindis H21' }
+    When method post
+    Then status 201
+
+    # Facturar periodo 2097-06 (PARTES_IGUALES) debe fusionar vía UPSERT sin chocar con el recibo preliminar
+    Given path '/api/finanzas/facturar-periodo'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h21-fact-' + java.util.UUID.randomUUID()
+    And request { periodo: '2097-06', modalidad: 'PARTES_IGUALES', incluir_fondo_reserva: false, cuota_extraordinaria_total_usd: '20.00' }
+    When method post
+    Then status 201
+
+    # Propietario consulta su recibo 2097-06 y reporta pago EN_REVISION
+    Given path '/api/auth/login'
+    And request { correo: "#(propEmail)", password: 'fake-qa-h21-123456!' }
+    When method post
+    Then status 200
+    * def propCsrf = response.csrf_token
+
+    Given path '/api/finanzas/resumen'
+    And param periodo = '2097-06'
+    When method get
+    Then status 200
+    * def recibosProp = karate.filter(response.estado_cobranza, function(x){ return x.unidad_id == unidadId })
+    * def reciboId = recibosProp[0].recibo_id
+
+    Given path '/api/pagos/reportar'
+    And header X-CSRF-Token = propCsrf
+    And header Idempotency-Key = 'h21-pag-' + java.util.UUID.randomUUID()
+    And request { recibo_id: #(reciboId), monto: '5.00', moneda: 'USD', metodo_pago: 'ZELLE', numero_referencia: "#('REF-H21-' + uid)" }
+    When method post
+    Then status 201
+    And match response.estado == 'EN_REVISION'
+    * def pagoId = response.id
+
+    # Presidente intenta cierre mensual 2097-06 -> 409 bloqueado por pago EN_REVISION
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf2 = response.csrf_token
+
+    Given path '/api/finanzas/cierre-mensual'
+    And header X-CSRF-Token = presCsrf2
+    And header Idempotency-Key = 'h21-cierre-blq-' + java.util.UUID.randomUUID()
+    And request { periodo: '2097-06' }
+    When method post
+    Then status 409
+    And match response.detail contains 'revisión'
+
+    # Limpieza obligatoria: rechazar pago EN_REVISION y cerrar periodo 2097-06 -> 200
+    Given path '/api/pagos/' + pagoId + '/rechazar'
+    And header X-CSRF-Token = presCsrf2
+    And header Idempotency-Key = 'h21-rech-' + java.util.UUID.randomUUID()
+    And request { motivo: 'Limpieza controlada de escenario BDD Hito 21' }
+    When method put
+    Then status 200
+
+    Given path '/api/finanzas/cierre-mensual'
+    And header X-CSRF-Token = presCsrf2
+    And header Idempotency-Key = 'h21-cierre-ok-' + java.util.UUID.randomUUID()
+    And request { periodo: '2097-06' }
+    When method post
+    Then status 200
+    And match response.estado == 'CERRADO'
+
 
 
 

@@ -279,7 +279,11 @@ async def test_flujo_real_anti_idor_sobrepago_y_candado_contable_egresos(
             assert u1_db.credito_disponible_usd == Decimal("30.00")
 
         # 4. Cierre mensual bloquea nuevos egresos en el mismo periodo (409 Conflict)
-        res_cierre = client.post("/api/finanzas/cierre-mensual", json={"periodo": "2026-10"})
+        res_cierre = client.post(
+            "/api/finanzas/cierre-mensual",
+            json={"periodo": "2026-10"},
+            headers={"Idempotency-Key": "17300000-0000-4000-8000-000000000005"},
+        )
         assert res_cierre.status_code == 200
 
         res_egreso_post_cierre = client.post(

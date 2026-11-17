@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import binascii
 import contextlib
-import hashlib
-import hmac
-import json
 import logging
 import os
 import signal
@@ -17,38 +15,85 @@ import tempfile
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from email.message import EmailMessage
-from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
-from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
+from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 
-from src.database import DEFAULT_CONDOMINIO_ID, AsyncSessionLocal, bind_rls_tenant
-from src.models import PlantillaTarea, TareaDiaria
+from src.database import AsyncSessionLocal
 from src.redis_client import get_redis_client
 from src.security import validate_production_security_settings
+from src.worker_media import (
+    MAX_IMAGE_PIXELS,
+    _build_sigv4_headers,
+    codificar_imagen_avif,
+    construir_clave_evidencia,
+    convertir_y_subir_avif,
+    ejecutar_subida_media_bytes,
+    env_flag,
+    normalize_minio_endpoint,
+    resolver_bucket_minio,
+    subir_objeto_minio_s3,
+)
+from src.worker_scheduler import (
+    _MEDIA_DLQ,
+    _MEDIA_PROCESSING,
+    _MEDIA_QUEUE,
+    _NOTIFICATIONS_DLQ,
+    _NOTIFICATIONS_PROCESSING,
+    _NOTIFICATIONS_QUEUE,
+    MAX_DLQ_ITEMS,
+    consumir_cola_tick,
+    decodificar_json_objeto,
+    encolar_notificacion_correo,
+    encolar_tarea_media,
+    enviar_a_dlq_acotado,
+    generar_tareas_diarias_desde_plantillas,
+    reencolar_o_dlq,
+)
+
+__all__ = [
+    "DEFAULT_HEARTBEAT_PATH",
+    "MAX_DLQ_ITEMS",
+    "MAX_IMAGE_PIXELS",
+    "OPTIONAL_WORKERS",
+    "WorkerSettings",
+    "_MEDIA_DLQ",
+    "_MEDIA_PROCESSING",
+    "_MEDIA_QUEUE",
+    "_NOTIFICATIONS_DLQ",
+    "_NOTIFICATIONS_PROCESSING",
+    "_NOTIFICATIONS_QUEUE",
+    "_build_sigv4_headers",
+    "_normalize_minio_endpoint",
+    "codificar_imagen_avif",
+    "construir_clave_evidencia",
+    "convertir_y_subir_avif",
+    "encolar_notificacion_correo",
+    "encolar_tarea_media",
+    "enviar_correo_smtp",
+    "generar_tareas_diarias_desde_plantillas",
+    "is_supervisor_healthy",
+    "main",
+    "normalize_minio_endpoint",
+    "procesar_mensaje_media",
+    "procesar_mensaje_notificacion",
+    "resolver_bucket_minio",
+    "run_worker_orchestrator",
+    "subir_objeto_minio_s3",
+    "verify_worker_heartbeat",
+    "write_worker_heartbeat",
+]
 
 logger = logging.getLogger(__name__)
+_normalize_minio_endpoint = normalize_minio_endpoint
 
 DEFAULT_HEARTBEAT_PATH = Path(tempfile.gettempdir()) / "worker_heartbeat"
 OPTIONAL_WORKERS: frozenset[str] = frozenset({"media_avif_consumer"})
-_NOTIFICATIONS_QUEUE = "queue:notifications"
-_NOTIFICATIONS_DLQ = "queue:notifications:dlq"
-_MEDIA_QUEUE = "queue:media:avif"
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -59,19 +104,6 @@ def _env_float(name: str, default: float) -> float:
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     return int(raw) if raw else default
-
-
-def _normalize_minio_endpoint(endpoint: str, use_ssl: bool) -> str:
-    """Normaliza el endpoint MinIO aplicando esquema HTTPS cuando MINIO_USE_SSL está activo."""
-    cleaned = endpoint.strip().rstrip("/")
-    if not cleaned or cleaned.startswith("s3://"):
-        return cleaned
-    if cleaned.startswith("http://"):
-        return f"https://{cleaned[7:]}" if use_ssl else cleaned
-    if cleaned.startswith("https://"):
-        return cleaned
-    scheme = "https" if use_ssl else "http"
-    return f"{scheme}://{cleaned}"
 
 
 @dataclass(frozen=True)
@@ -99,216 +131,25 @@ class WorkerSettings:
     def from_env(cls) -> WorkerSettings:
         hb_raw = os.getenv("WORKER_HEARTBEAT_PATH", "").strip()
         hb_path = Path(hb_raw) if hb_raw else DEFAULT_HEARTBEAT_PATH
-        minio_use_ssl = _env_flag("MINIO_USE_SSL", False)
+        minio_use_ssl = env_flag("MINIO_USE_SSL", False)
         return cls(
             heartbeat_path=hb_path,
             poll_seconds=_env_float("WORKER_POLL_SECONDS", 1.0),
             blpop_timeout_seconds=max(1, _env_int("WORKER_BLPOP_TIMEOUT_SECONDS", 1)),
             scheduler_interval_seconds=_env_float("WORKER_SCHEDULER_INTERVAL_SECONDS", 300.0),
             max_heartbeat_age_seconds=_env_float("WORKER_HEARTBEAT_MAX_AGE_SECONDS", 90.0),
-            media_enabled=_env_flag("WORKER_MEDIA_ENABLED", False),
-            smtp_enabled=_env_flag("SMTP_ENABLED", False),
+            media_enabled=env_flag("WORKER_MEDIA_ENABLED", False),
+            smtp_enabled=env_flag("SMTP_ENABLED", False),
             smtp_host=os.getenv("SMTP_HOST", "").strip(),
             smtp_port=_env_int("SMTP_PORT", 587),
             smtp_user=os.getenv("SMTP_USER", "").strip(),
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
             smtp_from=os.getenv("SMTP_FROM", "no-responder@condominio.local").strip(),
-            smtp_use_tls=_env_flag("SMTP_USE_TLS", True),
+            smtp_use_tls=env_flag("SMTP_USE_TLS", True),
             max_retries=max(1, _env_int("WORKER_MAX_RETRIES", 3)),
-            minio_endpoint=_normalize_minio_endpoint(os.getenv("MINIO_ENDPOINT", ""), minio_use_ssl),
+            minio_endpoint=normalize_minio_endpoint(os.getenv("MINIO_ENDPOINT", ""), minio_use_ssl),
             minio_use_ssl=minio_use_ssl,
         )
-
-
-def _hmac_sha256(key: bytes, message: str) -> bytes:
-    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
-
-
-def _signing_key_sigv4(secret_key: str, date_stamp: str, region: str, service: str) -> bytes:
-    k_date = _hmac_sha256(f"AWS4{secret_key}".encode("utf-8"), date_stamp)
-    k_region = _hmac_sha256(k_date, region)
-    k_service = _hmac_sha256(k_region, service)
-    return _hmac_sha256(k_service, "aws4_request")
-
-
-def _build_sigv4_headers(
-    host: str,
-    canonical_uri: str,
-    payload_hash: str,
-    access_key: str,
-    secret_key: str,
-    region: str = "us-east-1",
-) -> dict[str, str]:
-    now_utc = datetime.now(UTC)
-    amz_date = now_utc.strftime("%Y%m%dT%H%M%SZ")
-    date_stamp = now_utc.strftime("%Y%m%d")
-    canonical_headers = f"host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
-    signed_headers = "host;x-amz-content-sha256;x-amz-date"
-    canonical_request = f"PUT\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
-    credential_scope = f"{date_stamp}/{region}/s3/aws4_request"
-    request_digest = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
-    string_to_sign = f"AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{request_digest}"
-    signing_key = _signing_key_sigv4(secret_key, date_stamp, region, "s3")
-    signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
-    authorization = (
-        f"AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, "
-        f"SignedHeaders={signed_headers}, Signature={signature}"
-    )
-    return {
-        "Host": host,
-        "Content-Type": "image/avif",
-        "x-amz-content-sha256": payload_hash,
-        "x-amz-date": amz_date,
-        "Authorization": authorization,
-    }
-
-
-def codificar_imagen_avif(contenido: bytes, *, strict_image: bool = False) -> bytes:
-    """Transcodifica bytes de imagen a formato AVIF corrigiendo orientación EXIF."""
-    if not contenido:
-        raise ValueError("El archivo de imagen no puede estar vacío.")
-    try:
-        with Image.open(BytesIO(contenido)) as img:
-            normalized = ImageOps.exif_transpose(img).convert("RGB")
-            salida = BytesIO()
-            normalized.save(salida, format="AVIF", quality=60)
-            return salida.getvalue()
-    except (UnidentifiedImageError, OSError) as exc:
-        if strict_image:
-            raise ValueError("Contenido de imagen inválido para conversión AVIF.") from exc
-        return contenido
-
-
-def subir_objeto_minio_s3(
-    datos_avif: bytes,
-    objeto_key: str,
-    minio_endpoint: str,
-    *,
-    bucket_name: str | None = None,
-    http_client: httpx.Client | None = None,
-) -> str:
-    """Sube bytes AVIF a MinIO mediante HTTP PUT autenticado con AWS SigV4."""
-    access_key = os.getenv("MINIO_ROOT_USER", "").strip()
-    secret_key = os.getenv("MINIO_ROOT_PASSWORD", "")
-    if not access_key or not secret_key:
-        raise ValueError("Credenciales MinIO no configuradas para carga S3.")
-
-    raw_bucket = (
-        bucket_name
-        if bucket_name is not None and bucket_name.strip()
-        else (os.getenv("MINIO_BUCKET_NAME") or os.getenv("MINIO_BUCKET") or "condominio-media")
-    )
-    bucket = raw_bucket.strip() or "condominio-media"
-    base_url = minio_endpoint.rstrip("/")
-    parsed = urlparse(base_url)
-    base_path = parsed.path.rstrip("/")
-    canonical_uri = f"{base_path}/{bucket}/{objeto_key}"
-    upload_url = f"{base_url}/{bucket}/{objeto_key}"
-    payload_hash = hashlib.sha256(datos_avif).hexdigest()
-    headers = _build_sigv4_headers(parsed.netloc, canonical_uri, payload_hash, access_key, secret_key)
-
-    if http_client is not None:
-        resp = http_client.put(upload_url, content=datos_avif, headers=headers, timeout=15.0)
-        resp.raise_for_status()
-    else:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.put(upload_url, content=datos_avif, headers=headers)
-            resp.raise_for_status()
-    return f"s3://{bucket}/{objeto_key}"
-
-
-def convertir_y_subir_avif(
-    contenido: bytes,
-    prefijo: str,
-    minio_endpoint: str = "s3://condominio-media",
-    *,
-    strict_image: bool = False,
-    http_client: httpx.Client | None = None,
-    minio_use_ssl: bool | None = None,
-) -> str:
-    """Convierte el binario recibido a formato AVIF y lo carga en MinIO si hay endpoint HTTP(S)."""
-    datos_avif = codificar_imagen_avif(contenido, strict_image=strict_image)
-    digest = hashlib.sha256(datos_avif).hexdigest()[:24]
-    ruta_limpia = prefijo.strip("/") or "general"
-    objeto_key = f"{ruta_limpia}/{digest}.avif"
-    use_ssl = _env_flag("MINIO_USE_SSL", False) if minio_use_ssl is None else minio_use_ssl
-    base_limpia = _normalize_minio_endpoint(minio_endpoint, use_ssl)
-    if base_limpia.startswith(("http://", "https://")):
-        return subir_objeto_minio_s3(datos_avif, objeto_key, base_limpia, http_client=http_client)
-    return f"{base_limpia}/{objeto_key}"
-
-
-async def encolar_notificacion_correo(
-    destinatarios: list[str],
-    asunto: str,
-    cuerpo: str,
-    redis_client: Any | None = None,
-) -> dict[str, Any]:
-    """Encola una tarea asíncrona de notificación por correo en KeyDB/Redis."""
-    if not destinatarios:
-        raise ValueError("Debe especificar al menos un destinatario.")
-    evento: dict[str, Any] = {
-        "tipo": "EMAIL_NOTIFICATION",
-        "destinatarios": destinatarios,
-        "asunto": asunto,
-        "cuerpo": cuerpo,
-    }
-    if redis_client is not None and hasattr(redis_client, "rpush"):
-        await redis_client.rpush(_NOTIFICATIONS_QUEUE, json.dumps(evento))
-    return evento
-
-
-async def generar_tareas_diarias_desde_plantillas(
-    db: AsyncSession,
-    fecha_objetivo: date | None = None,
-    condominio_id: int = DEFAULT_CONDOMINIO_ID,
-) -> int:
-    """Cronjob idempotente que genera las tareas del conserje del día desde plantillas activas."""
-    await bind_rls_tenant(db, condominio_id)
-    fecha = fecha_objetivo or date.today()
-    res_plantillas = await db.execute(
-        select(PlantillaTarea).where(
-            PlantillaTarea.condominio_id == condominio_id,
-            PlantillaTarea.activa.is_(True),
-        )
-    )
-    plantillas = list(res_plantillas.scalars().all())
-    if not plantillas:
-        return 0
-
-    res_existentes = await db.execute(
-        select(TareaDiaria).where(
-            TareaDiaria.condominio_id == condominio_id,
-            TareaDiaria.fecha == fecha,
-        )
-    )
-    existentes = list(res_existentes.scalars().all())
-    ids_ya_generados = {t.plantilla_id for t in existentes if t.plantilla_id is not None}
-
-    creadas = 0
-    for plantilla in plantillas:
-        if plantilla.id in ids_ya_generados:
-            continue
-        db.add(
-            TareaDiaria(
-                condominio_id=getattr(plantilla, "condominio_id", 1) or 1,
-                plantilla_id=plantilla.id,
-                incidencia_id=None,
-                titulo=plantilla.titulo,
-                area=plantilla.area,
-                fecha=fecha,
-                completada=False,
-            )
-        )
-        creadas += 1
-
-    if creadas > 0:
-        try:
-            await db.commit()
-        except IntegrityError:
-            await db.rollback()
-            return 0
-    return creadas
 
 
 def _sanitize_header(valor: str) -> str:
@@ -340,33 +181,16 @@ def enviar_correo_smtp(evento: dict[str, Any], settings: WorkerSettings) -> None
         smtp.send_message(msg)
 
 
-async def _reencolar_o_dlq(
-    redis_client: Any,
-    evento: dict[str, Any],
-    error: str,
-    max_retries: int,
-) -> None:
-    intentos = int(evento.get("intentos", 0)) + 1
-    actualizado = dict(evento)
-    actualizado["intentos"] = intentos
-    actualizado["ultimo_error"] = error
-    destino = _NOTIFICATIONS_QUEUE if intentos < max_retries else _NOTIFICATIONS_DLQ
-    if hasattr(redis_client, "rpush"):
-        await redis_client.rpush(destino, json.dumps(actualizado))
-
-
 async def procesar_mensaje_notificacion(
     raw_payload: str,
     redis_client: Any,
     settings: WorkerSettings,
 ) -> bool:
     """Procesa un payload JSON de correo y aplica reintento acotado o envío a DLQ."""
-    try:
-        evento = json.loads(raw_payload)
-    except json.JSONDecodeError as exc:
-        logger.warning("Payload malformado enviado a DLQ: %s", exc)
-        if hasattr(redis_client, "rpush"):
-            await redis_client.rpush(_NOTIFICATIONS_DLQ, raw_payload)
+    evento = decodificar_json_objeto(raw_payload)
+    if evento is None:
+        logger.warning("Payload malformado o no-objeto enviado a DLQ de notificaciones.")
+        await enviar_a_dlq_acotado(redis_client, _NOTIFICATIONS_DLQ, raw_payload)
         return False
 
     try:
@@ -374,7 +198,35 @@ async def procesar_mensaje_notificacion(
         return True
     except (OSError, smtplib.SMTPException, ValueError) as exc:
         logger.warning("Fallo procesando notificación por correo: %s", exc)
-        await _reencolar_o_dlq(redis_client, evento, str(exc), settings.max_retries)
+        await reencolar_o_dlq(redis_client, evento, str(exc), settings.max_retries)
+        return False
+
+
+async def procesar_mensaje_media(
+    raw_payload: str,
+    redis_client: Any,
+    settings: WorkerSettings,
+) -> bool:
+    """Procesa una evidencia de imagen/PDF desde KeyDB convirtiéndola a AVIF y cargándola a MinIO."""
+    evento = decodificar_json_objeto(raw_payload)
+    if evento is None:
+        logger.warning("Payload malformado o no-objeto enviado a DLQ de medios.")
+        await enviar_a_dlq_acotado(redis_client, _MEDIA_DLQ, raw_payload)
+        return False
+
+    try:
+        await asyncio.to_thread(ejecutar_subida_media_bytes, evento, settings.minio_endpoint, settings.minio_use_ssl)
+        return True
+    except (ValueError, OSError, httpx.HTTPError, binascii.Error) as exc:
+        logger.warning("Fallo procesando evidencia multimedia: %s", exc)
+        await reencolar_o_dlq(
+            redis_client,
+            evento,
+            str(exc),
+            settings.max_retries,
+            queue=_MEDIA_QUEUE,
+            dlq_queue=_MEDIA_DLQ,
+        )
         return False
 
 
@@ -424,16 +276,22 @@ async def _loop_scheduler_diario(
         await _esperar_o_detener(stop_event, settings.scheduler_interval_seconds)
 
 
-async def _consumir_cola_notificaciones_tick(
-    redis_client: Any,
-    settings: WorkerSettings,
-) -> None:
-    item = await redis_client.blpop(_NOTIFICATIONS_QUEUE, timeout=settings.blpop_timeout_seconds)
-    if not item:
-        return
-    _, raw_payload = item
-    payload_str = raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload)
-    await procesar_mensaje_notificacion(payload_str, redis_client, settings)
+async def _consumir_cola_notificaciones_tick(redis_client: Any, settings: WorkerSettings) -> None:
+    await consumir_cola_tick(
+        redis_client,
+        (_NOTIFICATIONS_QUEUE, _NOTIFICATIONS_PROCESSING),
+        settings.blpop_timeout_seconds,
+        lambda payload: procesar_mensaje_notificacion(payload, redis_client, settings),
+    )
+
+
+async def _consumir_cola_media_tick(redis_client: Any, settings: WorkerSettings) -> None:
+    await consumir_cola_tick(
+        redis_client,
+        (_MEDIA_QUEUE, _MEDIA_PROCESSING),
+        settings.blpop_timeout_seconds,
+        lambda payload: procesar_mensaje_media(payload, redis_client, settings),
+    )
 
 
 async def _loop_notificaciones(
@@ -441,13 +299,16 @@ async def _loop_notificaciones(
     stop_event: asyncio.Event,
     redis_getter: Callable[[], Any],
 ) -> None:
+    fallos = 0
     while not stop_event.is_set():
         try:
-            redis_client = redis_getter()
-            await _consumir_cola_notificaciones_tick(redis_client, settings)
-        except (OSError, RuntimeError) as exc:
+            await _consumir_cola_notificaciones_tick(redis_getter(), settings)
+            fallos = 0
+        except (RedisError, OSError, RuntimeError) as exc:
+            fallos += 1
+            delay = min(settings.poll_seconds * (2 ** min(fallos - 1, 4)), 5.0)
             logger.warning("Error transitorio en consumidor KeyDB de notificaciones: %s", exc)
-            await _esperar_o_detener(stop_event, settings.poll_seconds)
+            await _esperar_o_detener(stop_event, delay)
 
 
 async def _loop_media_opcional(
@@ -457,13 +318,16 @@ async def _loop_media_opcional(
 ) -> None:
     if not settings.media_enabled:
         return
+    fallos = 0
     while not stop_event.is_set():
         try:
-            redis_client = redis_getter()
-            await redis_client.blpop(_MEDIA_QUEUE, timeout=settings.blpop_timeout_seconds)
-        except (OSError, RuntimeError) as exc:
+            await _consumir_cola_media_tick(redis_getter(), settings)
+            fallos = 0
+        except (RedisError, OSError, RuntimeError) as exc:
+            fallos += 1
+            delay = min(settings.poll_seconds * (2 ** min(fallos - 1, 4)), 5.0)
             logger.warning("Error transitorio en cola de medios AVIF: %s", exc)
-            await _esperar_o_detener(stop_event, settings.poll_seconds)
+            await _esperar_o_detener(stop_event, delay)
 
 
 async def _cancelar_tareas(tasks: dict[str, asyncio.Task[None]]) -> None:
@@ -558,7 +422,3 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if verify_worker_heartbeat(cfg.heartbeat_path, cfg.max_heartbeat_age_seconds) else 1
     max_ticks = 1 if args.once else None
     return asyncio.run(_run_with_signals(cfg, max_ticks))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

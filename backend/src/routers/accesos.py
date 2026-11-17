@@ -7,12 +7,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
-from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia,
+    get_current_user,
+    verificar_roles,
+    verificar_usuario_activo,
+)
 from src.finanzas import (
     ErrorFinanciero,
     construir_token_pase_qr,
@@ -22,7 +28,6 @@ from src.finanzas import (
 from src.models import ContratoOcupacion, PaqueteRecibido, PaseVisita, Unidad, Usuario
 from src.redis_client import (
     burn_qr_nonce,
-    check_and_set_idempotency_key,
     get_redis_client,
     is_qr_nonce_burned,
 )
@@ -40,6 +45,7 @@ from src.worker import encolar_notificacion_correo
 router = APIRouter(
     prefix="/api",
     tags=["Accesos QR y Paquetería en Garita"],
+    route_class=IdempotentAPIRoute,
     responses={401: {"description": "No autenticado"}},
 )
 
@@ -95,8 +101,18 @@ def _resolver_ventana_validez(datos: PaseVisitaCreate) -> tuple[datetime, dateti
     ahora = datetime.now(UTC)
     desde = _normalizar_utc(datos.valido_desde) if datos.valido_desde else ahora
     hasta = _normalizar_utc(datos.valido_hasta) if datos.valido_hasta else desde + timedelta(hours=datos.horas_validez)
+    if datos.valido_desde is not None and desde < ahora - timedelta(minutes=5):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha de inicio del pase QR no puede ubicarse en el pasado.",
+        )
+    if hasta <= ahora:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha de expiración del pase QR debe ser posterior al momento actual.",
+        )
     duracion = (hasta - desde).total_seconds()
-    if duracion <= 0 or duracion > _MAX_SEGUNDOS_PASE_QR:
+    if not (0 < duracion <= _MAX_SEGUNDOS_PASE_QR):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La ventana de validez del pase QR debe ser positiva y no exceder las 72 horas.",
@@ -143,6 +159,7 @@ def _serializar_pase(pase: PaseVisita, identificador_unidad: str, ahora: datetim
     "/accesos/pases",
     status_code=status.HTTP_201_CREATED,
     response_model=PaseVisitaResponse,
+    dependencies=[Depends(exigir_idempotencia("crear_pase"))],
     responses={
         400: {"description": "Ventana de validez inválida (> 72h)"},
         403: {"description": "Usuario Fantasma o sin contrato en la unidad"},
@@ -152,19 +169,11 @@ def _serializar_pase(pase: PaseVisita, identificador_unidad: str, ahora: datetim
 )
 async def crear_pase_visita(
     datos: PaseVisitaCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> PaseVisitaResponse:
     """Emite un PaseVisita firmado con HMAC-SHA256 y JTI único para verificación en garita."""
     verificar_usuario_activo(usuario)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"crear_pase:{usuario.id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     unidad = await _verificar_acceso_unidad_anfitriona(db, usuario, datos.unidad_id)
     valido_desde, valido_hasta = _resolver_ventana_validez(datos)
@@ -206,6 +215,8 @@ async def crear_pase_visita(
     responses={403: {"description": "Usuario Fantasma o inactivo"}},
 )
 async def listar_mis_pases_visita(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[PaseVisitaResponse]:
@@ -223,7 +234,7 @@ async def listar_mis_pases_visita(
         )
     )
 
-    res = await db.execute(stmt.order_by(PaseVisita.id.desc()))
+    res = await db.execute(stmt.order_by(PaseVisita.id.desc()).limit(limit).offset(offset))
     ahora = datetime.now(UTC)
     return [_serializar_pase(pase, ident, ahora) for pase, ident in res.all()]
 
@@ -244,7 +255,7 @@ async def revocar_pase_visita(
 ) -> PaseVisitaResponse:
     """Revoca inmediatamente un pase de visita y quema su JTI en KeyDB Multi-Hilo."""
     verificar_usuario_activo(usuario)
-    res = await db.execute(select(PaseVisita).where(PaseVisita.id == pase_id))
+    res = await db.execute(select(PaseVisita).where(PaseVisita.id == pase_id).with_for_update())
     pase = res.scalars().first()
     if not pase:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pase de visita no encontrado.")
@@ -263,17 +274,16 @@ async def revocar_pase_visita(
     return _serializar_pase(pase, unidad.identificador)
 
 
-async def _validar_estado_y_vigencia_pase(
-    db: AsyncSession,
-    redis_conn: aioredis.Redis,
-    pase: PaseVisita,
-    exp_unix: int,
-    ahora: datetime,
-) -> None:
+async def _verificar_estado_bloqueo_pase(redis_conn: aioredis.Redis, pase: PaseVisita) -> None:
     if pase.estado == "REVOCADO":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Alerta de Seguridad: Este pase QR fue revocado por el anfitrión",
+        )
+    if pase.estado == "EXPIRADO":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pase QR expirado o aún no vigente",
         )
     if pase.modalidad == "UNICO_USO" and (pase.estado == "USADO" or await is_qr_nonce_burned(redis_conn, pase.jti)):
         raise HTTPException(
@@ -281,6 +291,15 @@ async def _validar_estado_y_vigencia_pase(
             detail="Alerta de Seguridad: Este pase QR de único uso ya fue utilizado",
         )
 
+
+async def _validar_estado_y_vigencia_pase(
+    db: AsyncSession,
+    redis_conn: aioredis.Redis,
+    pase: PaseVisita,
+    exp_unix: int,
+    ahora: datetime,
+) -> None:
+    await _verificar_estado_bloqueo_pase(redis_conn, pase)
     desde_utc = _normalizar_utc(pase.valido_desde)
     hasta_utc = _normalizar_utc(pase.valido_hasta)
     if ahora < desde_utc or ahora > hasta_utc or int(ahora.timestamp()) > exp_unix:
@@ -291,11 +310,17 @@ async def _validar_estado_y_vigencia_pase(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pase QR expirado o aún no vigente",
         )
+    if exp_unix != int(hasta_utc.timestamp()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Firma criptográfica de pase QR inválida",
+        )
 
 
 @router.post(
     "/accesos/verificar-qr",
     response_model=VerificarPaseQRResponse,
+    dependencies=[Depends(exigir_idempotencia("scan_qr", roles=_ROLES_GARITA))],
     responses={
         400: {"description": "Firma criptográfica de pase QR inválida"},
         403: {"description": "Rol no autorizado para escaneo en garita"},
@@ -304,19 +329,12 @@ async def _validar_estado_y_vigencia_pase(
 )
 async def verificar_pase_qr_en_garita(
     datos: VerificarPaseQRRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> VerificarPaseQRResponse:
     """Verifica firma HMAC-SHA256, vigencia temporal y unicidad Anti-Replay en KeyDB de un pase QR."""
     verificar_roles(usuario, _ROLES_GARITA)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"scan_qr:{usuario.id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     try:
         jti, _, _, exp_unix, firma_esperada = decodificar_y_verificar_token_pase_qr(
@@ -325,7 +343,7 @@ async def verificar_pase_qr_en_garita(
     except ErrorFinanciero as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    res_pase = await db.execute(select(PaseVisita).where(PaseVisita.jti == jti))
+    res_pase = await db.execute(select(PaseVisita).where(PaseVisita.jti == jti).with_for_update())
     pase = res_pase.scalars().first()
     if not pase or not hmac.compare_digest(pase.firma_hmac, firma_esperada):
         raise HTTPException(
@@ -416,6 +434,7 @@ def _serializar_paquete(paquete: PaqueteRecibido, identificador_unidad: str) -> 
     "/paqueteria/registrar",
     status_code=status.HTTP_201_CREATED,
     response_model=PaqueteResponse,
+    dependencies=[Depends(exigir_idempotencia("paquete", roles=_ROLES_PAQUETERIA))],
     responses={
         400: {"description": "URL de evidencia insegura (Anti-SSRF)"},
         403: {"description": "Solo Conserje o Presidente pueden registrar paquetes"},
@@ -425,19 +444,12 @@ def _serializar_paquete(paquete: PaqueteRecibido, identificador_unidad: str) -> 
 )
 async def registrar_paquete_en_garita(
     datos: PaqueteCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
     redis_conn: aioredis.Redis = Depends(get_redis_client),
 ) -> PaqueteResponse:
     """Registra la recepción de una encomienda en garita y encola notificación a la unidad destinataria."""
     verificar_roles(usuario, _ROLES_PAQUETERIA)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"paquete:{usuario.id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
-        )
 
     url_evidencia = datos.url_foto_evidencia.strip() if datos.url_foto_evidencia else None
     if url_evidencia and url_evidencia.lower().startswith(("http://", "https://")):
@@ -471,6 +483,8 @@ async def registrar_paquete_en_garita(
     responses={403: {"description": "Usuario Fantasma o inactivo"}},
 )
 async def listar_paqueteria(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[PaqueteResponse]:
@@ -483,17 +497,18 @@ async def listar_paqueteria(
             return []
         stmt = stmt.where(PaqueteRecibido.unidad_id.in_(unidades_propias))
 
-    res = await db.execute(stmt.order_by(PaqueteRecibido.id.desc()))
+    res = await db.execute(stmt.order_by(PaqueteRecibido.id.desc()).limit(limit).offset(offset))
     return [_serializar_paquete(paq, ident) for paq, ident in res.all()]
 
 
 @router.put(
     "/paqueteria/{paquete_id}/entregar",
     response_model=PaqueteResponse,
+    dependencies=[Depends(exigir_idempotencia("entregar_paquete:{paquete_id}"))],
     responses={
         403: {"description": "Sin permisos para retirar el paquete de otra unidad"},
         404: {"description": "Paquete no encontrado"},
-        409: {"description": "El paquete ya fue entregado previamente"},
+        409: {"description": "El paquete ya fue entregado previamente o Idempotency-Key duplicada"},
     },
 )
 async def confirmar_entrega_paquete(
@@ -503,7 +518,7 @@ async def confirmar_entrega_paquete(
 ) -> PaqueteResponse:
     """Marca un paquete como ENTREGADO registrando fecha y usuario que retira o confirma."""
     verificar_usuario_activo(usuario)
-    res = await db.execute(select(PaqueteRecibido).where(PaqueteRecibido.id == paquete_id))
+    res = await db.execute(select(PaqueteRecibido).where(PaqueteRecibido.id == paquete_id).with_for_update())
     paquete = res.scalars().first()
     if not paquete:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paquete no encontrado.")

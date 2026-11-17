@@ -4,7 +4,7 @@
 
 Este documento integra la navegación del Frontend (Vue 3), el diseño de la Interfaz Gráfica (UI/UX) y los Endpoints del Backend (FastAPI) requeridos para cada pantalla.
 
-*Nota de Diseño General:* El layout principal en móviles utilizará una **Bottom Navigation Bar** para acceso rápido. En escritorio, mutará a un **Sidebar** lateral.
+*Nota de Diseño General:* El layout principal en móviles utilizará una **Bottom Navigation Bar** para acceso rápido. En escritorio, mutará a un **Sidebar** lateral. Toda mutación protegida por `IdempotentAPIRoute` (`Idempotency-Key` `8..128` caracteres, scope `idemp:{condominio_id}:{usuario_id}:{scope}:{key}`) aplica *replay* determinista en `2xx` (`X-Idempotency-Replayed: true`), rechaza cambios de cuerpo (`409`) y libera la clave en `4xx`/`5xx`. Todos los listados `GET` soportan paginación acotada (`limit=1..100`, `offset=0..1_000_000`).
 
 ---
 
@@ -18,7 +18,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Pantalla de Bloqueo:** Al completar el registro, el usuario es redirigido a `/espera-aprobacion` con un mensaje fijo: *"Registro completado. Esperando validación de la Junta"*.
 * **Endpoints FastAPI:**
   * `POST /api/auth/login`: Autentica con lockout Lua atómico (`5` fallos / IP y `10` globales / cuenta en `15m` -> `429`), preservación de revocaciones administrativas activas (`403`), mitigación anti-timing (`DUMMY_PASSWORD_HASH`) y entrega JWT (`access_token` + `refresh_token` con claims `typ`/`iat`/`iss`/`aud`/`condominio_id`) en cookies `HttpOnly` junto con `csrf_token` (`X-CSRF-Token`).
-  * `POST /api/auth/register`: Crea usuario "Fantasma". *[Header: `Idempotency-Key` `8..128` caracteres, TTL `86400s`]* -> Dispara notificación por correo.
+  * `POST /api/auth/register`: Crea usuario "Fantasma" verificando existencia de la unidad solicitada (`404 Not Found`). *[Header: `Idempotency-Key` `8..128` caracteres, TTL `86400s`]* -> Dispara notificación por correo.
   * `POST /api/auth/refresh`: Rota el par `access_token` / `refresh_token` con periodo de gracia concurrente de `5s`, revoca el `sid` completo ante reuso tardío (`401`) y rota `X-CSRF-Token`.
   * `POST /api/auth/logout`: Revoca individualmente la sesión activa del dispositivo (`sid` y `jti`) en KeyDB, purga cookies y emite `Clear-Site-Data: "cookies", "storage", "cache"`.
   * `GET /api/auth/me`: Retorna perfil DTO completo (`id`, `nombre`, `cedula`, `correo`, `telefono`, `es_activo`, `rol`, `unidad_activa_id`) y rehidrata la cookie/cabecera `X-CSRF-Token`.
@@ -68,11 +68,11 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Cierre de Mes:** Muestra una vista previa del PDF preliminar y un botón crítico de `"Cerrar Mes"`.
 * **Endpoints FastAPI:**
   * `POST /api/finanzas/tasa` y `GET /api/finanzas/tasa`: Registra/actualiza y consulta la tasa oficial USD/VES. *[Header: Idempotency-Key]*
-  * `POST /api/finanzas/egresos`: Registra gastos operativos y egresos multimoneda con validación de factura segura y bloqueo `409 Conflict` por Candado Contable (`ReporteMensual.estado == "CERRADO"`). *[Header: Idempotency-Key]*
-  * `GET /api/pagos/revision`: Lista de pagos pendientes.
+  * `POST /api/finanzas/egresos`: Registra gastos operativos y egresos multimoneda (descontando del `FondoCondominio` `RESERVA_LEGAL` cuando `es_gasto_comun=false`) con validación de factura segura y bloqueo `409 Conflict` por Candado Contable (`ReporteMensual.estado == "CERRADO"`). *[Header: Idempotency-Key]*
+  * `GET /api/pagos/revision`: Lista paginada (`limit`/`offset`) de pagos pendientes.
   * `PUT /api/pagos/{id}/aprobar`: Cambia estado con bloqueos pesimistas `.with_for_update()` (`PagoReportado`, `Recibo`, `Unidad`) y audita. *[Header: Idempotency-Key]*
-  * `PUT /api/pagos/{id}/rechazar`: Requiere `motivo`.
-  * `POST /api/finanzas/cierre-mensual`: Acción inmutable. Bloquea registros del mes y oficializa el PDF.
+  * `PUT /api/pagos/{id}/rechazar`: Requiere `motivo`, `.with_for_update()` y registra `AuditoriaRecibo`. *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/cierre-mensual`: Acción inmutable bloqueada con `409` mientras existan pagos `EN_REVISION`. Bloquea registros del mes y oficializa el periodo. *[Header: Idempotency-Key]*
 
 ---
 
@@ -123,7 +123,8 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * `POST /api/tareas/diarias` y `POST /api/tareas/generar-diarias`: Crea una tarea puntual o genera las tareas diarias a partir de plantillas activas.
   * `GET /api/tareas/diarias`: Checklist del día en curso.
   * `PUT /api/tareas/{id}/completar`: Conserje marca como lista (acepta URL de foto opcional).
-  * `POST /api/voceros/fotos`: Sube AVIFs (Límite: 30).
+  * `POST /api/evidencias/subir`: Ingesta binaria segura (`application/octet-stream` o `multipart/form-data`, $\le 2\text{ MB}$ y verificación de *Magic Bytes* + Pillow) que encola conversión AVIF/S3 en KeyDB (`202 ENCOLADO`; integración UI en Hito 22.3). *[Header: Idempotency-Key]*
+  * `POST /api/voceros/fotos`: Sube AVIFs (Límite: 30 con bloqueo pesimista `.with_for_update()`). *[Header: Idempotency-Key]*
   * `GET /api/voceros/galeria`: Lista fotos del mes en curso organizadas por área.
 
 ---
@@ -151,7 +152,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 * **Endpoints FastAPI:**
   * `PUT /api/estructura/unidades/{id}/alicuota`: Actualiza el porcentaje de participación (`alicuota`) y la cuota fija diferenciada (`cuota_fija_usd`) de la unidad. *[Header: Idempotency-Key]*
   * `POST /api/finanzas/fondos` y `GET /api/finanzas/fondos`: Gestión de fondos patrimoniales y de reserva. *[Header: Idempotency-Key]*
-  * `POST /api/finanzas/facturar-periodo`: Emite recibos mensuales únicos por `(unidad_id, periodo)` (`uq_recibo_unidad_periodo`, `409 Conflict`) bajo modalidad `ALICUOTA`, `CUOTA_FIJA` o `PARTES_IGUALES`, valida `validar_suma_alicuotas`, prorratea cuotas extraordinarias por alícuota en `ALICUOTA` (`src/facturacion_lph.py`) y aplica saldos a favor (`credito_disponible_usd`). *[Header: Idempotency-Key]*
+  * `POST /api/finanzas/facturar-periodo`: Emite o fusiona vía `UPSERT` recibos mensuales únicos por `(unidad_id, periodo)` (`uq_recibo_unidad_periodo`, integrando cargos preliminares `USO_AREA_SOCIAL`/`DANOS_AREA_SOCIAL`) bajo modalidad `ALICUOTA`, `CUOTA_FIJA` o `PARTES_IGUALES`, valida `validar_suma_alicuotas`, prorratea cuotas extraordinarias y aplica saldos a favor (`credito_disponible_usd`). *[Header: Idempotency-Key]*
   * `GET /api/finanzas/recibos/{id}/desglose`: Devuelve las líneas detalladas (`ReciboItem`) del recibo.
   * `POST /api/finanzas/solvencia/{unidad_id}` y `GET /api/finanzas/solvencia/verificar/{folio}`: Emite y verifica certificados digitales de solvencia. *[Header: Idempotency-Key]*
 
@@ -162,7 +163,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ### 🖥️ Vistas: Cartas Consulta y Votación Ponderada por Alícuota
 * **Rutas Vue:** `/consultas`, `/consultas/:id`
 * **Diseño GUI:**
-  * **Listado (`ConsultationsListView.vue`) y Detalle (`ConsultationDetailView.vue`):** Muestra el quórum requerido ($2/3$ racional exacto $\approx 66.6667\%$ en `DOS_TERCIOS`, $50.0100\%$ en `MAYORIA_SIMPLE` o $100.0000\%$ en `UNANIMIDAD`), barra nativa `<progress id="quorum-progress-bar">` en tiempo real por alícuota acumulada y opciones de votación.
+  * **Listado (`ConsultationsListView.vue`) y Detalle (`ConsultationDetailView.vue`):** Muestra el quórum requerido ($2/3$ racional exacto $\approx 66.6667\%$ en `DOS_TERCIOS`, $> 50.0000\%$ estricto en `MAYORIA_SIMPLE` o $100.0000\%$ en `UNANIMIDAD`), barra nativa `<progress id="quorum-progress-bar">` en tiempo real por alícuota acumulada y opciones de votación.
   * **Recibo Criptográfico (`VoteReceiptModal.vue`):** Al votar, presenta modal `<dialog id="modal-vote-receipt" closedby="any">` con el hash `HMAC-SHA256` del voto, la unidad inmobiliaria y la alícuota capturada.
 * **Endpoints FastAPI:**
   * `POST /api/consultas`, `GET /api/consultas`, `GET /api/consultas/{id}`: Creación y consulta de Cartas Consulta y Asambleas. *[Header: Idempotency-Key]*
@@ -179,4 +180,4 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * `POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{pase_id}`: Emisión, listado filtrado exclusivamente por el propietario/residente titular y revocación de pases QR firmados con subclave `HKDF-SHA256`. *[Header: Idempotency-Key]*
   * `POST /api/accesos/verificar-qr`: Verifica firma, vigencia y unicidad (`jti` anti-replay en KeyDB Multi-Hilo). *[Header: Idempotency-Key]*
   * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{paquete_id}/entregar`: Cadena de custodia de encomiendas en conserjería con listado global restringido a `VIGILANTE`, `CONSERJE`, `PRESIDENTE` y `SECRETARIO`, y vista acotada a sus unidades vigentes para residentes. *[Header: Idempotency-Key]*
-  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{reserva_id}/cancelar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con listado global acotado a roles autorizados (excluyendo `VOCERO` y exposición cruzada), índice único parcial excluyendo `CANCELADA`, bloqueo automático a unidades insolventes, cancelación liberando fecha/tarea, tarea automática de inspección post-evento y cargo contable (`Recibo` + `ReciboItem` + `AuditoriaRecibo`) si concluye `FINALIZADA_CON_DANOS`. *[Header: Idempotency-Key]*
+  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{reserva_id}/cancelar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con listado global acotado, índice único parcial excluyendo `CANCELADA`, bloqueo a unidades insolventes, cargo automático `USO_AREA_SOCIAL` si `costo_uso_usd > 0`, reverso o crédito al cancelar, inspección post-evento y cargo contable `DANOS_AREA_SOCIAL` si concluye `FINALIZADA_CON_DANOS`. *[Header: Idempotency-Key]*

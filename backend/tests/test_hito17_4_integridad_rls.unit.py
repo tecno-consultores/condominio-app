@@ -276,8 +276,17 @@ async def test_consultas_jti_cierre_y_solvencia_dinamica_hito17_4(tmp_path: Path
                 ).scalar_one()
                 assert voto_db.jti == recibo_voto["jti"]
 
-            # 3. Cierre atómico genera 1 sola acta y segunda llamada falla con 409 sin duplicar acta
+            # 3. Cierre anticipado con participación < 100% -> 409; vencido el plazo -> 1 sola acta y 2da llamada 409
             app.dependency_overrides[get_current_user] = lambda: tesorero
+            resp_cierre_prem = await client.post(f"/api/consultas/{ids['c_ok']}/cerrar", headers=_idem_headers())
+            assert resp_cierre_prem.status_code == 409
+
+            async with factory() as s:
+                c_db = await s.get(ConsultaComunitaria, ids["c_ok"])
+                assert c_db is not None
+                c_db.fecha_cierre = datetime.now(UTC) - timedelta(seconds=10)
+                await s.commit()
+
             resp_cierre = await client.post(f"/api/consultas/{ids['c_ok']}/cerrar", headers=_idem_headers())
             assert resp_cierre.status_code == 200
             assert resp_cierre.json()["estado"].startswith("CERRADA")
@@ -363,15 +372,28 @@ async def test_reservas_indice_parcial_cancelacion_y_cargo_danos_hito17_4(tmp_pa
             assert r1["estado"] == "CONFIRMADA"
             assert r1["tarea_inspeccion_id"] is not None
 
-            # Reserva duplicada en fecha ocupada -> 409
-            res_dup = await client.post(
+            # Segunda reserva de u2 bloqueada por deuda de uso generado (403); otro vecino solvente choca en fecha (409)
+            res_moroso = await client.post(
                 "/api/reservas/solicitar",
                 headers=_idem_headers(),
                 json={
                     "area_id": ids["area_pago"],
                     "unidad_id": ids["u2"],
                     "fecha_evento": fecha_reserva,
-                    "motivo_evento": "Segundo intento misma fecha",
+                    "motivo_evento": "Segundo intento sin pagar cargo previo",
+                },
+            )
+            assert res_moroso.status_code == 403
+
+            app.dependency_overrides[get_current_user] = lambda: prop1
+            res_dup = await client.post(
+                "/api/reservas/solicitar",
+                headers=_idem_headers(),
+                json={
+                    "area_id": ids["area_pago"],
+                    "unidad_id": ids["u1"],
+                    "fecha_evento": fecha_reserva,
+                    "motivo_evento": "Segundo intento misma fecha desde unidad solvente",
                 },
             )
             assert res_dup.status_code == 409
@@ -427,17 +449,19 @@ async def test_reservas_indice_parcial_cancelacion_y_cargo_danos_hito17_4(tmp_pa
                 recibos = list((await s.execute(select(Recibo).where(Recibo.unidad_id == ids["u2"]))).scalars().all())
                 assert len(recibos) == 1
                 assert recibos[0].estado == "PENDIENTE"
-                assert recibos[0].monto_usd == Decimal("100.00")
+                assert recibos[0].monto_usd == Decimal("125.00")
 
-                items = list((await s.execute(select(ReciboItem))).scalars().all())
-                assert len(items) == 1
-                assert items[0].tipo_item == "DANOS_AREA_SOCIAL"
+                items = list((await s.execute(select(ReciboItem).order_by(ReciboItem.id.asc()))).scalars().all())
+                assert len(items) == 2
+                assert [it.tipo_item for it in items] == ["USO_AREA_SOCIAL", "DANOS_AREA_SOCIAL"]
 
-                auditorias = list((await s.execute(select(AuditoriaRecibo))).scalars().all())
-                assert len(auditorias) == 1
+                auditorias = list(
+                    (await s.execute(select(AuditoriaRecibo).order_by(AuditoriaRecibo.id.asc()))).scalars().all()
+                )
+                assert len(auditorias) == 4
                 assert auditorias[0].estado_viejo == "INEXISTENTE"
                 assert auditorias[0].estado_nuevo == "PENDIENTE"
-                assert "depósito por daños en reserva" in auditorias[0].motivo
+                assert "depósito por daños en reserva" in (auditorias[-1].motivo or "")
 
             # Área con deposito_garantia_usd == 0 no genera recibo adicional al reportar daños
             res_libre = await client.post(

@@ -198,6 +198,8 @@ def test_solicitar_reserva_unidad_solvente_crea_tarea_inspeccion() -> None:
         _result(area),
         _result_list([recibo_pagado]),
         _result(None),
+        _result(None),
+        _result(None),
     )
     _setup(session, FakeUser(7, "PROPIETARIO"))
     client = TestClient(app)
@@ -449,6 +451,7 @@ def test_inspeccionar_entrega_area_social_completa_tarea_conserje() -> None:
 
     resp = client.put(
         "/api/reservas/15/inspeccionar",
+        headers=HEADERS,
         json={
             "estado": "FINALIZADA_SIN_DANOS",
             "observaciones_inspeccion": "Instalaciones entregadas limpias y sin novedades.",
@@ -466,6 +469,7 @@ def test_inspeccionar_entrega_area_social_completa_tarea_conserje() -> None:
     _setup(session_dup, FakeUser(4, "CONSERJE"))
     resp_409 = client.put(
         "/api/reservas/15/inspeccionar",
+        headers=HEADERS,
         json={
             "estado": "FINALIZADA_CON_DANOS",
             "observaciones_inspeccion": "Intento duplicado",
@@ -488,6 +492,7 @@ def test_inspeccionar_entrega_area_social_completa_tarea_conserje() -> None:
     _setup(session_sin_tarea, FakeUser(1, "PRESIDENTE"))
     resp_sin_tarea = client.put(
         "/api/reservas/16/inspeccionar",
+        headers=HEADERS,
         json={
             "estado": "FINALIZADA_CON_DANOS",
             "observaciones_inspeccion": "Silla plástica rota en terraza.",
@@ -500,6 +505,7 @@ def test_inspeccionar_entrega_area_social_completa_tarea_conserje() -> None:
     _setup(_mock_session(_result(None)), FakeUser(4, "CONSERJE"))
     resp_404 = client.put(
         "/api/reservas/999/inspeccionar",
+        headers=HEADERS,
         json={
             "estado": "FINALIZADA_SIN_DANOS",
             "observaciones_inspeccion": "No existe",

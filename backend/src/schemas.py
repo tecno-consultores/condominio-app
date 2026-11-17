@@ -1,10 +1,18 @@
+import math
 from datetime import UTC, datetime
 from datetime import date as date_type
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 import email_validator
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
+
+
+def _coercer_entero_json_exacto(valor: Any) -> Any:
+    """Acepta floats exactos sin fracción (p. ej. 57.0 en OpenAPI 3.1) preservando rechazo de bool/str/fracciones."""
+    if isinstance(valor, float) and math.isfinite(valor) and valor.is_integer():
+        return int(valor)
+    return valor
 
 
 def _validar_correo(valor: str) -> str:
@@ -36,21 +44,22 @@ def _validar_url_evidencia_segura(valor: str) -> str:
 
 CorreoValido = Annotated[str, Field(json_schema_extra={"format": "email"}), AfterValidator(_validar_correo)]
 UrlEvidenciaSegura = Annotated[str, Field(min_length=1), AfterValidator(_validar_url_evidencia_segura)]
+EnteroEstricto = Annotated[int, BeforeValidator(_coercer_entero_json_exacto), Field(strict=True)]
 
 
 class UsuarioBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    nombre: str
-    cedula: str
+    nombre: str = Field(min_length=1, max_length=120)
+    cedula: str = Field(min_length=1, max_length=30)
     correo: CorreoValido
-    telefono: str
+    telefono: str = Field(min_length=1, max_length=30)
 
 
 class UsuarioCreate(UsuarioBase):
     password: str = Field(min_length=8, max_length=128)
-    unidad_solicitada_id: int = Field(strict=True)
-    tipo_ocupante_solicitado: str
+    unidad_solicitada_id: EnteroEstricto = Field(ge=1, le=2_000_000_000)
+    tipo_ocupante_solicitado: str = Field(min_length=1, max_length=30)
 
 
 class UsuarioResponse(UsuarioBase):
@@ -68,7 +77,7 @@ class TasaCambioCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fecha: date_type | None = None
-    tasa_usd_ves: Decimal = Field(gt=0)
+    tasa_usd_ves: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.9999"))
 
 
 class TasaCambioResponse(BaseModel):
@@ -81,9 +90,9 @@ class TasaCambioResponse(BaseModel):
 class ReciboCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    unidad_id: int = Field(strict=True)
-    periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
-    monto_usd: Decimal = Field(gt=0)
+    unidad_id: EnteroEstricto
+    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    monto_usd: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.99"))
 
 
 class ReciboResponse(BaseModel):
@@ -101,8 +110,8 @@ class ReciboResponse(BaseModel):
 class PagoReportar(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    recibo_id: int = Field(strict=True)
-    monto: Decimal = Field(gt=0)
+    recibo_id: EnteroEstricto
+    monto: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.99"))
     moneda: Moneda
     metodo_pago: str
     numero_referencia: str | None = None
@@ -133,20 +142,20 @@ class PagoRechazo(BaseModel):
 class EgresoCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
+    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     categoria: str = Field(min_length=1)
     descripcion: str = Field(min_length=1)
-    monto: Decimal = Field(gt=0)
+    monto: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.99"))
     moneda: Moneda
     url_factura: UrlEvidenciaSegura | None = None
-    incidencia_id: int | None = Field(default=None, strict=True)
+    incidencia_id: EnteroEstricto | None = None
     es_gasto_comun: bool = True
 
 
 class CierreMensualRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
+    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
 TipoEstructura = Literal["EDIFICIO", "TORRE", "BLOQUE", "MANZANA", "CALLE"]
@@ -213,8 +222,13 @@ class UnidadResponse(BaseModel):
 class AlicuotaUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    alicuota: Decimal = Field(..., ge=Decimal("0.0000"), le=Decimal("100.0000"))
-    cuota_fija_usd: Decimal | None = Field(default=None, ge=Decimal("0.00"))
+    alicuota: Decimal = Field(..., ge=Decimal("0.0000"), le=Decimal("100.0000"), allow_inf_nan=False)
+    cuota_fija_usd: Decimal | None = Field(
+        default=None,
+        ge=Decimal("0.00"),
+        le=Decimal("9999999999.99"),
+        allow_inf_nan=False,
+    )
 
 
 class EstructuraGenerarResponse(BaseModel):
@@ -228,7 +242,7 @@ class EstructuraGenerarResponse(BaseModel):
 class UsuarioAsignarRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    unidad_id: int = Field(strict=True)
+    unidad_id: EnteroEstricto
     tipo_ocupante: TipoOcupante
     rol: RolResidente = "PROPIETARIO"
     puede_votar_asamblea: bool | None = None
@@ -237,7 +251,7 @@ class UsuarioAsignarRequest(BaseModel):
 class JuntaCargoRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    usuario_id: int = Field(strict=True)
+    usuario_id: EnteroEstricto
     cargo: CargoJunta
 
 
@@ -285,7 +299,7 @@ class TareaDiariaCreate(BaseModel):
     titulo: str = Field(min_length=1)
     area: str = Field(min_length=1)
     fecha: date_type | None = None
-    incidencia_id: int | None = Field(default=None, strict=True)
+    incidencia_id: EnteroEstricto | None = None
 
 
 class TareaCompletarRequest(BaseModel):
@@ -310,7 +324,7 @@ class TareaDiariaResponse(BaseModel):
 class FotoVoceroCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    periodo: str = Field(pattern=r"^\d{4}-\d{2}$")
+    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     area: str = Field(min_length=1)
     comentario: str = Field(min_length=1)
     url_foto: UrlEvidenciaSegura
@@ -397,6 +411,8 @@ TipoReciboItem = Literal[
     "FONDO_RESERVA",
     "CUOTA_EXTRAORDINARIA",
     "CARGO_INDIVIDUAL",
+    "USO_AREA_SOCIAL",
+    "DANOS_AREA_SOCIAL",
     "ABONO_CREDITO_PREVIO",
 ]
 
@@ -406,7 +422,12 @@ class FondoCondominioCreate(BaseModel):
 
     nombre: str = Field(..., min_length=3, max_length=100)
     tipo: TipoFondoCondominio = "RESERVA_LEGAL"
-    porcentaje_recargo: Decimal = Field(default=Decimal("10.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
+    porcentaje_recargo: Decimal = Field(
+        default=Decimal("10.00"),
+        ge=Decimal("0.00"),
+        le=Decimal("100.00"),
+        allow_inf_nan=False,
+    )
 
 
 class FondoCondominioResponse(BaseModel):
@@ -425,9 +446,19 @@ class FacturarPeriodoRequest(BaseModel):
 
     periodo: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     modalidad: ModalidadFacturacion = "ALICUOTA"
-    monto_cuota_fija_usd: Decimal | None = Field(default=None, gt=Decimal("0.00"))
+    monto_cuota_fija_usd: Decimal | None = Field(
+        default=None,
+        gt=Decimal("0.00"),
+        le=Decimal("9999999999.99"),
+        allow_inf_nan=False,
+    )
     incluir_fondo_reserva: bool = True
-    cuota_extraordinaria_total_usd: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
+    cuota_extraordinaria_total_usd: Decimal = Field(
+        default=Decimal("0.00"),
+        ge=Decimal("0.00"),
+        le=Decimal("9999999999.99"),
+        allow_inf_nan=False,
+    )
     descripcion_cuota_extraordinaria: str | None = Field(default=None, max_length=200)
 
 
@@ -576,8 +607,8 @@ class ConsultaDetalleResponse(ConsultaResumenResponse):
 class VotarConsultaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    unidad_id: int = Field(..., strict=True, gt=0)
-    opcion_id: int = Field(..., strict=True, gt=0)
+    unidad_id: EnteroEstricto = Field(gt=0)
+    opcion_id: EnteroEstricto = Field(gt=0)
 
 
 class ReciboVotoResponse(BaseModel):
@@ -624,12 +655,12 @@ EstadoPaquete = Literal["EN_GARITA", "ENTREGADO"]
 class PaseVisitaCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    unidad_id: int = Field(..., strict=True, gt=0)
+    unidad_id: EnteroEstricto = Field(gt=0)
     nombre_visitante: str = Field(..., min_length=3, max_length=120)
     cedula_visitante: str = Field(..., min_length=5, max_length=25)
     placa_vehiculo: str | None = Field(default=None, max_length=20)
     modalidad: ModalidadPaseQR = "UNICO_USO"
-    horas_validez: int = Field(default=24, strict=True, ge=1, le=72)
+    horas_validez: EnteroEstricto = Field(default=24, ge=1, le=72)
     valido_desde: datetime | None = None
     valido_hasta: datetime | None = None
 
@@ -687,7 +718,7 @@ class VerificarPaseQRResponse(BaseModel):
 class PaqueteCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    unidad_id: int = Field(..., strict=True, gt=0)
+    unidad_id: EnteroEstricto = Field(gt=0)
     empresa_envio: str = Field(..., min_length=2, max_length=60)
     descripcion: str = Field(..., min_length=3, max_length=200)
     url_foto_evidencia: UrlEvidenciaSegura | None = None
@@ -718,9 +749,19 @@ class AreaSocialCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     nombre: str = Field(..., min_length=3, max_length=100)
-    aforo_maximo: int = Field(..., strict=True, ge=1, le=500)
-    costo_uso_usd: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
-    deposito_garantia_usd: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
+    aforo_maximo: EnteroEstricto = Field(ge=1, le=500)
+    costo_uso_usd: Decimal = Field(
+        default=Decimal("0.00"),
+        ge=Decimal("0.00"),
+        le=Decimal("99999999.99"),
+        allow_inf_nan=False,
+    )
+    deposito_garantia_usd: Decimal = Field(
+        default=Decimal("0.00"),
+        ge=Decimal("0.00"),
+        le=Decimal("99999999.99"),
+        allow_inf_nan=False,
+    )
     requiere_solvencia_estricta: bool = Field(default=True, strict=True)
 
 
@@ -739,8 +780,8 @@ class AreaSocialResponse(BaseModel):
 class ReservaAreaCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    area_id: int = Field(..., strict=True, gt=0)
-    unidad_id: int = Field(..., strict=True, gt=0)
+    area_id: EnteroEstricto = Field(gt=0)
+    unidad_id: EnteroEstricto = Field(gt=0)
     fecha_evento: date_type
     motivo_evento: str = Field(..., min_length=5, max_length=160)
 
@@ -765,3 +806,71 @@ class ReservaAreaResponse(BaseModel):
     tarea_inspeccion_id: int | None = None
     observaciones_inspeccion: str | None = None
     creado_en: datetime
+
+
+# ==============================================================================
+# CONTRATOS DE RESPUESTA TIPADOS (Hito 21)
+# ==============================================================================
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+class AuthSessionResponse(BaseModel):
+    message: str
+    rol: str
+    csrf_token: str
+
+
+class LogoutResponse(BaseModel):
+    message: str
+
+
+class AuthMeResponse(BaseModel):
+    id: int
+    nombre: str
+    cedula: str
+    correo: str
+    telefono: str
+    es_activo: bool
+    rol: str
+    unidad_activa_id: int | None = None
+
+
+class EgresoCreatedResponse(BaseModel):
+    id: int
+    monto_usd: str
+
+
+class EstadoCobranzaItemResponse(BaseModel):
+    recibo_id: int
+    unidad_id: int
+    periodo: str
+    monto_usd: str
+    estado: str
+    saldo_usd: str
+
+
+class ResumenFinancieroResponse(BaseModel):
+    deuda_total_usd: str
+    total_egresos_usd: str
+    gastos_por_categoria: dict[str, str]
+    estado_cobranza: list[EstadoCobranzaItemResponse]
+
+
+class CierreMensualResponse(BaseModel):
+    periodo: str
+    estado: str
+
+
+class GenerarTareasDiariasResponse(BaseModel):
+    tareas_generadas: int
+
+
+class EvidenciaUploadResponse(BaseModel):
+    url: str
+    mime_origen: str
+    formato_destino: str
+    bytes_recibidos: int
+    estado: str

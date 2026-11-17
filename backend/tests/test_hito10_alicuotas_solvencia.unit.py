@@ -65,11 +65,27 @@ def _result_list(values: list[Any]) -> MagicMock:
 def _mock_session(*results: Any) -> AsyncMock:
     session = AsyncMock()
     session.execute.side_effect = list(results)
-    session.add = MagicMock()
+    added: list[Any] = []
+    seq = [0]
+
+    def _add(obj: Any) -> None:
+        added.append(obj)
+
+    session.add = MagicMock(side_effect=_add)
+
+    async def _flush(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        for obj in added:
+            if getattr(obj, "id", None) is None:
+                seq[0] += 1
+                obj.id = seq[0]
+
+    session.flush = AsyncMock(side_effect=_flush)
 
     async def _refresh(instance: Any, *args: object, **kwargs: object) -> None:
         if getattr(instance, "id", None) is None:
-            instance.id = 10
+            seq[0] += 1
+            instance.id = seq[0]
 
     session.refresh = _refresh
     return session
@@ -351,6 +367,7 @@ def test_facturar_periodo_modalidad_alicuota_con_credito_y_fondo(client: TestCli
         _result_list(unidades),
         _result_list(egresos),
         _result(fondo),
+        _result_list([]),
     )
     _setup(session)
 
@@ -425,6 +442,7 @@ def test_facturar_periodo_modalidad_cuota_fija_y_partes_iguales(client: TestClie
         _result_list(unidades),
         _result_list(egresos),
         _result(fondo),
+        _result_list([]),
     )
     _setup(session_fija)
 
@@ -451,6 +469,7 @@ def test_facturar_periodo_modalidad_cuota_fija_y_partes_iguales(client: TestClie
         _result_list(unidades),
         _result_list(egresos),
         _result(None),
+        _result_list([]),
     )
     _setup(session_iguales)
     res_iguales = client.post(
@@ -586,6 +605,7 @@ def test_facturar_periodo_errores_y_bloqueos(client: TestClient) -> None:
         _result_list(uni_ok),
         _result_list([]),
         _result(None),
+        _result_list([]),
     )
     session_ie.commit.side_effect = IntegrityError("dup", {}, Exception("uq_recibo_unidad_periodo"))
     _setup(session_ie)
@@ -628,6 +648,7 @@ def test_facturar_periodo_cuota_extraordinaria_prorrateada_por_alicuota(client: 
         _result_list(unidades),
         _result_list([]),
         _result(None),
+        _result_list([]),
     )
     _setup(session)
 
@@ -785,7 +806,7 @@ def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None
         identificador="A-02",
         estructura_id=1,
         alicuota=Decimal("40.0000"),
-        cuota_fija_usd=Decimal("0.00"),
+        cuota_fija_usd=None,
         credito_disponible_usd=Decimal("5.00"),
     )
 
@@ -796,6 +817,17 @@ def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None
     assert items_fija[1][0][2] == Decimal("40.00")
     assert items_fija[2][0][2] == Decimal("20.00")
     assert superavit == Decimal("10.00")
+
+    # Cuota fija explícita en 0.00 no hace fallback falsy al monto global -> exige cuota > 0
+    u_cero = Unidad(
+        id=9,
+        identificador="A-09",
+        estructura_id=1,
+        alicuota=Decimal("0.0000"),
+        cuota_fija_usd=Decimal("0"),
+    )
+    with pytest.raises(ErrorFinanciero, match="CUOTA_FIJA"):
+        _cargos_cuota_fija(req_fija, [u_cero], Decimal("10.00"))
 
     # Si total fijo < total egresos, retorna diferencia negativa sin truncar
     _, superavit_cero = _cargos_cuota_fija(req_fija, [u1, u2], Decimal("80.00"))
@@ -881,7 +913,7 @@ def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None
     assert items_mod_al[1][2][2] == Decimal("12.00")
     assert items_mod_al[2][2][2] == Decimal("8.00")
 
-    # _crear_recibo_e_items_unidad: crédito cubre total -> PAGADO y abono negativo
+    # _crear_recibo_e_items_unidad: crédito cubre 100% -> Recibo.monto_usd == 0.00 cuadra con sum(items) == 0.00
     recibo_pagado, r_items, bruto_1, cred_1 = _crear_recibo_e_items_unidad(
         u1,
         "2026-10",
@@ -889,10 +921,11 @@ def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None
     )
     assert bruto_1 == Decimal("40.00")
     assert cred_1 == Decimal("40.00")
-    assert recibo_pagado.monto_usd == Decimal("40.00")
-    assert recibo_pagado.monto_pagado_usd == Decimal("40.00")
+    assert recibo_pagado.monto_usd == Decimal("0.00")
+    assert recibo_pagado.monto_pagado_usd == Decimal("0.00")
     assert recibo_pagado.estado == "PAGADO"
     assert recibo_pagado.bloqueado is False
+    assert sum(it.monto_usd for it in r_items) == Decimal("0.00")
     assert u1.credito_disponible_usd == Decimal("10.00")
     assert r_items[-1].tipo_item == "ABONO_CREDITO_PREVIO"
     assert r_items[-1].descripcion == "Abono automático de saldo a favor disponible"
@@ -922,7 +955,9 @@ def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None
 
 
 async def test_cargar_contexto_facturacion_respaldo_diez_por_ciento() -> None:
-    """Sin fondo RESERVA_LEGAL activo, cargar_contexto_facturacion aplica 10.00% por defecto."""
+    """Sin fondo RESERVA_LEGAL activo, incluir_fondo_reserva=True exige existencia del fondo (ErrorFinanciero)."""
+    import pytest
+
     from src.schemas import FacturarPeriodoRequest
 
     u = Unidad(id=1, identificador="A-01", estructura_id=1, alicuota=Decimal("100.0000"))
@@ -937,13 +972,18 @@ async def test_cargar_contexto_facturacion_respaldo_diez_por_ciento() -> None:
         tasa_cambio=Decimal("36.5000"),
         es_gasto_comun=True,
     )
-    session = _mock_session(_result_list([u]), _result_list([egreso]), _result(None))
-    req = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=True)
-    unidades, total_eg, fondo, recargo = await cargar_contexto_facturacion(session, req)
+    session_sin_fondo = _mock_session(_result_list([u]), _result_list([egreso]), _result(None))
+    req_con_fondo = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=True)
+    with pytest.raises(ErrorFinanciero, match="Fondo de Reserva Legal"):
+        await cargar_contexto_facturacion(session_sin_fondo, req_con_fondo)
+
+    session_sin_recargo = _mock_session(_result_list([u]), _result_list([egreso]), _result(None))
+    req_sin_fondo = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=False)
+    unidades, total_eg, fondo, recargo = await cargar_contexto_facturacion(session_sin_recargo, req_sin_fondo)
     assert len(unidades) == 1
     assert total_eg == Decimal("200.00")
     assert fondo is None
-    assert recargo == Decimal("20.00")
+    assert recargo == Decimal("0.00")
 
 
 async def test_persistir_lote_facturacion_actualiza_fondos_y_recibos() -> None:
@@ -963,7 +1003,7 @@ async def test_persistir_lote_facturacion_actualiza_fondos_y_recibos() -> None:
         saldo_actual_usd=Decimal("100.00"),
         es_activo=True,
     )
-    session_fija = _mock_session()
+    session_fija = _mock_session(_result_list([]))
     tot_bruto, tot_cred, tot_neto = await persistir_lote_facturacion(
         session_fija,
         [u1],
@@ -997,7 +1037,7 @@ async def test_persistir_lote_facturacion_actualiza_fondos_y_recibos() -> None:
         saldo_actual_usd=Decimal("50.00"),
         es_activo=True,
     )
-    session_al = _mock_session()
+    session_al = _mock_session(_result_list([]))
     b2, c2, n2 = await persistir_lote_facturacion(
         session_al,
         [u2],

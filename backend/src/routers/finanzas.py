@@ -8,15 +8,20 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.database import DEFAULT_CONDOMINIO_ID, bind_rls_tenant, get_db
-from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
+from src.dependencies import (
+    IdempotentAPIRoute,
+    exigir_idempotencia,
+    get_current_user,
+    verificar_roles,
+    verificar_usuario_activo,
+)
 from src.facturacion_lph import (
     calcular_cargos_modalidad,
     cargar_contexto_facturacion,
@@ -39,6 +44,7 @@ from src.models import (
     ContratoOcupacion,
     Egreso,
     FondoCondominio,
+    PagoReportado,
     Recibo,
     ReciboItem,
     ReporteMensual,
@@ -46,24 +52,27 @@ from src.models import (
     Unidad,
     Usuario,
 )
-from src.redis_client import check_and_set_idempotency_key, get_redis_client
 from src.schemas import (
     CertificadoSolvenciaResponse,
     CierreMensualRequest,
+    CierreMensualResponse,
     EgresoCreate,
+    EgresoCreatedResponse,
+    EstadoCobranzaItemResponse,
     FacturarPeriodoRequest,
     FacturarPeriodoResponse,
     FondoCondominioCreate,
     FondoCondominioResponse,
     ReciboDesgloseResponse,
     ReciboItemResponse,
+    ResumenFinancieroResponse,
     TasaCambioCreate,
     TasaCambioResponse,
     VerificarSolvenciaResponse,
 )
 from src.security import get_solvency_signing_key
 
-router = APIRouter(prefix="/api/finanzas", tags=["Finanzas"])
+router = APIRouter(prefix="/api/finanzas", tags=["Finanzas"], route_class=IdempotentAPIRoute)
 
 _ROLES_TESORERIA = ("TESORERO", "PRESIDENTE")
 _ROLES_JUNTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "VOCERO")
@@ -73,10 +82,12 @@ _ROLES_JUNTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "VOCER
     "/tasa",
     response_model=TasaCambioResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("tasa", roles=_ROLES_TESORERIA))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes o usuario fantasma"},
+        409: {"description": "Petición duplicada (Idempotency-Key ya procesada)"},
     },
 )
 async def registrar_tasa(
@@ -132,11 +143,32 @@ async def _validar_egreso_periodo_abierto(db: AsyncSession, periodo: str) -> Non
         )
 
 
+async def _descontar_fondo_para_egreso(db: AsyncSession, condominio_id: int, monto_usd: Decimal) -> None:
+    res = await db.execute(
+        select(FondoCondominio)
+        .where(
+            FondoCondominio.condominio_id == condominio_id,
+            FondoCondominio.es_activo.is_(True),
+            FondoCondominio.tipo == "RESERVA_LEGAL",
+        )
+        .with_for_update()
+    )
+    fondo = res.scalars().first()
+    if fondo is None:
+        raise ErrorFinanciero("No existe un Fondo de Reserva Legal activo para imputar el egreso patrimonial")
+    saldo_actual = cuantizar(fondo.saldo_actual_usd)
+    if saldo_actual < monto_usd:
+        raise ErrorFinanciero("Saldo insuficiente en el Fondo de Reserva Legal para cubrir el egreso")
+    fondo.saldo_actual_usd = cuantizar(saldo_actual - monto_usd)
+
+
 @router.post(
     "/egresos",
+    response_model=EgresoCreatedResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("egreso", roles=_ROLES_TESORERIA))],
     responses={
-        400: {"description": "Tasa del día no registrada o monto inválido"},
+        400: {"description": "Tasa del día no registrada, fondo insuficiente o monto inválido"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes o usuario fantasma"},
         409: {"description": "Periodo cerrado (Candado Contable) o Idempotency-Key repetida"},
@@ -144,18 +176,12 @@ async def _validar_egreso_periodo_abierto(db: AsyncSession, periodo: str) -> Non
 )
 async def registrar_egreso(
     datos: EgresoCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_conn: aioredis.Redis = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> EgresoCreatedResponse:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    es_unica = await check_and_set_idempotency_key(redis_conn, idempotency_key, scope=f"egreso:{usuario.id}")
-    if not es_unica:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Petición duplicada detectada (Idempotency-Key ya procesada)",
-        )
+    condo_raw = getattr(usuario, "condominio_id", None)
+    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
     try:
         await _validar_egreso_periodo_abierto(db, datos.periodo)
         tasa_result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == date.today()))
@@ -166,7 +192,10 @@ async def registrar_egreso(
                 detail="La tasa de cambio del día no ha sido registrada",
             )
         monto_usd = convertir_a_usd(datos.monto, datos.moneda, tasa.tasa_usd_ves)
+        if not datos.es_gasto_comun:
+            await _descontar_fondo_para_egreso(db, condo_id, monto_usd)
         egreso = Egreso(
+            condominio_id=condo_id,
             periodo=datos.periodo,
             categoria=datos.categoria,
             descripcion=datos.descripcion,
@@ -181,7 +210,7 @@ async def registrar_egreso(
         db.add(egreso)
         await db.commit()
         await db.refresh(egreso)
-        return {"id": egreso.id, "monto_usd": str(egreso.monto_usd)}
+        return EgresoCreatedResponse(id=egreso.id, monto_usd=str(egreso.monto_usd))
     except HTTPException:
         raise
     except ErrorFinanciero as exc:
@@ -224,16 +253,17 @@ async def _obtener_recibos_resumen(
 
 @router.get(
     "/resumen",
+    response_model=ResumenFinancieroResponse,
     responses={
         401: {"description": "No autenticado"},
         403: {"description": "Usuario fantasma sin activar"},
     },
 )
 async def resumen_financiero(
-    periodo: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    periodo: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> ResumenFinancieroResponse:
     verificar_usuario_activo(usuario)
     egreso_stmt = select(
         Egreso.categoria,
@@ -249,72 +279,98 @@ async def resumen_financiero(
     total_egresos = Decimal("0.00")
     gastos_por_categoria: dict[str, Decimal] = {}
     for categoria, monto_sumado in egresos_result.all():
-        monto_q = cuantizar(Decimal(str(monto_sumado or CERO)))
+        monto_q = cuantizar(Decimal(str(CERO if monto_sumado is None else monto_sumado)))
         total_egresos += monto_q
         gastos_por_categoria[str(categoria)] = monto_q
 
-    return {
-        "deuda_total_usd": str(cuantizar(deuda_total)),
-        "total_egresos_usd": str(cuantizar(total_egresos)),
-        "gastos_por_categoria": {clave: str(cuantizar(valor)) for clave, valor in gastos_por_categoria.items()},
-        "estado_cobranza": [
-            {
-                "recibo_id": r.id,
-                "unidad_id": r.unidad_id,
-                "periodo": r.periodo,
-                "monto_usd": str(cuantizar(r.monto_usd)),
-                "estado": r.estado,
-                "saldo_usd": str(calcular_saldo_pendiente(r.monto_usd, r.monto_pagado_usd)),
-            }
+    return ResumenFinancieroResponse(
+        deuda_total_usd=str(cuantizar(deuda_total)),
+        total_egresos_usd=str(cuantizar(total_egresos)),
+        gastos_por_categoria={clave: str(cuantizar(valor)) for clave, valor in gastos_por_categoria.items()},
+        estado_cobranza=[
+            EstadoCobranzaItemResponse(
+                recibo_id=r.id,
+                unidad_id=r.unidad_id,
+                periodo=r.periodo,
+                monto_usd=str(cuantizar(r.monto_usd)),
+                estado=r.estado,
+                saldo_usd=str(calcular_saldo_pendiente(r.monto_usd, r.monto_pagado_usd)),
+            )
             for r in recibos
         ],
-    }
+    )
 
 
 @router.post(
     "/cierre-mensual",
+    response_model=CierreMensualResponse,
+    dependencies=[Depends(exigir_idempotencia("cierre_mensual", roles=_ROLES_TESORERIA))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes o usuario fantasma"},
-        409: {"description": "El mes ya fue cerrado (acción inmutable)"},
+        409: {"description": "El mes ya fue cerrado o existen pagos en revisión"},
     },
 )
 async def cierre_mensual(
     datos: CierreMensualRequest,
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> CierreMensualResponse:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    result = await db.execute(select(ReporteMensual).where(ReporteMensual.periodo == datos.periodo))
+    condo_raw = getattr(usuario, "condominio_id", None)
+    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
+
+    result = await db.execute(
+        select(ReporteMensual)
+        .where(ReporteMensual.condominio_id == condo_id, ReporteMensual.periodo == datos.periodo)
+        .with_for_update()
+    )
     reporte = result.scalars().first()
     if reporte and reporte.estado == "CERRADO":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El mes ya fue cerrado (acción inmutable)",
         )
+
+    pagos_rev = await db.execute(
+        select(PagoReportado.id)
+        .where(PagoReportado.condominio_id == condo_id, PagoReportado.estado == "EN_REVISION")
+        .limit(1)
+    )
+    if pagos_rev.scalars().first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede ejecutar el cierre mensual mientras existan pagos en revisión.",
+        )
+
     if reporte is None:
-        reporte = ReporteMensual(periodo=datos.periodo, estado="PRELIMINAR")
+        reporte = ReporteMensual(condominio_id=condo_id, periodo=datos.periodo, estado="PRELIMINAR")
         db.add(reporte)
 
-    recibos_result = await db.execute(select(Recibo).where(Recibo.periodo == datos.periodo))
+    recibos_result = await db.execute(
+        select(Recibo).where(Recibo.condominio_id == condo_id, Recibo.periodo == datos.periodo).with_for_update()
+    )
     for recibo in recibos_result.scalars().all():
         recibo.bloqueado = True
 
-    egresos_result = await db.execute(select(Egreso).where(Egreso.periodo == datos.periodo))
+    egresos_result = await db.execute(
+        select(Egreso).where(Egreso.condominio_id == condo_id, Egreso.periodo == datos.periodo).with_for_update()
+    )
     for egreso in egresos_result.scalars().all():
         egreso.bloqueado = True
 
     reporte.estado = "CERRADO"
     reporte.cerrado_en = datetime.now(UTC)
     await db.commit()
-    return {"periodo": datos.periodo, "estado": "CERRADO"}
+    return CierreMensualResponse(periodo=datos.periodo, estado="CERRADO")
 
 
 @router.post(
     "/fondos",
     response_model=FondoCondominioResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("crear_fondo", roles=_ROLES_TESORERIA))],
     responses={
         400: {"description": "Cuerpo JSON malformado"},
         401: {"description": "No autenticado"},
@@ -324,24 +380,11 @@ async def cierre_mensual(
 )
 async def crear_fondo_condominio(
     datos: FondoCondominioCreate,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> FondoCondominio:
     """Registra un fondo patrimonial del condominio (Reserva Legal, Caja Chica o Especial)."""
     verificar_roles(usuario, _ROLES_TESORERIA)
-
-    es_nueva = await check_and_set_idempotency_key(
-        redis_client,
-        idempotency_key,
-        scope=f"crear_fondo:{usuario.id}",
-    )
-    if not es_nueva:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta creación de fondo ya fue procesada.",
-        )
 
     existente = await db.execute(select(FondoCondominio).where(FondoCondominio.nombre == datos.nombre.strip()))
     if existente.scalars().first() is not None:
@@ -372,13 +415,19 @@ async def crear_fondo_condominio(
     },
 )
 async def listar_fondos_condominio(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[FondoCondominio]:
     """Lista los fondos patrimoniales activos del condominio y sus saldos en USD."""
     verificar_usuario_activo(usuario)
     res = await db.execute(
-        select(FondoCondominio).where(FondoCondominio.es_activo.is_(True)).order_by(FondoCondominio.id.asc())
+        select(FondoCondominio)
+        .where(FondoCondominio.es_activo.is_(True))
+        .order_by(FondoCondominio.id.asc())
+        .limit(limit)
+        .offset(offset)
     )
     return list(res.scalars().all())
 
@@ -387,8 +436,9 @@ async def listar_fondos_condominio(
     "/facturar-periodo",
     response_model=FacturarPeriodoResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("facturar", roles=_ROLES_TESORERIA))],
     responses={
-        400: {"description": "Sin unidades o configuración de alícuotas/cuota fija inválida"},
+        400: {"description": "Sin unidades o configuración de alícuotas/cuota fija/fondo inválida"},
         401: {"description": "No autenticado"},
         403: {"description": "Permisos insuficientes"},
         409: {"description": "Periodo ya facturado, bloqueado por Candado Contable o Idempotency-Key repetida"},
@@ -396,37 +446,21 @@ async def listar_fondos_condominio(
 )
 async def facturar_periodo(
     datos: FacturarPeriodoRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> FacturarPeriodoResponse:
     """Emite atómicamente los recibos del periodo (ALICUOTA, CUOTA_FIJA o PARTES_IGUALES) y su desglose LPH."""
     verificar_roles(usuario, _ROLES_TESORERIA)
 
-    es_nueva = await check_and_set_idempotency_key(
-        redis_client,
-        idempotency_key,
-        scope=f"facturar:{datos.periodo}",
-    )
-    if not es_nueva:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta facturación mensual ya fue procesada.",
-        )
-
-    condo_id = int(getattr(usuario, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    condo_raw = getattr(usuario, "condominio_id", None)
+    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
     await verificar_periodo_facturable(db, datos.periodo, condominio_id=condo_id)
-    unidades, total_egresos, fondo_reserva, recargo_reserva = await cargar_contexto_facturacion(
-        db, datos, condominio_id=condo_id
-    )
 
     try:
+        unidades, total_egresos, fondo_reserva, recargo_reserva = await cargar_contexto_facturacion(
+            db, datos, condominio_id=condo_id
+        )
         items_por_unidad, superavit_fondo = calcular_cargos_modalidad(datos, unidades, total_egresos, recargo_reserva)
-    except ErrorFinanciero as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    try:
         total_bruto, total_credito, total_neto = await persistir_lote_facturacion(
             db,
             unidades,
@@ -437,7 +471,10 @@ async def facturar_periodo(
             recargo_reserva,
             superavit_fondo,
             condominio_id=condo_id,
+            usuario_id=usuario.id,
         )
+    except ErrorFinanciero as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
@@ -504,7 +541,8 @@ async def obtener_desglose_recibo(
     uni_res = await db.execute(select(Unidad).where(Unidad.id == recibo.unidad_id))
     unidad = uni_res.scalars().first()
     identificador = unidad.identificador if unidad else f"UNIDAD-{recibo.unidad_id}"
-    alicuota = (getattr(unidad, "alicuota", None) or Decimal("0.0000")) if unidad else Decimal("0.0000")
+    alicuota_raw = getattr(unidad, "alicuota", None) if unidad is not None else None
+    alicuota = Decimal("0.0000") if alicuota_raw is None else alicuota_raw
 
     items_res = await db.execute(
         select(ReciboItem).where(ReciboItem.recibo_id == recibo.id).order_by(ReciboItem.id.asc())
@@ -550,6 +588,7 @@ async def _obtener_deuda_viva_unidad(db: AsyncSession, unidad_id: int) -> Decima
     "/solvencia/{unidad_id}",
     response_model=CertificadoSolvenciaResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_idempotencia("solvencia:{unidad_id}"))],
     responses={
         401: {"description": "No autenticado"},
         403: {"description": "No autorizado para esta unidad"},
@@ -559,25 +598,12 @@ async def _obtener_deuda_viva_unidad(db: AsyncSession, unidad_id: int) -> Decima
 )
 async def emitir_certificado_solvencia(
     unidad_id: int,
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
     db: AsyncSession = Depends(get_db),
-    redis_client: Any = Depends(get_redis_client),
     usuario: Usuario = Depends(get_current_user),
 ) -> CertificadoSolvenciaResponse:
     """Verifica deuda cero ($0.00 USD) y emite un Certificado de Solvencia firmado con HMAC-SHA256 y JTI."""
     verificar_usuario_activo(usuario)
     await _verificar_acceso_unidad(db, usuario, unidad_id)
-
-    es_nueva = await check_and_set_idempotency_key(
-        redis_client,
-        idempotency_key,
-        scope=f"solvencia:{unidad_id}",
-    )
-    if not es_nueva:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta solicitud de certificado de solvencia ya fue procesada.",
-        )
 
     uni_res = await db.execute(select(Unidad).where(Unidad.id == unidad_id))
     unidad = uni_res.scalars().first()

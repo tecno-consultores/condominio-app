@@ -188,9 +188,10 @@ def test_aplicar_pago_con_excedente() -> None:
 
 
 def test_aplicar_pago_cero_queda_pendiente() -> None:
-    nuevo_pagado, estado = aplicar_pago(Decimal("100.00"), Decimal("0.00"), Decimal("0.00"))
-    assert nuevo_pagado == CERO
-    assert estado == ESTADO_PENDIENTE
+    with pytest.raises(ErrorFinanciero, match="mayor que cero"):
+        aplicar_pago(Decimal("100.00"), Decimal("0.00"), Decimal("0.00"))
+    with pytest.raises(ErrorFinanciero, match="mayor que cero"):
+        aplicar_pago(Decimal("100.00"), Decimal("0.00"), Decimal("-5.00"))
 
 
 def test_calcular_deuda_total_suma_saldos() -> None:
@@ -393,7 +394,7 @@ def test_consultas_lph_quorum_voto_hmac_y_escrutinio() -> None:
     assert UMBRAL_DOS_TERCIOS_PCT == Decimal("66.6667")
 
     assert umbral_quorum_por_regla("DOS_TERCIOS") == UMBRAL_DOS_TERCIOS_PCT
-    assert umbral_quorum_por_regla("MAYORIA_SIMPLE") == Decimal("50.0100")
+    assert umbral_quorum_por_regla("MAYORIA_SIMPLE") == Decimal("50.0000")
     assert umbral_quorum_por_regla("UNANIMIDAD") == Decimal("100.0000")
     with pytest.raises(ErrorFinanciero, match="Regla de quórum inválida"):
         umbral_quorum_por_regla("dos_tercios")
@@ -449,14 +450,25 @@ def test_consultas_lph_quorum_voto_hmac_y_escrutinio() -> None:
     assert pct_part == Decimal("49.9999")
     assert pct_ap == Decimal("30.0000")
 
-    estado_ap, pct_part2, pct_ap2 = evaluar_escrutinio_consulta(
+    estado_empate, pct_part_emp, pct_ap_emp = evaluar_escrutinio_consulta(
         Decimal("50.0000"),
         {1},
         {1: Decimal("50.0000"), 2: Decimal("20.0000")},
+        regla_quorum="MAYORIA_SIMPLE",
+    )
+    assert estado_empate == "CERRADA_RECHAZADA"
+    assert pct_part_emp == Decimal("70.0000")
+    assert pct_ap_emp == Decimal("50.0000")
+
+    estado_ap, pct_part2, pct_ap2 = evaluar_escrutinio_consulta(
+        Decimal("50.0000"),
+        {1},
+        {1: Decimal("50.0001"), 2: Decimal("19.9999")},
+        regla_quorum="MAYORIA_SIMPLE",
     )
     assert estado_ap == "CERRADA_APROBADA"
     assert pct_part2 == Decimal("70.0000")
-    assert pct_ap2 == Decimal("50.0000")
+    assert pct_ap2 == Decimal("50.0001")
 
     # Con quórum alcanzado pero alícuota aprobatoria inferior al umbral -> CERRADA_RECHAZADA
     estado_rech, pct_part3, pct_ap3 = evaluar_escrutinio_consulta(

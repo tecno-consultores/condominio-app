@@ -1,6 +1,6 @@
 # 🚀 Especificación 13: Remediación Integral Post-Auditoría, Completitud Funcional PropTech y Distribución Docker Hub (`v1.1.0` – `v1.2.0`)
 
-**Estado:** En Ejecución Activa — **Hitos 19 y 20 ✅ Completados** (Hitos 21 al 26 pendientes de ejecución)  
+**Estado:** En Ejecución Activa — **Hitos 19, 20 y 21 ✅ Completados** (Hitos 22 al 26 pendientes de ejecución)  
 **Ecosistema:** FastAPI + SQLAlchemy 2.0 Async + PostgreSQL 17 (RLS) + KeyDB Multi-Hilo + Vue 3 / Pinia + Docker Hub Multi-Arch + `@sinfallas/mcp-qa-11x` `v3.1.0`  
 **Origen de Auditoría:** Auditoría integral de solo lectura sobre los 306 archivos del repositorio (`2026-11-17`) y definiciones de alcance productivas aprobadas  
 
@@ -57,7 +57,7 @@
    - Corregir `frontend/nginx.conf`, `frontend/nginx.qa.conf` y `frontend/Dockerfile`: repetir las cabeceras OSHP/CSP dentro de `location /assets/`, activar `gzip on` en producción, provisionar `/tmp/nginx_{fastcgi,uwsgi,scgi}_temp` para el usuario `101:101` y homogeneizar `client_max_body_size 2M` y `Cache-Control: no-store`.
    - Bloquear la escalación `VICEPRESIDENTE -> PRESIDENTE` en `PUT /api/usuarios/{id}/asignar`, exigir `ContratoOcupacion.fecha_fin.is_(None)` en `_verificar_acceso_unidad`, restringir `GET /api/estructura/unidades`, `GET /api/finanzas/resumen`, `GET /api/paqueteria`, `GET /api/reservas` y `GET /api/accesos/pases/mios` para no filtrar saldos ni datos personales a roles no autorizados, y activar fail-closed en `verificar_usuario_activo`.
 
-### 2.3. Hito 21: Exactitud Contable LPH, Idempotencia con Replay y Worker Productivo
+### 2.3. Hito 21: Exactitud Contable LPH, Idempotencia con Replay y Worker Productivo ✅ (Completado)
 1. **Desacoplo de Cargos Cross-Módulo e Integridad Contable (`facturacion_lph.py`, `finanzas.py`, `reservas.py`, `pagos.py`):**
    - Resolver el deadlock `HTTP 409` en `facturar-periodo`: registrar daños de amenidades (`FINALIZADA_CON_DANOS`) y `AreaSocial.costo_uso_usd > 0` como cargos individuales pendientes o fusionarlos mediante `UPSERT` en `persistir_lote_facturacion` anexando sus `ReciboItem` al recibo mensual de la unidad.
    - Impedir `POST /api/finanzas/cierre-mensual` mientras existan pagos `EN_REVISION`, añadir `with_for_update()` e `Idempotency-Key` en `PUT /api/pagos/{id}/rechazar` y corregir los estados registrados en `AuditoriaRecibo`.
