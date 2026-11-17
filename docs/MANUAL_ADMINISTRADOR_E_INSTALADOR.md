@@ -82,22 +82,30 @@ cp .env.example .env && chmod 600 .env
 # ==============================================================================
 APP_ENV=production
 ALLOWED_ORIGINS="https://condominio.mi-comunidad.com,https://www.condominio.mi-comunidad.com"
+ALLOWED_HOSTS="condominio.mi-comunidad.com,www.condominio.mi-comunidad.com,api,localhost,127.0.0.1"
+TRUSTED_PROXY_IPS="127.0.0.1,::1,172.16.0.0/12,10.0.0.0/8"
+METRICS_AUTH_TOKEN=CAMBIAR_PLACEHOLDER_METRICS_TOKEN
 COOKIE_SECURE=true
 CSRF_ENFORCE=true
 FRONTEND_PORT=8080
+CONDOMINIO_ID=1
 
-# Clave secreta simétrica HS256/HMAC-SHA256 para JWT, CSRF, firmas de solvencia, votos LPH y pases QR.
+# Clave secreta maestra para derivación HKDF-SHA256 de JWT, CSRF, solvencia, votos, QR y WORM.
 # En APP_ENV=production el arranque aborta (Fail-Fast) si mide < 32 caracteres o conserva el valor placeholder.
 SECRET_KEY="CAMBIAR_PLACEHOLDER_GENERAR_CON_OPENSSL_RAND_HEX_32"
 
 # ==============================================================================
-# BASE DE DATOS POSTGRESQL 17
+# BASE DE DATOS POSTGRESQL 17 (SEPARACIÓN ADMIN / RUNTIME RLS)
 # ==============================================================================
 POSTGRES_DB=condominio_db
 POSTGRES_USER=condominio_admin
 POSTGRES_PASSWORD=CAMBIAR_PLACEHOLDER_POSTGRES_PASSWORD
-# En APP_ENV=production el arranque aborta si esta variable falta o usa SQLite (:memory:)
-DATABASE_URL=postgresql+asyncpg://condominio_admin:CAMBIAR_PLACEHOLDER_POSTGRES_PASSWORD@postgres:5432/condominio_db
+POSTGRES_APP_USER=condominio_app
+POSTGRES_APP_PASSWORD=CAMBIAR_PLACEHOLDER_POSTGRES_APP_PASSWORD
+# Usuario privilegiado exclusivo para migraciones Alembic:
+ADMIN_DATABASE_URL=postgresql+asyncpg://condominio_admin:CAMBIAR_PLACEHOLDER_POSTGRES_PASSWORD@postgres:5432/condominio_db
+# Usuario runtime no-superusuario sujeto a FORCE ROW LEVEL SECURITY (Fail-Fast si falta o usa :memory:):
+DATABASE_URL=postgresql+asyncpg://condominio_app:CAMBIAR_PLACEHOLDER_POSTGRES_APP_PASSWORD@postgres:5432/condominio_db
 
 # ==============================================================================
 # MOTOR KEYDB (MULTI-HILO, PROTOCOLO REDIS)
@@ -154,7 +162,7 @@ Siguiendo el estándar de calidad corporativo **QA Nivel 11X**, ningún servicio
    ```bash
    docker compose up -d --build
    ```
-3. Ejecute las migraciones automáticas de base de datos Alembic (PostgreSQL 17):
+3. Ejecute las migraciones automáticas de base de datos Alembic (PostgreSQL 17, utilizando `ADMIN_DATABASE_URL` si está definida):
    ```bash
    docker compose exec api alembic upgrade head
    ```

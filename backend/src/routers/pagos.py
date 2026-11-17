@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from src.database import get_db
+from src.database import DEFAULT_CONDOMINIO_ID, get_db, sellar_cadena_worm
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
 from src.finanzas import (
     ErrorFinanciero,
@@ -267,14 +267,24 @@ async def aprobar_pago(
         unidad.credito_disponible_usd = cuantizar(credito_previo + excedente)
         motivo_auditoria = f"Sobrepago acreditado a saldo a favor: +{excedente} USD"
 
+    condo_id = int(getattr(recibo, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    prev_hash, rec_hash = await sellar_cadena_worm(
+        db,
+        "auditoria_recibos",
+        condo_id,
+        f"{recibo.id}|{pago.id}|{usuario.id}|EN_REVISION->APROBADO|{motivo_auditoria or ''}",
+    )
     db.add(
         AuditoriaRecibo(
+            condominio_id=condo_id,
             recibo_id=recibo.id,
             pago_id=pago.id,
             usuario_id=usuario.id,
             estado_viejo="EN_REVISION",
             estado_nuevo="APROBADO",
             motivo=motivo_auditoria,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
         )
     )
     await db.commit()
@@ -312,14 +322,24 @@ async def rechazar_pago(
         )
 
     pago.estado = "RECHAZADO"
+    condo_id = int(getattr(recibo, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    prev_hash, rec_hash = await sellar_cadena_worm(
+        db,
+        "auditoria_recibos",
+        condo_id,
+        f"{recibo.id}|{pago.id}|{usuario.id}|EN_REVISION->RECHAZADO|{body.motivo}",
+    )
     db.add(
         AuditoriaRecibo(
+            condominio_id=condo_id,
             recibo_id=recibo.id,
             pago_id=pago.id,
             usuario_id=usuario.id,
             estado_viejo="EN_REVISION",
             estado_nuevo="RECHAZADO",
             motivo=body.motivo,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
         )
     )
     await db.commit()

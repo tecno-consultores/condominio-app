@@ -54,7 +54,8 @@ def test_cli_fail_fast_en_produccion_con_secret_inseguro(
 ) -> None:
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SECRET_KEY", "qa-blueprint-11x-secret-key-super-secure-32bytes")
-    code = main(["--correo", "presidente@condominio.test", "--password", "ClaveRobusta123!"])
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "ClaveRobusta123!")
+    code = main(["--correo", "presidente@condominio.test"])
     assert code == 1
     assert "Error de bootstrap" in capsys.readouterr().err
 
@@ -271,13 +272,12 @@ def test_cli_ejecuta_con_flags_y_sqlite_archivo(
     monkeypatch.setattr(bootstrap_mod, "engine", test_engine)
     monkeypatch.setattr(bootstrap_mod, "AsyncSessionLocal", test_factory)
     monkeypatch.setenv("APP_ENV", "qa_unit")
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "ClaveCliSegura2026!")
 
     exit_code = main(
         [
             "--correo",
             "cli.presi@condominio.test",
-            "--password",
-            "ClaveCliSegura2026!",
             "--cedula",
             "V-99887766",
             "--nombre",
@@ -408,7 +408,7 @@ def test_bootstrap_pbkdf2_iteraciones_reales(monkeypatch: pytest.MonkeyPatch, tm
 
     asyncio.run(_run())
     assert iteraciones_observadas == [PBKDF2_ITERATIONS, PBKDF2_ITERATIONS]
-    assert PBKDF2_ITERATIONS == 100_000
+    assert PBKDF2_ITERATIONS == 600_000
 
 
 def test_bootstrap_cli_argumentos_ayuda_y_errores(
@@ -429,16 +429,16 @@ def test_bootstrap_cli_argumentos_ayuda_y_errores(
     assert main([]) == 0
     assert "usage:" in capsys.readouterr().out.lower()
 
-    rc_err = main(["--correo", "bad@condo.test", "--password", "corta", "--rol", "PRESIDENTE"])
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "corta")
+    rc_err = main(["--correo", "bad@condo.test", "--rol", "PRESIDENTE"])
     assert rc_err == 1
     assert "Error de bootstrap Día 0:" in capsys.readouterr().err
 
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "ClaveCliSegura123!")
     rc_ok = main(
         [
             "--correo",
             "cli_admin@condo.test",
-            "--password",
-            "ClaveCliSegura123!",
             "--nombre",
             "Admin CLI",
             "--cedula",
@@ -574,7 +574,8 @@ def test_bootstrap_supervivientes_contratos_cli_y_estados(
     from src.models import Usuario as _Usuario
 
     # 1. Defaults completos de BootstrapConfig, BootstrapResult, _env_str y override tuple
-    assert len(_CLI_OVERRIDE_FIELDS) == 10
+    assert len(_CLI_OVERRIDE_FIELDS) == 9
+    assert "password" not in _CLI_OVERRIDE_FIELDS
     monkeypatch.delenv("BOOTSTRAP_VAR_INEXISTENTE", raising=False)
     assert _env_str("BOOTSTRAP_VAR_INEXISTENTE") == ""
 
@@ -644,6 +645,7 @@ def test_bootstrap_supervivientes_contratos_cli_y_estados(
     assert exc_help.value.code == 0
     help_text = " ".join(capsys.readouterr().out.split())
     assert "Inicialización idempotente Día 0 de administrador/presidente de condominio." in help_text
+    assert "--password" not in help_text
     for fragment in (
         "--from-env",
         "Lee la configuración desde BOOTSTRAP_*.",
@@ -653,7 +655,6 @@ def test_bootstrap_supervivientes_contratos_cli_y_estados(
         "Cédula o documento único.",
         "Correo electrónico del administrador inicial.",
         "Teléfono de contacto.",
-        "Contraseña inicial (o BOOTSTRAP_ADMIN_PASSWORD).",
         "Rol inicial de Junta (PRESIDENTE/VICEPRESIDENTE/TESORERO).",
         "Nombre de estructura inicial opcional.",
         "Tipo de estructura inicial (TORRE, EDIFICIO, etc.).",
@@ -691,7 +692,8 @@ def test_bootstrap_supervivientes_contratos_cli_y_estados(
         "unidad_id": None,
     }
 
-    assert main(["--correo", "bad@condo.test", "--password", "corta"]) == 1
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "corta")
+    assert main(["--correo", "bad@condo.test"]) == 1
     assert (
         capsys.readouterr().err.strip()
         == "Error de bootstrap Día 0: La contraseña de bootstrap debe tener al menos 12 caracteres."
@@ -921,6 +923,39 @@ def test_bootstrap_supervivientes_contratos_cli_y_estados(
                         cedula="V-90000009",
                         password="ClaveTenantNueve2026!",
                         unidad_inicial="S-01",
+                    ),
+                    session_factory=sf,
+                    target_engine=engine,
+                )
+
+            # Cuenta deshabilitada administrativamente (es_activo=False y rol != FANTASMA) no puede reactivarse
+            async with sf() as s:
+                s.add(
+                    _Usuario(
+                        condominio_id=7,
+                        nombre="Revocado Admin",
+                        cedula="V-77771111",
+                        correo="revocado.admin@condo.test",
+                        telefono="+584140000000",
+                        password_hash="h",
+                        es_activo=False,
+                        rol="PROPIETARIO",
+                    )
+                )
+                await s.commit()
+
+            with pytest.raises(
+                ValueError,
+                match=r"reactiv.*revocada|deshabilitada",
+            ):
+                await bootstrap_initial_admin(
+                    BootstrapConfig(
+                        condominio_id=7,
+                        correo="revocado.admin@condo.test",
+                        cedula="V-77771111",
+                        password="ClaveSeguraReactivar1!",
+                        rol="PRESIDENTE",
+                        allow_update_existing=True,
                     ),
                     session_factory=sf,
                     target_engine=engine,

@@ -29,6 +29,8 @@ class FakeUser:
     id: int = 3
     correo: str = "tesorero@test.com"
     rol: str = "TESORERO"
+    es_activo: bool = True
+    condominio_id: int = 1
 
 
 def test_endpoint_protegido_sin_cookie(client: TestClient) -> None:

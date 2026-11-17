@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from src.database import get_db
+from src.database import DEFAULT_CONDOMINIO_ID, bind_rls_tenant, get_db
 from src.dependencies import get_current_user, get_optional_active_user, verificar_roles
 from src.models import ContratoOcupacion, Estructura, Unidad, Usuario
 from src.redis_client import (
@@ -40,12 +40,14 @@ async def listar_unidades(
     db: AsyncSession = Depends(get_db),
     usuario_activo: Usuario | None = Depends(get_optional_active_user),
 ) -> list[UnidadResponse] | list[UnidadPublicaResponse]:
-    """Lista unidades (DTO público mínimo sin autenticación; DTO financiero completo para activos)."""
+    """Lista unidades (DTO financiero solo para Junta Directiva; DTO público mínimo para residentes/anónimos)."""
+    if usuario_activo is None:
+        await bind_rls_tenant(db, DEFAULT_CONDOMINIO_ID)
     res = await db.execute(select(Unidad).order_by(Unidad.identificador.asc()))
     unidades = list(res.scalars().all())
-    if usuario_activo is None:
-        return [UnidadPublicaResponse.model_validate(u) for u in unidades]
-    return [UnidadResponse.model_validate(u) for u in unidades]
+    if usuario_activo is not None and getattr(usuario_activo, "rol", "") in _ROLES_JUNTA_LPH:
+        return [UnidadResponse.model_validate(u) for u in unidades]
+    return [UnidadPublicaResponse.model_validate(u) for u in unidades]
 
 
 @router.post(
@@ -196,6 +198,20 @@ def _aplicar_historico_contratos(
         )
 
 
+def _validar_jerarquia_directiva_asignacion(
+    usuario_actual: Usuario,
+    objetivo: Usuario,
+    rol_destino: str,
+) -> None:
+    if getattr(usuario_actual, "rol", "") == "PRESIDENTE":
+        return
+    if rol_destino == "PRESIDENTE" or getattr(objetivo, "rol", "") == "PRESIDENTE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el Presidente puede asignar o modificar el cargo de Presidente.",
+        )
+
+
 @router.put(
     "/usuarios/{usuario_id}/asignar",
     response_model=UsuarioResponse,
@@ -219,6 +235,8 @@ async def asignar_y_activar_usuario(
     objetivo = res_u.scalars().first()
     if not objetivo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado.")
+
+    _validar_jerarquia_directiva_asignacion(usuario_actual, objetivo, datos.rol)
 
     res_unidad = await db.execute(select(Unidad).where(Unidad.id == datos.unidad_id))
     unidad = res_unidad.scalars().first()

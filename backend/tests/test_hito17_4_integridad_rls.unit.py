@@ -505,8 +505,15 @@ async def test_administracion_privacidad_historico_contratos_y_lph_hito17_4(tmp_
             for item in res_ghost.json():
                 assert set(item.keys()) == {"id", "identificador", "estructura_id"}
 
-            # 1c. Usuario activo recibe UnidadResponse completo
+            # 1c. Residente estándar recibe UnidadPublicaResponse (sin datos financieros de terceros);
+            # Junta Directiva recibe UnidadResponse completo
             app.dependency_overrides[get_current_user] = lambda: prop2
+            res_prop_units = await client.get("/api/estructura/unidades")
+            assert res_prop_units.status_code == 200
+            for item in res_prop_units.json():
+                assert set(item.keys()) == {"id", "identificador", "estructura_id"}
+
+            app.dependency_overrides[get_current_user] = lambda: tesorero
             res_act = await client.get("/api/estructura/unidades")
             assert res_act.status_code == 200
             campos_privados = {
@@ -683,11 +690,170 @@ def test_apply_rls_session_settings_postgresql_y_sqlite_noop() -> None:
     pg_conn.dialect.name = "postgresql"
     apply_rls_session_settings(pg_conn, "7", is_superadmin=True)
     apply_rls_session_settings(pg_conn, None, is_superadmin=False)
-    assert pg_conn.execute.call_count == 2
-    assert pg_conn.execute.call_args_list[0].args[1] == {"tid": "7", "sa": "true"}
-    assert pg_conn.execute.call_args_list[1].args[1] == {"tid": "", "sa": "false"}
+    assert pg_conn.execute.call_count == 4
+    assert "SET LOCAL ROLE condominio_app_runtime" in str(pg_conn.execute.call_args_list[0].args[0])
+    assert pg_conn.execute.call_args_list[1].args[1] == {"tid": "7", "sa": "true"}
+    assert "SET LOCAL ROLE condominio_app_runtime" in str(pg_conn.execute.call_args_list[2].args[0])
+    assert pg_conn.execute.call_args_list[3].args[1] == {"tid": "", "sa": "false"}
+
+    pg_conn.reset_mock()
+    apply_rls_session_settings(pg_conn, "9", is_superadmin=False, enforce_runtime_role=False)
+    assert pg_conn.execute.call_count == 1
+    assert pg_conn.execute.call_args_list[0].args[1] == {"tid": "9", "sa": "false"}
 
     sq_conn = MagicMock()
     sq_conn.dialect.name = "sqlite"
     apply_rls_session_settings(sq_conn, "1")
     sq_conn.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_postgresql_17_hito20_runtime_role_constraints_y_worm() -> None:
+    """Certifica en PostgreSQL 17 real la migración 0010: rol runtime, UNIQUE compuestos, CHECKs y WORM."""
+    from src.database import AsyncSessionLocal, sellar_cadena_worm
+    from src.models import AuditoriaRecibo, Recibo, ReciboItem, Unidad, Usuario
+
+    pg_url = os.getenv("POSTGRES_TEST_URL", "").strip()
+    if not pg_url:
+        pytest.skip("Requiere POSTGRES_TEST_URL apuntando a PostgreSQL 17 con Alembic aplicado.")
+
+    engine = create_async_engine(pg_url, echo=False)
+    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    sufijo = uuid.uuid4().hex[:8]
+    cleanup_ids: dict[str, list[int]] = {"aud": [], "rec": [], "uni": [], "est": [], "usr": []}
+
+    try:
+        # 1. Fail-closed por defecto en get_db/AsyncSessionLocal y rol efectivo condominio_app_runtime
+        async with factory() as s:
+            assert s.sync_session.info.get("tenant_id", "") == ""
+            rol_efectivo = (await s.execute(text("SELECT current_user"))).scalar_one()
+            assert rol_efectivo == "condominio_app_runtime"
+            assert list((await s.execute(select(Estructura.id))).scalars().all()) == []
+
+        # 2. Sembrar datos en condominio 1 y condominio 2 comprobando UNIQUE compuesto (mismo correo/identificador)
+        async with factory() as s:
+            s.sync_session.info["is_superadmin"] = True
+            s.sync_session.info["tenant_id"] = "1"
+            e1 = Estructura(nombre=f"Est-H20-1-{sufijo}", tipo="TORRE", condominio_id=1)
+            e2 = Estructura(nombre=f"Est-H20-2-{sufijo}", tipo="TORRE", condominio_id=2)
+            s.add_all([e1, e2])
+            await s.flush()
+            cleanup_ids["est"].extend([e1.id, e2.id])
+
+            u1 = Unidad(condominio_id=1, identificador=f"A-{sufijo}", estructura_id=e1.id, alicuota=Decimal("50.0000"))
+            u2 = Unidad(condominio_id=2, identificador=f"A-{sufijo}", estructura_id=e2.id, alicuota=Decimal("50.0000"))
+            usr1 = Usuario(
+                condominio_id=1,
+                nombre="Tenant 1",
+                cedula=f"V-1-{sufijo}",
+                correo=f"mismo-{sufijo}@condo.test",
+                telefono="0414",
+                password_hash="hash",
+                es_activo=True,
+                rol="PROPIETARIO",
+            )
+            usr2 = Usuario(
+                condominio_id=2,
+                nombre="Tenant 2",
+                cedula=f"V-1-{sufijo}",
+                correo=f"mismo-{sufijo}@condo.test",
+                telefono="0414",
+                password_hash="hash",
+                es_activo=True,
+                rol="PROPIETARIO",
+            )
+            s.add_all([u1, u2, usr1, usr2])
+            await s.flush()
+            cleanup_ids["uni"].extend([u1.id, u2.id])
+            cleanup_ids["usr"].extend([usr1.id, usr2.id])
+
+            rec = Recibo(
+                condominio_id=1,
+                unidad_id=u1.id,
+                periodo="2026-11",
+                monto_usd=Decimal("10.00"),
+                monto_pagado_usd=Decimal("0.00"),
+                estado="PENDIENTE",
+                bloqueado=False,
+            )
+            s.add(rec)
+            await s.flush()
+            cleanup_ids["rec"].append(rec.id)
+
+            # ReciboItem ABONO_CREDITO_PREVIO negativo permitido por CheckConstraint
+            s.add(
+                ReciboItem(
+                    condominio_id=1,
+                    recibo_id=rec.id,
+                    tipo_item="ABONO_CREDITO_PREVIO",
+                    descripcion="Abono crédito",
+                    monto_usd=Decimal("-5.00"),
+                )
+            )
+            prev_h, rec_h = await sellar_cadena_worm(s, "auditoria_recibos", 1, f"{rec.id}|PENDIENTE")
+            aud = AuditoriaRecibo(
+                condominio_id=1,
+                recibo_id=rec.id,
+                usuario_id=usr1.id,
+                estado_viejo="PENDIENTE",
+                estado_nuevo="APROBADO",
+                motivo="Prueba PG17 WORM",
+                prev_hash=prev_h,
+                record_hash=rec_h,
+            )
+            s.add(aud)
+            await s.flush()
+            cleanup_ids["aud"].append(aud.id)
+            await s.commit()
+
+        # 3. CheckConstraint rechaza alicuota > 100 y recibo negativo
+        async with factory() as s:
+            s.sync_session.info["tenant_id"] = "1"
+            s.add(
+                Unidad(
+                    condominio_id=1,
+                    identificador=f"BAD-{sufijo}",
+                    estructura_id=cleanup_ids["est"][0],
+                    alicuota=Decimal("150.0000"),
+                )
+            )
+            with pytest.raises(DBAPIError):
+                await s.commit()
+            await s.rollback()
+
+        # 4. WORM PG17: condominio_app_runtime NO puede hacer UPDATE ni DELETE en auditoria_recibos
+        async with factory() as s:
+            s.sync_session.info["tenant_id"] = "1"
+            with pytest.raises(DBAPIError):
+                await s.execute(
+                    text("UPDATE auditoria_recibos SET motivo = 'alterado' WHERE id = :aid"),
+                    {"aid": cleanup_ids["aud"][0]},
+                )
+            await s.rollback()
+
+        async with factory() as s:
+            s.sync_session.info["tenant_id"] = "1"
+            with pytest.raises(DBAPIError):
+                await s.execute(
+                    text("DELETE FROM auditoria_recibos WHERE id = :aid"),
+                    {"aid": cleanup_ids["aud"][0]},
+                )
+            await s.rollback()
+
+        _ = AsyncSessionLocal
+    finally:
+        async with factory() as s_clean:
+            s_clean.sync_session.info["disable_runtime_role"] = True
+            s_clean.sync_session.info["is_superadmin"] = True
+            for aid in cleanup_ids["aud"]:
+                await s_clean.execute(text("DELETE FROM auditoria_recibos WHERE id = :id"), {"id": aid})
+            for rid in cleanup_ids["rec"]:
+                await s_clean.execute(text("DELETE FROM recibos WHERE id = :id"), {"id": rid})
+            for uid in cleanup_ids["usr"]:
+                await s_clean.execute(text("DELETE FROM usuarios WHERE id = :id"), {"id": uid})
+            for unid in cleanup_ids["uni"]:
+                await s_clean.execute(text("DELETE FROM unidades WHERE id = :id"), {"id": unid})
+            for eid in cleanup_ids["est"]:
+                await s_clean.execute(text("DELETE FROM estructuras WHERE id = :id"), {"id": eid})
+            await s_clean.commit()
+        await engine.dispose()

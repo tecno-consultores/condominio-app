@@ -1,6 +1,7 @@
 """Endpoints de tesorería: tasa del día, resumen financiero, fondos, facturación LPH, solvencia y cierre de mes."""
 
 import calendar
+import hmac
 import secrets
 import uuid
 from datetime import UTC, date, datetime
@@ -14,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from src.database import get_db
+from src.database import DEFAULT_CONDOMINIO_ID, bind_rls_tenant, get_db
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
 from src.facturacion_lph import (
     calcular_cargos_modalidad,
@@ -60,7 +61,7 @@ from src.schemas import (
     TasaCambioResponse,
     VerificarSolvenciaResponse,
 )
-from src.security import SECRET_KEY
+from src.security import get_solvency_signing_key
 
 router = APIRouter(prefix="/api/finanzas", tags=["Finanzas"])
 
@@ -193,6 +194,34 @@ async def registrar_egreso(
         ) from exc
 
 
+async def _obtener_recibos_resumen(
+    db: AsyncSession,
+    usuario: Usuario,
+    periodo: str | None,
+) -> list[Recibo]:
+    recibo_stmt = select(Recibo).order_by(Recibo.id.asc())
+    if periodo is not None:
+        recibo_stmt = recibo_stmt.where(Recibo.periodo == periodo)
+    rol = getattr(usuario, "rol", "")
+    if rol in _ROLES_JUNTA:
+        recibos_result = await db.execute(recibo_stmt)
+        return list(recibos_result.scalars().all())
+    if rol not in ("PROPIETARIO", "INQUILINO"):
+        return []
+    contratos_res = await db.execute(
+        select(ContratoOcupacion.unidad_id).where(
+            ContratoOcupacion.usuario_id == usuario.id,
+            ContratoOcupacion.es_activo.is_(True),
+            ContratoOcupacion.fecha_fin.is_(None),
+        )
+    )
+    unidades_propias = list(contratos_res.scalars().all())
+    if not unidades_propias:
+        return []
+    recibos_result = await db.execute(recibo_stmt.where(Recibo.unidad_id.in_(unidades_propias)))
+    return list(recibos_result.scalars().all())
+
+
 @router.get(
     "/resumen",
     responses={
@@ -206,17 +235,14 @@ async def resumen_financiero(
     usuario: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     verificar_usuario_activo(usuario)
-    recibo_stmt = select(Recibo).order_by(Recibo.id.asc())
     egreso_stmt = select(
         Egreso.categoria,
         func.coalesce(func.sum(Egreso.monto_usd), CERO),
     ).group_by(Egreso.categoria)
     if periodo is not None:
-        recibo_stmt = recibo_stmt.where(Recibo.periodo == periodo)
         egreso_stmt = egreso_stmt.where(Egreso.periodo == periodo)
 
-    recibos_result = await db.execute(recibo_stmt)
-    recibos = list(recibos_result.scalars().all())
+    recibos = await _obtener_recibos_resumen(db, usuario, periodo)
     deuda_total = calcular_deuda_total([(r.monto_usd, r.monto_pagado_usd) for r in recibos])
 
     egresos_result = await db.execute(egreso_stmt)
@@ -389,8 +415,11 @@ async def facturar_periodo(
             detail="Esta facturación mensual ya fue procesada.",
         )
 
-    await verificar_periodo_facturable(db, datos.periodo)
-    unidades, total_egresos, fondo_reserva, recargo_reserva = await cargar_contexto_facturacion(db, datos)
+    condo_id = int(getattr(usuario, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    await verificar_periodo_facturable(db, datos.periodo, condominio_id=condo_id)
+    unidades, total_egresos, fondo_reserva, recargo_reserva = await cargar_contexto_facturacion(
+        db, datos, condominio_id=condo_id
+    )
 
     try:
         items_por_unidad, superavit_fondo = calcular_cargos_modalidad(datos, unidades, total_egresos, recargo_reserva)
@@ -407,6 +436,7 @@ async def facturar_periodo(
             fondo_reserva,
             recargo_reserva,
             superavit_fondo,
+            condominio_id=condo_id,
         )
     except IntegrityError as exc:
         await db.rollback()
@@ -437,6 +467,7 @@ async def _verificar_acceso_unidad(db: AsyncSession, usuario: Usuario, unidad_id
             ContratoOcupacion.usuario_id == usuario.id,
             ContratoOcupacion.unidad_id == unidad_id,
             ContratoOcupacion.es_activo.is_(True),
+            ContratoOcupacion.fecha_fin.is_(None),
         )
     )
     if res.scalars().first() is None:
@@ -565,7 +596,13 @@ async def emitir_certificado_solvencia(
     sufijo = secrets.token_hex(2).upper()
     folio = f"SOLV-{hoy.strftime('%Y%m')}-{unidad.id:04d}-{sufijo}"
     cert_jti = str(uuid.uuid4())
-    firma = generar_firma_solvencia(folio, unidad.identificador, vencimiento.isoformat(), SECRET_KEY, jti=cert_jti)
+    firma = generar_firma_solvencia(
+        folio,
+        unidad.identificador,
+        vencimiento.isoformat(),
+        get_solvency_signing_key(),
+        jti=cert_jti,
+    )
     ahora = datetime.now(UTC)
 
     cert = CertificadoSolvencia(
@@ -612,6 +649,7 @@ async def verificar_certificado_solvencia(
     db: AsyncSession = Depends(get_db),
 ) -> VerificarSolvenciaResponse:
     """Verifica públicamente la autenticidad criptográfica y la vigencia viva sin deuda del Certificado."""
+    await bind_rls_tenant(db, DEFAULT_CONDOMINIO_ID)
     cert_res = await db.execute(select(CertificadoSolvencia).where(CertificadoSolvencia.folio == folio.strip()))
     cert = cert_res.scalars().first()
     if not cert:
@@ -630,10 +668,10 @@ async def verificar_certificado_solvencia(
         identificador,
         cert.fecha_vencimiento.isoformat(),
         sig,
-        SECRET_KEY,
+        get_solvency_signing_key(),
         jti=cert_jti or None,
     )
-    if not es_valida or sig.strip() != cert.firma_hmac:
+    if not es_valida or not hmac.compare_digest(sig.strip(), cert.firma_hmac):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Firma criptográfica de solvencia inválida o adulterada.",

@@ -35,7 +35,6 @@ _CLI_OVERRIDE_FIELDS: tuple[str, ...] = (
     "cedula",
     "correo",
     "telefono",
-    "password",
     "rol",
     "estructura_nombre",
     "estructura_tipo",
@@ -252,6 +251,10 @@ async def _asegurar_contrato_inicial(
 
 
 def _aplicar_actualizacion_usuario(user: Usuario, cfg: BootstrapConfig) -> bool:
+    if not user.es_activo and user.rol != "FANTASMA":
+        raise ValueError(
+            "No se permite reactivar mediante bootstrap una cuenta revocada o deshabilitada administrativamente."
+        )
     changed = False
     if not user.es_activo:
         user.es_activo = True
@@ -351,7 +354,6 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cedula", default=None, help="Cédula o documento único.")
     parser.add_argument("--correo", default=None, help="Correo electrónico del administrador inicial.")
     parser.add_argument("--telefono", default=None, help="Teléfono de contacto.")
-    parser.add_argument("--password", default=None, help="Contraseña inicial (o BOOTSTRAP_ADMIN_PASSWORD).")
     parser.add_argument("--rol", default=None, help="Rol inicial de Junta (PRESIDENTE/VICEPRESIDENTE/TESORERO).")
     parser.add_argument("--estructura-nombre", default=None, help="Nombre de estructura inicial opcional.")
     parser.add_argument("--estructura-tipo", default=None, help="Tipo de estructura inicial (TORRE, EDIFICIO, etc.).")

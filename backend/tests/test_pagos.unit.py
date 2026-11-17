@@ -19,6 +19,8 @@ class FakeUser:
     id: int = 7
     correo: str = "tesorero@test.com"
     rol: str = "TESORERO"
+    es_activo: bool = True
+    condominio_id: int = 1
 
 
 def _mock_session(*results: Any) -> AsyncMock:

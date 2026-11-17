@@ -18,10 +18,14 @@ def _validar_correo(valor: str) -> str:
 
 
 def _validar_url_evidencia_segura(valor: str) -> str:
-    """Bloquea esquemas peligrosos (XSS / LFI: javascript:, data:, vbscript:, file:) en URLs de adjuntos."""
+    """Bloquea esquemas peligrosos (XSS/LFI), protocol-relative '//' y caracteres de control en URLs."""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in valor):
+        raise ValueError("La URL contiene caracteres de control no permitidos.")
     limpio = valor.strip()
     if not limpio:
         raise ValueError("La URL de evidencia no puede estar vacía.")
+    if limpio.startswith(("//", "/\\")):
+        raise ValueError("URL relativa al protocolo ('//') no permitida por seguridad.")
     minus = limpio.lower()
     if minus.startswith(("javascript:", "data:", "vbscript:", "file:")):
         raise ValueError("Esquema de URL no permitido por seguridad (Anti-XSS/LFI).")
@@ -44,7 +48,7 @@ class UsuarioBase(BaseModel):
 
 
 class UsuarioCreate(UsuarioBase):
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     unidad_solicitada_id: int = Field(strict=True)
     tipo_ocupante_solicitado: str
 
@@ -356,6 +360,23 @@ class ComunicadoCreate(BaseModel):
     titulo: str = Field(min_length=1)
     contenido: str = Field(min_length=1)
     enlace_externo: str | None = None
+
+    @field_validator("enlace_externo")
+    @classmethod
+    def _validar_enlace_externo(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
+            raise ValueError("El enlace externo contiene caracteres de control no permitidos.")
+        limpio = v.strip()
+        if not limpio:
+            return None
+        minus = limpio.lower()
+        if limpio.startswith(("//", "/\\")) or minus.startswith(("javascript:", "data:", "vbscript:", "file:")):
+            raise ValueError("Enlace externo peligroso rechazado por seguridad (Anti-XSS).")
+        if not minus.startswith(("https://", "http://")):
+            raise ValueError("El enlace externo debe iniciar con https:// o http://.")
+        return limpio
 
 
 class ComunicadoResponse(BaseModel):

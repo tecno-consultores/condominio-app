@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hmac
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -33,7 +34,7 @@ from src.schemas import (
     VerificarPaseQRRequest,
     VerificarPaseQRResponse,
 )
-from src.security import SECRET_KEY, validate_safe_outgoing_url
+from src.security import get_qr_signing_key, validate_safe_outgoing_url_async
 from src.worker import encolar_notificacion_correo
 
 router = APIRouter(
@@ -174,7 +175,7 @@ async def crear_pase_visita(
         unidad_id=unidad.id,
         modalidad=datos.modalidad,
         exp_unix=exp_unix,
-        secret_key=SECRET_KEY,
+        secret_key=get_qr_signing_key(),
     )
     placa_limpia = (
         datos.placa_vehiculo.strip().upper() if datos.placa_vehiculo and datos.placa_vehiculo.strip() else None
@@ -208,20 +209,19 @@ async def listar_mis_pases_visita(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ) -> list[PaseVisitaResponse]:
-    """Lista los pases de visita activos e históricos filtrados directamente en SQL con JOIN Unidad."""
+    """Lista los pases de visita del usuario dentro de sus unidades con contrato vigente."""
     verificar_usuario_activo(usuario)
-    stmt = select(PaseVisita, Unidad.identificador).join(Unidad, Unidad.id == PaseVisita.unidad_id)
-    if usuario.rol != "PRESIDENTE":
-        unidades_propias = await _unidades_activas_usuario(db, usuario.id)
-        if unidades_propias:
-            stmt = stmt.where(
-                or_(
-                    PaseVisita.creado_por_id == usuario.id,
-                    PaseVisita.unidad_id.in_(unidades_propias),
-                )
-            )
-        else:
-            stmt = stmt.where(PaseVisita.creado_por_id == usuario.id)
+    unidades_propias = await _unidades_activas_usuario(db, usuario.id)
+    if not unidades_propias:
+        return []
+    stmt = (
+        select(PaseVisita, Unidad.identificador)
+        .join(Unidad, Unidad.id == PaseVisita.unidad_id)
+        .where(
+            PaseVisita.creado_por_id == usuario.id,
+            PaseVisita.unidad_id.in_(unidades_propias),
+        )
+    )
 
     res = await db.execute(stmt.order_by(PaseVisita.id.desc()))
     ahora = datetime.now(UTC)
@@ -319,13 +319,15 @@ async def verificar_pase_qr_en_garita(
         )
 
     try:
-        jti, _, _, exp_unix, firma_esperada = decodificar_y_verificar_token_pase_qr(datos.qr_token, SECRET_KEY)
+        jti, _, _, exp_unix, firma_esperada = decodificar_y_verificar_token_pase_qr(
+            datos.qr_token, get_qr_signing_key()
+        )
     except ErrorFinanciero as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     res_pase = await db.execute(select(PaseVisita).where(PaseVisita.jti == jti))
     pase = res_pase.scalars().first()
-    if not pase or pase.firma_hmac != firma_esperada:
+    if not pase or not hmac.compare_digest(pase.firma_hmac, firma_esperada):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Firma criptográfica de pase QR inválida",
@@ -437,9 +439,10 @@ async def registrar_paquete_en_garita(
             detail="Petición duplicada detectada (Idempotency-Key ya procesada).",
         )
 
-    if datos.url_foto_evidencia and datos.url_foto_evidencia.startswith(("http://", "https://")):
+    url_evidencia = datos.url_foto_evidencia.strip() if datos.url_foto_evidencia else None
+    if url_evidencia and url_evidencia.lower().startswith(("http://", "https://")):
         try:
-            validate_safe_outgoing_url(datos.url_foto_evidencia)
+            url_evidencia = await validate_safe_outgoing_url_async(url_evidencia)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -450,7 +453,7 @@ async def registrar_paquete_en_garita(
         recibido_por_id=usuario.id,
         empresa_envio=datos.empresa_envio.strip().upper(),
         descripcion=datos.descripcion.strip(),
-        url_foto_evidencia=datos.url_foto_evidencia,
+        url_foto_evidencia=url_evidencia,
         estado="EN_GARITA",
         fecha_recepcion=ahora,
     )
@@ -474,7 +477,7 @@ async def listar_paqueteria(
     """Lista paquetes pendientes en garita e historial de entregas filtrados en SQL con JOIN Unidad."""
     verificar_usuario_activo(usuario)
     stmt = select(PaqueteRecibido, Unidad.identificador).join(Unidad, Unidad.id == PaqueteRecibido.unidad_id)
-    if usuario.rol not in _ROLES_JUNTA_Y_GARITA:
+    if usuario.rol not in _ROLES_PAQUETERIA:
         unidades_propias = await _unidades_activas_usuario(db, usuario.id)
         if not unidades_propias:
             return []

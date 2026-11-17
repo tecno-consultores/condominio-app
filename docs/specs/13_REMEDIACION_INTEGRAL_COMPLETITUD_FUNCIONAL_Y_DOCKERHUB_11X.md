@@ -1,6 +1,6 @@
 # 🚀 Especificación 13: Remediación Integral Post-Auditoría, Completitud Funcional PropTech y Distribución Docker Hub (`v1.1.0` – `v1.2.0`)
 
-**Estado:** En Ejecución Activa — **Hito 19 ✅ Completado** (Hitos 20 al 26 pendientes de ejecución)  
+**Estado:** En Ejecución Activa — **Hitos 19 y 20 ✅ Completados** (Hitos 21 al 26 pendientes de ejecución)  
 **Ecosistema:** FastAPI + SQLAlchemy 2.0 Async + PostgreSQL 17 (RLS) + KeyDB Multi-Hilo + Vue 3 / Pinia + Docker Hub Multi-Arch + `@sinfallas/mcp-qa-11x` `v3.1.0`  
 **Origen de Auditoría:** Auditoría integral de solo lectura sobre los 306 archivos del repositorio (`2026-11-17`) y definiciones de alcance productivas aprobadas  
 
@@ -43,7 +43,7 @@
    - Fijar todas las acciones en `.github/workflows/00..02.yml` mediante hash SHA-40 (`SEC-CI-ACTION-REF`), añadir `concurrency` y `timeout-minutes`, compartir artefactos de compilación UI en `02-ci-frontend.yml`, ejecutar `certify_task_completion.sh` y `verificar-secretos.sh` en CI, y crear workflow de publicación Docker Hub multi-arch (`linux/amd64,linux/arm64`) con smoke test `--no-dev` y Trivy `0 HIGH/CRITICAL`.
    - Incorporar suites BATS con cobertura `kcov >= 95%` para todos los scripts Bash (`scripts/*.sh`, `.agents/scripts/certify_task_completion.sh`, `instalar-hooks.sh`) y validación de pinning SHA-40 en `test/ci_workflows.bats`.
 
-### 2.2. Hito 20: Defensa PG17 RLS Real, HKDF/JWT, KeyDB Fail-Closed, Nginx OSHP y RBAC/IDOR (Migración `0010`)
+### 2.2. Hito 20: Defensa PG17 RLS Real, HKDF/JWT, KeyDB Fail-Closed, Nginx OSHP y RBAC/IDOR (Migración `0010`) ✅ (Completado)
 1. **Aislamiento Real PostgreSQL 17 RLS y Paridad SQLite (`backend/src/database.py`, `backend/src/dependencies.py`, `0010`):**
    - Separar credenciales en `.env.example` y `docker-compose.yml`: usuario administrador de migraciones (`condominio_admin`) vs usuario runtime no-superusuario (`condominio_app`) sujeto a `SET LOCAL ROLE condominio_app_runtime` en `apply_rls_session_settings`.
    - Establecer fail-closed por defecto (`tenant_id = ""`) en `database.py`, incorporar `condominio_id` en los claims JWT e inyectarlo en `session.sync_session.info["tenant_id"]` dentro de `get_current_user` y `get_optional_active_user`, asegurar `condominio_id` explícito en `facturacion_lph.py` y activar `pool_pre_ping`, límites de pool y `PRAGMA foreign_keys=ON` en motores SQLite.

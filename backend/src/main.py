@@ -1,8 +1,10 @@
+import hmac
 import logging
 import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.encoders import jsonable_encoder
@@ -16,6 +18,7 @@ from src.routers import accesos, administracion, auth, consultas, finanzas, inci
 from src.security import (
     decode_token_unverified_exp,
     is_csrf_enforced,
+    is_trusted_proxy_ip,
     should_use_secure_cookie,
     validate_csrf_token,
     validate_production_security_settings,
@@ -27,6 +30,9 @@ _METODOS_OPENAPI = {"get", "put", "post", "delete", "options", "head", "patch", 
 _CSRF_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _CSRF_PUBLIC_PREAUTH_PATHS = frozenset({"/api/auth/login", "/api/auth/register"})
 _DOCS_PATHS = frozenset({"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"})
+_DEFAULT_ALLOWED_HOSTS: frozenset[str] = frozenset(
+    {"localhost", "127.0.0.1", "::1", "api", "condominio_backend_api", "testserver", "test"}
+)
 _API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 _DOCS_CSP = (
     "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
@@ -65,6 +71,65 @@ app = FastAPI(
 )
 
 
+def _extract_host_from_header(raw_host: str) -> str | None:
+    clean = raw_host.strip()
+    if not clean or any(ch in clean for ch in (" ", "\r", "\n", "\x00", "/", "@", "\\")):
+        return None
+    try:
+        parsed = urlparse(f"http://{clean}")
+    except ValueError:
+        return None
+    if parsed.username or parsed.password or parsed.path or parsed.query or not parsed.hostname:
+        return None
+    return parsed.hostname.lower()
+
+
+def _allowed_hosts_set() -> set[str]:
+    raw_hosts = os.getenv("ALLOWED_HOSTS", "").strip()
+    if raw_hosts:
+        parsed_hosts: set[str] = set()
+        for item in raw_hosts.split(","):
+            host = _extract_host_from_header(item)
+            if host:
+                parsed_hosts.add(host)
+        return parsed_hosts
+    hosts = set(_DEFAULT_ALLOWED_HOSTS)
+    for origin in os.getenv("ALLOWED_ORIGINS", "").split(","):
+        if origin.strip():
+            hostname = urlparse(origin.strip()).hostname
+            if hostname:
+                hosts.add(hostname.lower())
+    return hosts
+
+
+def _is_allowed_host(request: Request) -> bool:
+    host = _extract_host_from_header(request.headers.get("host", ""))
+    if not host:
+        return False
+    return host in _allowed_hosts_set()
+
+
+def _extract_metrics_token(request: Request) -> str:
+    header_tok = request.headers.get("x-metrics-token", "").strip()
+    if header_tok:
+        return header_tok
+    auth_header = request.headers.get("authorization", "").strip()
+    if auth_header.startswith("Bearer "):
+        return auth_header.removeprefix("Bearer ").strip()
+    return ""
+
+
+def _is_metrics_authorized(request: Request) -> bool:
+    expected = os.getenv("METRICS_AUTH_TOKEN", "").strip()
+    provided = _extract_metrics_token(request)
+    if _es_produccion():
+        return bool(expected) and bool(provided) and hmac.compare_digest(provided, expected)
+    if expected:
+        return bool(provided) and hmac.compare_digest(provided, expected)
+    direct_host = request.client.host if request.client else None
+    return is_trusted_proxy_ip(direct_host)
+
+
 def _requires_cookie_csrf_check(request: Request) -> bool:
     if not is_csrf_enforced():
         return False
@@ -72,21 +137,23 @@ def _requires_cookie_csrf_check(request: Request) -> bool:
         return False
     if request.url.path in _CSRF_PUBLIC_PREAUTH_PATHS:
         return False
-    return not request.headers.get("authorization", "").startswith("Bearer ")
+    has_access_cookie = bool(request.cookies.get("access_token", "").strip())
+    has_refresh_cookie = bool(request.cookies.get("refresh_token", "").strip())
+    return has_access_cookie or has_refresh_cookie
 
 
 def _extract_cookie_session_id_for_csrf(request: Request) -> str | None:
-    raw_access = request.cookies.get("access_token", "")
-    token = raw_access.removeprefix("Bearer ").strip()
-    if not token:
-        token = request.cookies.get("refresh_token", "").removeprefix("Bearer ").strip()
-    if not token:
-        return None
-    payload = decode_token_unverified_exp(token)
-    if not payload:
-        return None
-    session_id = str(payload.get("sid") or payload.get("sub") or "").strip()
-    return session_id or None
+    for cookie_name in ("access_token", "refresh_token"):
+        token = request.cookies.get(cookie_name, "").removeprefix("Bearer ").strip()
+        if not token:
+            continue
+        payload = decode_token_unverified_exp(token)
+        if not payload:
+            continue
+        session_id = str(payload.get("sid") or payload.get("sub") or "").strip()
+        if session_id:
+            return session_id
+    return None
 
 
 @app.middleware("http")
@@ -94,10 +161,12 @@ async def csrf_protection_middleware(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    """Valida X-CSRF-Token HMAC-SHA256 en mutaciones autenticadas por cookie HttpOnly."""
+    """Valida X-CSRF-Token HMAC-SHA256 siempre que existan cookies HttpOnly de sesión."""
     if _requires_cookie_csrf_check(request):
         session_id = _extract_cookie_session_id_for_csrf(request)
-        if session_id and not validate_csrf_token(request.headers.get("x-csrf-token", ""), session_id):
+        if session_id is None and request.url.path == "/api/auth/logout":
+            return await call_next(request)
+        if not session_id or not validate_csrf_token(request.headers.get("x-csrf-token", ""), session_id):
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "Token CSRF inválido o ausente."},
@@ -140,10 +209,34 @@ def _apply_security_headers(request: Request, response: Response) -> Response:
     response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = _PERMISSIONS_POLICY
     _merge_vary_header(response)
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    direct_host = request.client.host if request.client else None
+    forwarded_proto = (
+        request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        if is_trusted_proxy_ip(direct_host)
+        else ""
+    )
     if should_use_secure_cookie() or request.url.scheme == "https" or forwarded_proto == "https":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+
+def _check_pre_route_guards(request: Request) -> JSONResponse | None:
+    if not _is_allowed_host(request):
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"detail": "Encabezado Host inválido o no autorizado."},
+        )
+    if not _is_allowed_fetch_metadata(request):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": "Solicitud cross-site rechazada por política Fetch Metadata."},
+        )
+    if request.url.path == "/metrics" and not _is_metrics_authorized(request):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Acceso no autorizado al endpoint de métricas."},
+        )
+    return None
 
 
 @app.middleware("http")
@@ -151,14 +244,18 @@ async def security_headers_middleware(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    """Aplica Fetch Metadata pre-auth e inyecta cabeceras HTTP defensivas en toda respuesta."""
-    if not _is_allowed_fetch_metadata(request):
-        blocked = JSONResponse(
-            status_code=403,
-            content={"detail": "Solicitud cross-site rechazada por política Fetch Metadata."},
+    """Valida Host/Fetch Metadata/métricas, captura 500 e inyecta cabeceras OSHP en toda respuesta."""
+    guard_response = _check_pre_route_guards(request)
+    if guard_response is not None:
+        return _apply_security_headers(request, guard_response)
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("Error interno no controlado en %s %s", request.method, request.url.path)
+        response = JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Error interno del servidor."},
         )
-        return _apply_security_headers(request, blocked)
-    response = await call_next(request)
     return _apply_security_headers(request, response)
 
 

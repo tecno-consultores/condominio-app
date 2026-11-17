@@ -17,10 +17,10 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * Selectores: Buscador de Unidad (Ej. "A-42") y un selector de estatus inicial ("Soy Propietario" / "Soy Inquilino").
   * **Pantalla de Bloqueo:** Al completar el registro, el usuario es redirigido a `/espera-aprobacion` con un mensaje fijo: *"Registro completado. Esperando validación de la Junta"*.
 * **Endpoints FastAPI:**
-  * `POST /api/auth/login`: Autentica con lockout anti-fuerza bruta (`5` fallos / `15m` -> `429`), mitigación anti-timing (`DUMMY_PASSWORD_HASH`) y entrega JWT (`access_token` + `refresh_token`) en cookies `HttpOnly` junto con `csrf_token` (`X-CSRF-Token`).
+  * `POST /api/auth/login`: Autentica con lockout Lua atómico (`5` fallos / IP y `10` globales / cuenta en `15m` -> `429`), preservación de revocaciones administrativas activas (`403`), mitigación anti-timing (`DUMMY_PASSWORD_HASH`) y entrega JWT (`access_token` + `refresh_token` con claims `typ`/`iat`/`iss`/`aud`/`condominio_id`) en cookies `HttpOnly` junto con `csrf_token` (`X-CSRF-Token`).
   * `POST /api/auth/register`: Crea usuario "Fantasma". *[Header: `Idempotency-Key` `8..128` caracteres, TTL `86400s`]* -> Dispara notificación por correo.
   * `POST /api/auth/refresh`: Rota el par `access_token` / `refresh_token` con periodo de gracia concurrente de `5s`, revoca el `sid` completo ante reuso tardío (`401`) y rota `X-CSRF-Token`.
-  * `POST /api/auth/logout`: Revoca la sesión activa (`sid` y `jti`) en KeyDB, purga cookies y emite `Clear-Site-Data: "cookies", "storage", "cache"`.
+  * `POST /api/auth/logout`: Revoca individualmente la sesión activa del dispositivo (`sid` y `jti`) en KeyDB, purga cookies y emite `Clear-Site-Data: "cookies", "storage", "cache"`.
   * `GET /api/auth/me`: Retorna perfil DTO completo (`id`, `nombre`, `cedula`, `correo`, `telefono`, `es_activo`, `rol`, `unidad_activa_id`) y rehidrata la cookie/cabecera `X-CSRF-Token`.
 
 ---
@@ -39,7 +39,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Botón Flotante (FAB):** Botón principal para `"Pagar / Reportar"`.
 * **Endpoints FastAPI:**
   * `GET /api/finanzas/tasa`: Obtiene la tasa de cambio USD/VES vigente del día.
-  * `GET /api/finanzas/resumen`: Devuelve la deuda global, gráfica de gastos y estado de cobranza del mes.
+  * `GET /api/finanzas/resumen`: Devuelve deuda y egresos por categoría, con `estado_cobranza` completo para roles de Junta/Cobranza, filtrado a las unidades activas propias para residentes y vacío (`[]`) para `CONSERJE`.
   * `GET /api/comunicados/recientes`: Lista los comunicados activos de la cartelera.
 
 ---
@@ -100,7 +100,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Bandeja de Usuarios:** Tarjetas de registros nuevos. Ficha con toggle para elegir `[ Ocupado Propietario / Inquilino / Vacío ]` y quién es el responsable de pagar el condominio.
   * **Composición de Junta:** Tabla de cargos (Presidente, Tesorero, Vocero, etc.) con interruptor de activación y buscador para asignar propietarios.
 * **Endpoints FastAPI:**
-  * `GET /api/estructura/unidades`: Lista las unidades con DTO dual: `UnidadPublicaResponse` (`id`, `identificador`, `estructura_id`) para anónimos o Usuarios Fantasma en registro, y `UnidadResponse` completo (alícuota, cuota fija y saldo a favor) para usuarios activos autenticados.
+  * `GET /api/estructura/unidades`: Lista las unidades con DTO dual: `UnidadResponse` completo (`alicuota`, `cuota_fija_usd`, `credito_disponible_usd`) exclusivo para roles de Junta/Cobranza (`PRESIDENTE`, `VICEPRESIDENTE`, `TESORERO`, `SECRETARIO`, `VOCERO`), y `UnidadPublicaResponse` (`id`, `identificador`, `estructura_id`) para residentes, Usuarios Fantasma y anónimos.
   * `POST /api/estructura/generar`: Crea sectores y unidades con su identificador.
   * `GET /api/usuarios/pendientes`: Lista "Fantasmas".
   * `PUT /api/usuarios/{id}/asignar`: Asigna unidad, rol y activa al usuario.
@@ -176,7 +176,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ### 🖥️ Vistas: Pases de Visita QR, Escáner de Garita, Paquetería y Reservas
 * **Rutas Vue:** `/accesos/pases` (`VisitorPassesView.vue`), `/operaciones/garita-qr` (`GatehouseScannerView.vue`), `/operaciones/paqueteria` (`ParcelsTrackerView.vue`), `/reservas/areas` (`AmenitiesReservationView.vue`)
 * **Endpoints FastAPI:**
-  * `POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{pase_id}`: Emisión y revocación de pases QR firmados con `HMAC-SHA256`. *[Header: Idempotency-Key]*
+  * `POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{pase_id}`: Emisión, listado filtrado exclusivamente por el propietario/residente titular y revocación de pases QR firmados con subclave `HKDF-SHA256`. *[Header: Idempotency-Key]*
   * `POST /api/accesos/verificar-qr`: Verifica firma, vigencia y unicidad (`jti` anti-replay en KeyDB Multi-Hilo). *[Header: Idempotency-Key]*
-  * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{paquete_id}/entregar`: Cadena de custodia de encomiendas en conserjería. *[Header: Idempotency-Key]*
-  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{reserva_id}/cancelar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con índice único parcial excluyendo `CANCELADA`, bloqueo automático a unidades insolventes, cancelación liberando fecha/tarea, tarea automática de inspección post-evento y cargo contable (`Recibo` + `ReciboItem` + `AuditoriaRecibo`) si concluye `FINALIZADA_CON_DANOS`. *[Header: Idempotency-Key]*
+  * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{paquete_id}/entregar`: Cadena de custodia de encomiendas en conserjería con listado global restringido a `VIGILANTE`, `CONSERJE`, `PRESIDENTE` y `SECRETARIO`, y vista acotada a sus unidades vigentes para residentes. *[Header: Idempotency-Key]*
+  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{reserva_id}/cancelar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con listado global acotado a roles autorizados (excluyendo `VOCERO` y exposición cruzada), índice único parcial excluyendo `CANCELADA`, bloqueo automático a unidades insolventes, cancelación liberando fecha/tarea, tarea automática de inspección post-evento y cargo contable (`Recibo` + `ReciboItem` + `AuditoriaRecibo`) si concluye `FINALIZADA_CON_DANOS`. *[Header: Idempotency-Key]*

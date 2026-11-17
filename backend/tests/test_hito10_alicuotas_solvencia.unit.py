@@ -37,7 +37,7 @@ from src.models import (
     Unidad,
 )
 from src.redis_client import get_redis_client
-from src.security import SECRET_KEY
+from src.security import get_solvency_signing_key
 
 HEADERS = {"Idempotency-Key": "018f4a12-1010-7000-8000-000000001010"}
 
@@ -716,7 +716,7 @@ def test_emitir_y_verificar_certificado_solvencia(client: TestClient) -> None:
 
     # Verificar el certificado emitido
     venc = date.fromisoformat(cert_data["fecha_vencimiento"])
-    firma = generar_firma_solvencia(cert_data["folio"], "PH-01", venc.isoformat(), SECRET_KEY)
+    firma = generar_firma_solvencia(cert_data["folio"], "PH-01", venc.isoformat(), get_solvency_signing_key())
     cert_orm = CertificadoSolvencia(
         id=1,
         folio=cert_data["folio"],

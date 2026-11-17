@@ -51,10 +51,12 @@ services:
       DATABASE_URL: 'sqlite+aiosqlite:////tmp/qa_api.db'
       REDIS_URL: 'redis://redis:6379/0'
       APP_ENV: 'qa_test'
+      METRICS_AUTH_TOKEN: 'fake-qa-metrics-token-11x'
       BOOTSTRAP_ADMIN_CORREO: 'presidente.bootstrap@condominio.test'
       BOOTSTRAP_ADMIN_PASSWORD: '${BOOTSTRAP_ADMIN_PASSWORD:-fake-qa-bootstrap-123456!}'
       BOOTSTRAP_ADMIN_CEDULA: 'V-00000001'
       BOOTSTRAP_ADMIN_NOMBRE: 'Presidente Bootstrap QA'
+      BOOTSTRAP_UNIDAD_INICIAL: 'QA-01'
     depends_on:
       redis:
         condition: service_healthy
@@ -140,6 +142,8 @@ services:
         scrape_configs:
           - job_name: 'condominio_backend'
             metrics_path: '/metrics'
+            authorization:
+              credentials: 'fake-qa-metrics-token-11x'
             static_configs:
               - targets: ['api:8000']
         " > /tmp/prometheus.yml

@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from src.database import DEFAULT_CONDOMINIO_ID
 from src.finanzas import (
     CERO,
     ESTADO_PAGADO,
@@ -28,16 +29,30 @@ from src.models import (
 from src.schemas import FacturarPeriodoRequest
 
 
-async def verificar_periodo_facturable(db: AsyncSession, periodo: str) -> None:
-    """Valida que el periodo no esté cerrado (Candado Contable) ni facturado previamente."""
-    rep_res = await db.execute(select(ReporteMensual).where(ReporteMensual.periodo == periodo))
+async def verificar_periodo_facturable(
+    db: AsyncSession,
+    periodo: str,
+    condominio_id: int = DEFAULT_CONDOMINIO_ID,
+) -> None:
+    """Valida que el periodo del condominio no esté cerrado (Candado Contable) ni facturado previamente."""
+    rep_res = await db.execute(
+        select(ReporteMensual).where(
+            ReporteMensual.condominio_id == condominio_id,
+            ReporteMensual.periodo == periodo,
+        )
+    )
     reporte = rep_res.scalars().first()
     if reporte and reporte.estado == "CERRADO":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El periodo está cerrado por Candado Contable y no admite facturación.",
         )
-    rec_res = await db.execute(select(Recibo).where(Recibo.periodo == periodo))
+    rec_res = await db.execute(
+        select(Recibo).where(
+            Recibo.condominio_id == condominio_id,
+            Recibo.periodo == periodo,
+        )
+    )
     if rec_res.scalars().first() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -126,10 +141,33 @@ def calcular_cargos_modalidad(
     return items_por_unidad, superavit_fondo
 
 
+def _construir_items_recibo(
+    unidad_condo: int,
+    lineas_cargo: list[tuple[str, str, Decimal]],
+    credito_usado: Decimal,
+) -> list[ReciboItem]:
+    items_orm = [
+        ReciboItem(condominio_id=unidad_condo, recibo_id=0, tipo_item=t, descripcion=d, monto_usd=m)
+        for t, d, m in lineas_cargo
+    ]
+    if credito_usado > CERO:
+        items_orm.append(
+            ReciboItem(
+                condominio_id=unidad_condo,
+                recibo_id=0,
+                tipo_item="ABONO_CREDITO_PREVIO",
+                descripcion="Abono automático de saldo a favor disponible",
+                monto_usd=-credito_usado,
+            )
+        )
+    return items_orm
+
+
 def _crear_recibo_e_items_unidad(
     unidad: Unidad,
     periodo: str,
     lineas_cargo: list[tuple[str, str, Decimal]],
+    condominio_id: int = DEFAULT_CONDOMINIO_ID,
 ) -> tuple[Recibo, list[ReciboItem], Decimal, Decimal]:
     cargo_bruto = cuantizar(sum((m for _, _, m in lineas_cargo), CERO))
     credito_actual = getattr(unidad, "credito_disponible_usd", None) or CERO
@@ -140,8 +178,10 @@ def _crear_recibo_e_items_unidad(
     monto_recibo = cargo_bruto if cubierto_por_credito else monto_neto
     pagado_inicial = cargo_bruto if cubierto_por_credito else CERO
     estado_inicial = ESTADO_PAGADO if (cubierto_por_credito or monto_recibo == CERO) else ESTADO_PENDIENTE
+    unidad_condo = int(getattr(unidad, "condominio_id", condominio_id) or condominio_id)
 
     recibo = Recibo(
+        condominio_id=unidad_condo,
         unidad_id=unidad.id,
         periodo=periodo,
         monto_usd=monto_recibo,
@@ -149,25 +189,17 @@ def _crear_recibo_e_items_unidad(
         estado=estado_inicial,
         bloqueado=False,
     )
-    items_orm = [ReciboItem(recibo_id=0, tipo_item=t, descripcion=d, monto_usd=m) for t, d, m in lineas_cargo]
-    if credito_usado > CERO:
-        items_orm.append(
-            ReciboItem(
-                recibo_id=0,
-                tipo_item="ABONO_CREDITO_PREVIO",
-                descripcion="Abono automático de saldo a favor disponible",
-                monto_usd=-credito_usado,
-            )
-        )
+    items_orm = _construir_items_recibo(unidad_condo, lineas_cargo, credito_usado)
     return recibo, items_orm, cargo_bruto, credito_usado
 
 
 async def cargar_contexto_facturacion(
     db: AsyncSession,
     datos: FacturarPeriodoRequest,
+    condominio_id: int = DEFAULT_CONDOMINIO_ID,
 ) -> tuple[list[Unidad], Decimal, FondoCondominio | None, Decimal]:
-    """Carga unidades, egresos comunes y fondo patrimonial para facturar el periodo."""
-    uni_res = await db.execute(select(Unidad).order_by(Unidad.id.asc()))
+    """Carga unidades, egresos comunes y fondo patrimonial del condominio para facturar el periodo."""
+    uni_res = await db.execute(select(Unidad).where(Unidad.condominio_id == condominio_id).order_by(Unidad.id.asc()))
     unidades = list(uni_res.scalars().all())
     if not unidades:
         raise HTTPException(
@@ -175,12 +207,19 @@ async def cargar_contexto_facturacion(
             detail="No existen unidades registradas para emitir la facturación.",
         )
 
-    egr_res = await db.execute(select(Egreso).where(Egreso.periodo == datos.periodo, Egreso.es_gasto_comun.is_(True)))
+    egr_res = await db.execute(
+        select(Egreso).where(
+            Egreso.condominio_id == condominio_id,
+            Egreso.periodo == datos.periodo,
+            Egreso.es_gasto_comun.is_(True),
+        )
+    )
     egresos_comunes = list(egr_res.scalars().all())
     total_egresos = cuantizar(sum((e.monto_usd for e in egresos_comunes), CERO))
 
     fondo_res = await db.execute(
         select(FondoCondominio).where(
+            FondoCondominio.condominio_id == condominio_id,
             FondoCondominio.es_activo.is_(True),
             FondoCondominio.tipo == "RESERVA_LEGAL",
         )
@@ -201,6 +240,7 @@ async def persistir_lote_facturacion(
     fondo_reserva: FondoCondominio | None,
     recargo_reserva: Decimal,
     superavit_fondo: Decimal,
+    condominio_id: int = DEFAULT_CONDOMINIO_ID,
 ) -> tuple[Decimal, Decimal, Decimal]:
     """Persiste recibos, ítems y actualización de fondos en bloque transaccional."""
     total_bruto = CERO
@@ -209,7 +249,12 @@ async def persistir_lote_facturacion(
     pares_recibo_items: list[tuple[Recibo, list[ReciboItem]]] = []
 
     for u in unidades:
-        recibo, items_orm, bruto_u, credito_u = _crear_recibo_e_items_unidad(u, periodo, items_por_unidad[u.id])
+        recibo, items_orm, bruto_u, credito_u = _crear_recibo_e_items_unidad(
+            u,
+            periodo,
+            items_por_unidad[u.id],
+            condominio_id=condominio_id,
+        )
         db.add(recibo)
         pares_recibo_items.append((recibo, items_orm))
         total_bruto += bruto_u

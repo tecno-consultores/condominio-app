@@ -7,10 +7,10 @@ from decimal import Decimal
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_db
+from src.database import DEFAULT_CONDOMINIO_ID, get_db, sellar_cadena_worm
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
 from src.finanzas import calcular_deuda_total, cuantizar
 from src.models import (
@@ -43,7 +43,7 @@ router = APIRouter(
 _ROLES_GESTION_AREAS = ("PRESIDENTE", "TESORERO")
 _ROLES_CANCELACION_JUNTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO")
 _ROLES_INSPECCION = ("CONSERJE", "PRESIDENTE", "TESORERO")
-_ROLES_JUNTA_Y_GARITA = ("CONSERJE", "PRESIDENTE", "VICEPRESIDENTE", "SECRETARIO", "TESORERO", "VOCERO")
+_ROLES_JUNTA_Y_GARITA = ("CONSERJE", "PRESIDENTE", "VICEPRESIDENTE", "SECRETARIO", "TESORERO")
 
 
 async def _unidades_activas_usuario(db: AsyncSession, usuario_id: int) -> set[int]:
@@ -218,15 +218,9 @@ async def listar_reservas_areas(
     )
     if usuario.rol not in _ROLES_JUNTA_Y_GARITA:
         unidades_propias = await _unidades_activas_usuario(db, usuario.id)
-        if unidades_propias:
-            stmt = stmt.where(
-                or_(
-                    ReservaAreaSocial.solicitante_id == usuario.id,
-                    ReservaAreaSocial.unidad_id.in_(unidades_propias),
-                )
-            )
-        else:
-            stmt = stmt.where(ReservaAreaSocial.solicitante_id == usuario.id)
+        if not unidades_propias:
+            return []
+        stmt = stmt.where(ReservaAreaSocial.unidad_id.in_(unidades_propias))
 
     res = await db.execute(stmt.order_by(ReservaAreaSocial.fecha_evento.desc(), ReservaAreaSocial.id.desc()))
     return [_serializar_reserva(r, nombre_area, identificador) for r, nombre_area, identificador in res.all()]
@@ -374,13 +368,24 @@ async def _registrar_cargo_danos_reserva(
             monto_usd=monto_danos,
         )
     )
+    condo_id = int(getattr(recibo, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    motivo_auditoria = f"Retención/cargo de depósito por daños en reserva #{reserva.id}"
+    prev_hash, rec_hash = await sellar_cadena_worm(
+        db,
+        "auditoria_recibos",
+        condo_id,
+        f"{recibo.id}|None|{usuario_id}|{estado_viejo}->{recibo.estado}|{motivo_auditoria}",
+    )
     db.add(
         AuditoriaRecibo(
+            condominio_id=condo_id,
             recibo_id=recibo.id,
             usuario_id=usuario_id,
             estado_viejo=estado_viejo,
             estado_nuevo=recibo.estado,
-            motivo=f"Retención/cargo de depósito por daños en reserva #{reserva.id}",
+            motivo=motivo_auditoria,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
         )
     )
 

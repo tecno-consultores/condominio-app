@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from src.database import AsyncSessionLocal
+from src.database import DEFAULT_CONDOMINIO_ID, AsyncSessionLocal, bind_rls_tenant
 from src.models import PlantillaTarea, TareaDiaria
 from src.redis_client import get_redis_client
 from src.security import validate_production_security_settings
@@ -261,15 +261,27 @@ async def encolar_notificacion_correo(
 async def generar_tareas_diarias_desde_plantillas(
     db: AsyncSession,
     fecha_objetivo: date | None = None,
+    condominio_id: int = DEFAULT_CONDOMINIO_ID,
 ) -> int:
     """Cronjob idempotente que genera las tareas del conserje del día desde plantillas activas."""
+    await bind_rls_tenant(db, condominio_id)
     fecha = fecha_objetivo or date.today()
-    res_plantillas = await db.execute(select(PlantillaTarea).where(PlantillaTarea.activa.is_(True)))
+    res_plantillas = await db.execute(
+        select(PlantillaTarea).where(
+            PlantillaTarea.condominio_id == condominio_id,
+            PlantillaTarea.activa.is_(True),
+        )
+    )
     plantillas = list(res_plantillas.scalars().all())
     if not plantillas:
         return 0
 
-    res_existentes = await db.execute(select(TareaDiaria).where(TareaDiaria.fecha == fecha))
+    res_existentes = await db.execute(
+        select(TareaDiaria).where(
+            TareaDiaria.condominio_id == condominio_id,
+            TareaDiaria.fecha == fecha,
+        )
+    )
     existentes = list(res_existentes.scalars().all())
     ids_ya_generados = {t.plantilla_id for t in existentes if t.plantilla_id is not None}
 

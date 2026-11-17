@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.database import get_db
+from src.database import DEFAULT_CONDOMINIO_ID, get_db, sellar_cadena_worm
 from src.dependencies import get_current_user, verificar_roles, verificar_usuario_activo
 from src.finanzas import (
     CUATRO_DECIMALES,
@@ -41,7 +41,7 @@ from src.schemas import (
     VotarConsultaRequest,
     VotoReciboResumenResponse,
 )
-from src.security import SECRET_KEY
+from src.security import get_vote_signing_key
 
 router = APIRouter(
     prefix="/api/consultas",
@@ -436,7 +436,7 @@ async def votar_en_consulta(
     fecha_voto = datetime.now(UTC)
     fecha_voto_iso = fecha_voto.isoformat()
     voto_jti = str(uuid.uuid4())
-    secret_key = SECRET_KEY
+    secret_key = get_vote_signing_key()
     ip_cliente = request.client.host if request.client else "127.0.0.1"
     ip_hash = calcular_ip_hash_voto(ip_cliente, consulta_id, secret_key)
     firma_hmac = generar_firma_voto_consulta(
@@ -457,7 +457,15 @@ async def votar_en_consulta(
         jti=voto_jti,
     )
 
+    condo_id = int(getattr(unidad, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
+    prev_hash, rec_hash = await sellar_cadena_worm(
+        db,
+        "votos_consulta",
+        condo_id,
+        f"{voto_jti}|{consulta_id}|{unidad.id}|{opcion.id}|{firma_hmac}",
+    )
     voto = VotoConsulta(
+        condominio_id=condo_id,
         jti=voto_jti,
         consulta_id=consulta_id,
         unidad_id=unidad.id,
@@ -467,6 +475,8 @@ async def votar_en_consulta(
         fecha_voto=fecha_voto,
         ip_hash=ip_hash,
         firma_hmac=firma_hmac,
+        prev_hash=prev_hash,
+        record_hash=rec_hash,
     )
     db.add(voto)
     try:
@@ -574,7 +584,7 @@ async def cerrar_consulta(
 
     firmas_concat = "|".join(v.firma_hmac for v in votos) or f"SIN_VOTOS|{consulta.id}"
     hash_global = hmac.new(
-        SECRET_KEY.encode("utf-8"),
+        get_vote_signing_key().encode("utf-8"),
         firmas_concat.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()

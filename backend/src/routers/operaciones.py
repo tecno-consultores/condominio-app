@@ -31,7 +31,7 @@ from src.schemas import (
     TareaDiariaCreate,
     TareaDiariaResponse,
 )
-from src.security import validate_safe_outgoing_url
+from src.security import validate_safe_outgoing_url_async
 from src.worker import generar_tareas_diarias_desde_plantillas
 
 router = APIRouter(
@@ -313,7 +313,7 @@ async def publicar_comunicado(
     enlace = datos.enlace_externo
     if enlace is not None:
         try:
-            enlace = validate_safe_outgoing_url(enlace)
+            enlace = await validate_safe_outgoing_url_async(enlace)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

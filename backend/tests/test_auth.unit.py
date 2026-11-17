@@ -221,14 +221,16 @@ def test_login_set_httponly_cookie(client: TestClient) -> None:
         id: int = 1
         correo: str = "admin@test.com"
         rol: str = "PRESIDENTE"
-        password_hash: str = get_password_hash("secure")
+        es_activo: bool = True
+        condominio_id: int = 1
+        password_hash: str = get_password_hash("SecurePass123!")
 
     mock_result.scalars().first.return_value = FakeUser()
     mock_session.execute.return_value = mock_result
 
     app.dependency_overrides[get_db] = lambda: mock_session
 
-    payload = {"correo": "admin@test.com", "password": "secure"}
+    payload = {"correo": "admin@test.com", "password": "SecurePass123!"}
     response = client.post("/api/auth/login", json=payload)
 
     assert response.status_code == 200
@@ -251,7 +253,7 @@ def test_login_invalid_credentials(client: TestClient) -> None:
 
     app.dependency_overrides[get_db] = lambda: mock_session
 
-    payload = {"correo": "noexiste@test.com", "password": "wrong"}
+    payload = {"correo": "noexiste@test.com", "password": "WrongPass123!"}
     response = client.post("/api/auth/login", json=payload)
 
     assert response.status_code == 401
@@ -325,7 +327,7 @@ def test_me_with_invalid_token(client: TestClient) -> None:
 
 
 def test_logout_revokes_session_and_clears_cookies(client: TestClient) -> None:
-    """POST /api/auth/logout revoca user/sid/jti en KeyDB, purga cookies y emite Clear-Site-Data."""
+    """POST /api/auth/logout revoca sid/jti en KeyDB sin afectar otros dispositivos."""
     mock_redis = AsyncMock()
     mock_redis.set.return_value = True
     app.dependency_overrides[get_redis_client] = lambda: mock_redis
@@ -339,7 +341,9 @@ def test_logout_revokes_session_and_clears_cookies(client: TestClient) -> None:
     assert res.status_code == 200
     assert res.json()["message"] == "Sesión cerrada exitosamente"
     assert res.headers.get("clear-site-data") == '"cookies", "storage", "cache"'
-    assert mock_redis.set.await_count >= 3
+    assert mock_redis.set.await_count >= 2
+    keys_escritas = [call.args[0] for call in mock_redis.set.await_args_list]
+    assert not any(str(k).startswith("revoked_user:") for k in keys_escritas)
 
 
 def test_refresh_token_rotation_grace_period_and_replay(client: TestClient) -> None:
@@ -475,10 +479,10 @@ def test_login_lockout_429_and_short_idempotency_key(client: TestClient) -> None
     hdrs = {"X-Forwarded-For": f"203.{uid.bytes[0]}.{uid.bytes[1]}.{uid.bytes[2] % 250 + 1}"}
     correo_brute = f"brute-{uid.hex[:8]}@test.com"
     for _ in range(5):
-        r = client.post("/api/auth/login", json={"correo": correo_brute, "password": "wrong"}, headers=hdrs)
+        r = client.post("/api/auth/login", json={"correo": correo_brute, "password": "WrongPass123!"}, headers=hdrs)
         assert r.status_code == 401
 
-    blocked = client.post("/api/auth/login", json={"correo": correo_brute, "password": "wrong"}, headers=hdrs)
+    blocked = client.post("/api/auth/login", json={"correo": correo_brute, "password": "WrongPass123!"}, headers=hdrs)
     assert blocked.status_code == 429
     assert "Demasiados intentos" in blocked.json()["detail"]
 

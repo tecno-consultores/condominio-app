@@ -208,9 +208,12 @@ async def test_validate_file_magic_bytes_and_upload_enforcement() -> None:
 
 async def test_redis_user_session_revocation_and_dependency_gate(client: TestClient) -> None:
     mock_redis = AsyncMock()
+    mock_redis.get.return_value = "1"
     await revoke_user_session(mock_redis, 777)
+    mock_redis.set.assert_awaited()
     assert await is_user_session_revoked(mock_redis, 777) is True
     await clear_user_session_revocation(mock_redis, 777)
+    mock_redis.delete.assert_awaited()
 
     mock_redis.get.return_value = "1"
     assert await is_user_session_revoked(mock_redis, 888) is True
@@ -303,14 +306,14 @@ def test_mass_assignment_extra_forbid_on_all_input_schemas() -> None:
                 "cedula": "V-1",
                 "correo": "a@test.com",
                 "telefono": "1",
-                "password": "p",
+                "password": "PasswordValida123!",
                 "unidad_solicitada_id": 1,
                 "tipo_ocupante_solicitado": "PROPIETARIO",
                 "rol": "TESORERO",
             }
         )
     with pytest.raises(ValidationError):
-        LoginData.model_validate({"correo": "a@test.com", "password": "p", "es_activo": True})
+        LoginData.model_validate({"correo": "a@test.com", "password": "PasswordValida123!", "es_activo": True})
     with pytest.raises(ValidationError):
         TasaCambioCreate.model_validate({"tasa_usd_ves": "36.5", "extra": 1})
     with pytest.raises(ValidationError):
@@ -432,7 +435,7 @@ def test_should_use_secure_cookie_and_refresh_helpers(monkeypatch: pytest.Monkey
 
 
 def test_csrf_middleware_blocks_cookie_mutation_when_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Enforce X-CSRF-Token bloquea mutaciones por cookie sin token y permite Bearer o token válido."""
+    """Enforce X-CSRF-Token bloquea Cookie+Bearer dummy sin CSRF y permite M2M Bearer puro o token válido."""
     monkeypatch.setenv("CSRF_ENFORCE", "true")
     client = TestClient(app)
     token = create_access_token({"sub": "csrf@test.com", "rol": "PROPIETARIO", "id": 9, "sid": "sid-csrf"})
@@ -443,38 +446,61 @@ def test_csrf_middleware_blocks_cookie_mutation_when_enforced(monkeypatch: pytes
     assert blocked.status_code == 403
     assert "CSRF" in blocked.json()["detail"]
 
-    # Pre-auth /auth/logout aunque tenga cookie también requiere CSRF? Logout no está excluido si hay sesión cookie
-    # Bearer explícito omite validación double-submit
+    # Bypass con cookie activa + Authorization: Bearer dummy DEBE ser bloqueado con 403
+    dummy_bypass = client.post("/api/finanzas/tasas", headers={"Authorization": "Bearer dummy"}, json={})
+    assert dummy_bypass.status_code == 403
+    assert "CSRF" in dummy_bypass.json()["detail"]
+
     mock_session = AsyncMock()
     mock_result = MagicMock()
     mock_result.scalars().first.return_value = None
     mock_session.execute.return_value = mock_result
     app.dependency_overrides[get_db] = lambda: mock_session
 
-    bearer_req = client.post("/api/finanzas/tasas", headers={"Authorization": f"Bearer {token}"}, json={})
-    assert bearer_req.status_code != 403
-
     csrf_ok_req = client.post("/api/finanzas/tasas", headers={"X-CSRF-Token": valid_csrf}, json={})
     assert csrf_ok_req.status_code != 403
-    app.dependency_overrides = {}
+
+    # Bearer M2M puro (sin cookies) omite double-submit CSRF
     client.cookies.clear()
+    bearer_req = client.post("/api/finanzas/tasas", headers={"Authorization": f"Bearer {token}"}, json={})
+    assert bearer_req.status_code != 403
+    app.dependency_overrides = {}
 
 
 @pytest.mark.asyncio
 async def test_redis_fail_closed_in_production_and_sid_revocation(monkeypatch: pytest.MonkeyPatch) -> None:
     """En APP_ENV=production KeyDB caído o None debe fallar cerrado con HTTP 503."""
+    from src.redis_client import burn_qr_nonce, check_and_set_idempotency_key, revoke_user_session
+
     reset_local_security_state()
     monkeypatch.setenv("APP_ENV", "production")
 
     broken_redis = AsyncMock()
     broken_redis.get.side_effect = RuntimeError("KeyDB unreachable")
     broken_redis.set.side_effect = RuntimeError("KeyDB unreachable")
-    broken_redis.incr.side_effect = RuntimeError("KeyDB unreachable")
+    broken_redis.eval.side_effect = RuntimeError("KeyDB unreachable")
+    broken_redis.delete.side_effect = RuntimeError("KeyDB unreachable")
 
     for client_arg in (None, broken_redis):
         with pytest.raises(HTTPException) as exc_rev:
             await is_session_id_revoked(client_arg, "sid-prod")
         assert exc_rev.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_rev_user:
+            await revoke_user_session(client_arg, 10)
+        assert exc_rev_user.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_rev_sid:
+            await revoke_session_id(client_arg, "sid-prod")
+        assert exc_rev_sid.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_idemp:
+            await check_and_set_idempotency_key(client_arg, "key-prod")
+        assert exc_idemp.value.status_code == 503
+
+        with pytest.raises(HTTPException) as exc_qr:
+            await burn_qr_nonce(client_arg, "jti-qr-prod")
+        assert exc_qr.value.status_code == 503
 
         with pytest.raises(HTTPException) as exc_lock:
             await is_login_locked_out(client_arg, "1.1.1.1", "a@b.com")
@@ -499,13 +525,16 @@ async def test_redis_fail_closed_in_production_and_sid_revocation(monkeypatch: p
     monkeypatch.setenv("APP_ENV", "development")
     ok_redis = AsyncMock()
     ok_redis.get.return_value = "5"
-    ok_redis.incr.return_value = 1
+    ok_redis.eval.return_value = 1
     assert await is_login_locked_out(ok_redis, "10.0.0.1", "u@test.com") is True
     assert await record_login_failure(ok_redis, "10.0.0.2", "u@test.com") == 1
-    ok_redis.expire.assert_awaited_once()
+    assert ok_redis.eval.await_count == 2
     await clear_login_failures(ok_redis, "10.0.0.2", "u@test.com")
     await revoke_session_id(ok_redis, "sid-dev-1")
-    assert await is_session_id_revoked(None, "sid-dev-1") is True
+    ok_redis.set.assert_awaited()
+    assert await is_session_id_revoked(None, "sid-dev-1") is False
+    await revoke_session_id(None, "sid-dev-local")
+    assert await is_session_id_revoked(None, "sid-dev-local") is True
     assert await mark_refresh_jti_used(None, "") is False
     reset_local_security_state()
 
@@ -554,7 +583,7 @@ async def test_security_constants_jwt_magic_bytes_and_upload_boundaries(monkeypa
     assert ALGORITHM == "HS256"
     assert ACCESS_TOKEN_EXPIRE_MINUTES == 30
     assert REFRESH_TOKEN_EXPIRE_DAYS == 7
-    assert PBKDF2_ITERATIONS == 100_000
+    assert PBKDF2_ITERATIONS == 600_000
     assert MAX_UPLOAD_SIZE_BYTES == 2 * 1024 * 1024
     assert UPLOAD_CHUNK_SIZE == 64 * 1024
     assert "localhost" in FORBIDDEN_CONTAINER_HOSTS
@@ -795,9 +824,27 @@ async def test_security_survivor_contracts_and_exact_details(monkeypatch: pytest
     rt_num_jti = create_refresh_token({"sub": "a@b.com", "jti": 98765})
     assert decode_refresh_token(rt_num_jti)["jti"] == "98765"
 
+    from datetime import UTC, datetime, timedelta
+
     acc_tok = create_access_token({"sub": "a@b.com"})
-    with pytest.raises(jwt.InvalidTokenError, match=r"^Tipo de token inválido para renovación\.$"):
+    with pytest.raises(jwt.InvalidTokenError):
         decode_refresh_token(acc_tok)
+
+    wrong_typ_tok = jwt.encode(
+        {
+            "sub": "a@b.com",
+            "typ": "access",
+            "jti": "jti-wrong-typ",
+            "iat": int(datetime.now(UTC).timestamp()),
+            "iss": security_mod.JWT_ISSUER,
+            "aud": security_mod.JWT_AUDIENCE,
+            "exp": int((datetime.now(UTC) + timedelta(minutes=5)).timestamp()),
+        },
+        security_mod.derive_subkey("jwt-refresh"),
+        algorithm=ALGORITHM,
+    )
+    with pytest.raises(jwt.InvalidTokenError, match=r"^Tipo de token inválido para renovación\.$"):
+        decode_refresh_token(wrong_typ_tok)
 
     # CSRF requiere token Y session_id no vacíos (ni HMAC válido con session_id vacío pasa)
     assert validate_csrf_token(generate_csrf_token(""), "") is False

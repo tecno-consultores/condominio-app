@@ -32,7 +32,7 @@ from src.models import (
     VotoConsulta,
 )
 from src.redis_client import get_redis_client
-from src.security import SECRET_KEY
+from src.security import get_vote_signing_key
 
 HEADERS = {"Idempotency-Key": "018f4a12-1111-7000-8000-000000001111"}
 
@@ -110,14 +110,15 @@ def test_firma_voto_consulta_y_ip_hash() -> None:
     msg = construir_mensaje_voto_consulta(4, 12, 1, Decimal("25.5"), fecha_iso)
     assert msg == "VOTO|v1|4|12|1|25.5000|2026-10-30T12:00:00+00:00"
 
-    firma = generar_firma_voto_consulta(4, 12, 1, Decimal("25.5000"), fecha_iso, SECRET_KEY)
+    vote_key = get_vote_signing_key()
+    firma = generar_firma_voto_consulta(4, 12, 1, Decimal("25.5000"), fecha_iso, vote_key)
     assert len(firma) == 64
-    assert verificar_firma_voto_consulta(4, 12, 1, Decimal("25.5000"), fecha_iso, firma, SECRET_KEY) is True
-    assert verificar_firma_voto_consulta(4, 12, 2, Decimal("25.5000"), fecha_iso, firma, SECRET_KEY) is False
-    assert verificar_firma_voto_consulta(4, 12, 1, Decimal("25.5000"), fecha_iso, "   ", SECRET_KEY) is False
+    assert verificar_firma_voto_consulta(4, 12, 1, Decimal("25.5000"), fecha_iso, firma, vote_key) is True
+    assert verificar_firma_voto_consulta(4, 12, 2, Decimal("25.5000"), fecha_iso, firma, vote_key) is False
+    assert verificar_firma_voto_consulta(4, 12, 1, Decimal("25.5000"), fecha_iso, "   ", vote_key) is False
 
-    h1 = calcular_ip_hash_voto("192.168.1.50", 4, SECRET_KEY)
-    h2 = calcular_ip_hash_voto("", 4, SECRET_KEY)
+    h1 = calcular_ip_hash_voto("192.168.1.50", 4, vote_key)
+    h2 = calcular_ip_hash_voto("", 4, vote_key)
     assert len(h1) == 64 and len(h2) == 64 and h1 != h2
 
 

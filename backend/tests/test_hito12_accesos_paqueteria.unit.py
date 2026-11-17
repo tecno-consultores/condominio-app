@@ -27,13 +27,13 @@ from src.redis_client import (
     is_qr_nonce_burned,
 )
 from src.schemas import PaseVisitaCreate
-from src.security import SECRET_KEY
+from src.security import get_qr_signing_key
 
 HEADERS = {"Idempotency-Key": "018f4a12-1212-7000-8000-000000001212"}
 
 
 class FakeUser:
-    def __init__(self, user_id: int = 1, rol: str = "RESIDENTE", es_activo: bool = True) -> None:
+    def __init__(self, user_id: int = 1, rol: str = "PROPIETARIO", es_activo: bool = True) -> None:
         self.id = user_id
         self.correo = f"{rol.lower()}_{user_id}@condominio.test"
         self.rol = rol
@@ -100,11 +100,12 @@ def test_pase_qr_claims_firma_y_verificacion_exitosa() -> None:
     claims = construir_claims_pase_qr(jti, 7, "UNICO_USO", exp)
     assert claims == f"QR|v1|{jti}|7|UNICO_USO|{exp}"
 
-    sig = generar_firma_pase_qr(jti, 7, "UNICO_USO", exp, SECRET_KEY)
+    qr_key = get_qr_signing_key()
+    sig = generar_firma_pase_qr(jti, 7, "UNICO_USO", exp, qr_key)
     assert len(sig) == 64
 
     token = construir_token_pase_qr(jti, 7, "UNICO_USO", exp, sig)
-    jti_out, uid_out, mod_out, exp_out, sig_out = decodificar_y_verificar_token_pase_qr(token, SECRET_KEY)
+    jti_out, uid_out, mod_out, exp_out, sig_out = decodificar_y_verificar_token_pase_qr(token, qr_key)
     assert jti_out == jti
     assert uid_out == 7
     assert mod_out == "UNICO_USO"
@@ -126,31 +127,36 @@ def test_pase_qr_claims_firma_y_verificacion_exitosa() -> None:
 )
 def test_decodificar_pase_qr_formatos_invalidos(token_invalido: str) -> None:
     with pytest.raises(ErrorFinanciero, match="Firma criptográfica de pase QR inválida"):
-        decodificar_y_verificar_token_pase_qr(token_invalido, SECRET_KEY)
+        decodificar_y_verificar_token_pase_qr(token_invalido, get_qr_signing_key())
 
 
 def test_decodificar_pase_qr_firma_adulterada() -> None:
     jti = "550e8400-e29b-41d4-a716-446655440099"
-    sig = generar_firma_pase_qr(jti, 3, "UNICO_USO", 1800000000, SECRET_KEY)
+    sig = generar_firma_pase_qr(jti, 3, "UNICO_USO", 1800000000, get_qr_signing_key())
     token = construir_token_pase_qr(jti, 3, "UNICO_USO", 1800000000, "0" * len(sig))
     with pytest.raises(ErrorFinanciero, match="Firma criptográfica de pase QR inválida"):
-        decodificar_y_verificar_token_pase_qr(token, SECRET_KEY)
+        decodificar_y_verificar_token_pase_qr(token, get_qr_signing_key())
 
 
 @pytest.mark.anyio
 async def test_redis_qr_nonce_helpers() -> None:
+    from src.redis_client import reset_local_security_state
+
+    reset_local_security_state()
     assert build_qr_nonce_key(" abc-123 ") == "qr_used:abc-123"
     assert await burn_qr_nonce(None, "abc-123") is True
-    assert await is_qr_nonce_burned(None, "abc-123") is False
+    assert await is_qr_nonce_burned(None, "abc-123") is True
+    assert await is_qr_nonce_burned(None, "no-quemado") is False
 
     mock_redis = AsyncMock()
     mock_redis.set.return_value = True
     mock_redis.get.return_value = "1"
-    assert await burn_qr_nonce(mock_redis, "abc-123", ttl_seconds=300) is True
-    assert await is_qr_nonce_burned(mock_redis, "abc-123") is True
+    assert await burn_qr_nonce(mock_redis, "remoto-1", ttl_seconds=300) is True
+    assert await is_qr_nonce_burned(mock_redis, "remoto-1") is True
 
     mock_redis.get.side_effect = RuntimeError("KeyDB offline")
-    assert await is_qr_nonce_burned(mock_redis, "abc-123") is False
+    assert await is_qr_nonce_burned(mock_redis, "remoto-1") is False
+    reset_local_security_state()
 
 
 def test_schema_pase_visita_normaliza_timezone() -> None:
@@ -189,7 +195,7 @@ def test_crear_pase_visita_exitoso_y_fantasma_bloqueado(client: TestClient) -> N
         # 2. Residente con unidad activa crea pase exitosamente
         unidad = Unidad(id=1, estructura_id=1, identificador="PB-01")
         session = _mock_session(_result(unidad), _result_list([1]))
-        _setup(session, FakeUser(user_id=2, rol="RESIDENTE"))
+        _setup(session, FakeUser(user_id=2, rol="PROPIETARIO"))
         r_ok = client.post(
             "/api/accesos/pases",
             headers=HEADERS,
@@ -215,7 +221,7 @@ def test_crear_pase_visita_exitoso_y_fantasma_bloqueado(client: TestClient) -> N
 def test_crear_pase_visita_errores_idempotencia_contrato_y_ventana(client: TestClient) -> None:
     try:
         # Idempotency duplicada -> 409
-        _setup(_mock_session(), FakeUser(user_id=2, rol="RESIDENTE"), redis_new=False)
+        _setup(_mock_session(), FakeUser(user_id=2, rol="PROPIETARIO"), redis_new=False)
         r_dup = client.post(
             "/api/accesos/pases",
             headers=HEADERS,
@@ -224,7 +230,7 @@ def test_crear_pase_visita_errores_idempotencia_contrato_y_ventana(client: TestC
         assert r_dup.status_code == 409
 
         # Unidad no existe -> 404
-        _setup(_mock_session(_result(None)), FakeUser(user_id=2, rol="RESIDENTE"))
+        _setup(_mock_session(_result(None)), FakeUser(user_id=2, rol="PROPIETARIO"))
         r_404 = client.post(
             "/api/accesos/pases",
             headers=HEADERS,
@@ -234,7 +240,7 @@ def test_crear_pase_visita_errores_idempotencia_contrato_y_ventana(client: TestC
 
         # Residente sin contrato en unidad -> 403
         unidad = Unidad(id=1, estructura_id=1, identificador="PB-01")
-        _setup(_mock_session(_result(unidad), _result_list([2])), FakeUser(user_id=2, rol="RESIDENTE"))
+        _setup(_mock_session(_result(unidad), _result_list([2])), FakeUser(user_id=2, rol="PROPIETARIO"))
         r_403 = client.post(
             "/api/accesos/pases",
             headers=HEADERS,
@@ -279,22 +285,22 @@ def test_listar_mis_pases_y_revocar_pase(client: TestClient) -> None:
             firma_hmac="a" * 64,
         )
         session = _mock_session(_result_list([1]), _result_rows([(pase_activo, "1-A")]))
-        _setup(session, FakeUser(user_id=2, rol="RESIDENTE"))
+        _setup(session, FakeUser(user_id=2, rol="PROPIETARIO"))
         r_list = client.get("/api/accesos/pases/mios")
         assert r_list.status_code == 200
         assert r_list.json()[0]["estado"] == "EXPIRADO"
 
         # Revocar: no encontrado -> 404
-        _setup(_mock_session(_result(None)), FakeUser(user_id=2, rol="RESIDENTE"))
+        _setup(_mock_session(_result(None)), FakeUser(user_id=2, rol="PROPIETARIO"))
         assert client.delete("/api/accesos/pases/999").status_code == 404
 
         # Revocar: otro residente no creador -> 403
-        _setup(_mock_session(_result(pase_activo)), FakeUser(user_id=99, rol="RESIDENTE"))
+        _setup(_mock_session(_result(pase_activo)), FakeUser(user_id=99, rol="PROPIETARIO"))
         assert client.delete("/api/accesos/pases/10").status_code == 403
 
         # Revocar exitoso por el creador -> 200 REVOCADO
         unidad_rev = Unidad(id=1, estructura_id=1, identificador="1-A")
-        _setup(_mock_session(_result(pase_activo), _result(unidad_rev)), FakeUser(user_id=2, rol="RESIDENTE"))
+        _setup(_mock_session(_result(pase_activo), _result(unidad_rev)), FakeUser(user_id=2, rol="PROPIETARIO"))
         r_del = client.delete("/api/accesos/pases/10")
         assert r_del.status_code == 200
         assert r_del.json()["estado"] == "REVOCADO"
@@ -309,7 +315,7 @@ def test_verificar_pase_qr_en_garita_flujo_completo_y_anti_replay(client: TestCl
         hasta = ahora + timedelta(hours=4)
         exp_unix = int(hasta.timestamp())
         jti = "550e8400-e29b-41d4-a716-446655440111"
-        sig = generar_firma_pase_qr(jti, 1, "UNICO_USO", exp_unix, SECRET_KEY)
+        sig = generar_firma_pase_qr(jti, 1, "UNICO_USO", exp_unix, get_qr_signing_key())
         qr_token = construir_token_pase_qr(jti, 1, "UNICO_USO", exp_unix, sig)
 
         pase = PaseVisita(
@@ -376,7 +382,7 @@ def test_verificar_pase_qr_casos_borde_adicionales(client: TestClient) -> None:
         hasta = ahora + timedelta(hours=2)
         exp_unix = int(hasta.timestamp())
         jti = "550e8400-e29b-41d4-a716-446655440222"
-        sig = generar_firma_pase_qr(jti, 1, "UNICO_USO", exp_unix, SECRET_KEY)
+        sig = generar_firma_pase_qr(jti, 1, "UNICO_USO", exp_unix, get_qr_signing_key())
         qr_token = construir_token_pase_qr(jti, 1, "UNICO_USO", exp_unix, sig)
 
         # Idempotency duplicada -> 409
@@ -458,7 +464,7 @@ def test_registrar_listar_y_entregar_paqueteria(client: TestClient) -> None:
 
         _setup(
             _mock_session(_result_list([1]), _result_rows([(paquete, "1-A")])),
-            FakeUser(user_id=2, rol="RESIDENTE"),
+            FakeUser(user_id=2, rol="PROPIETARIO"),
         )
         r_list_r = client.get("/api/paqueteria")
         assert r_list_r.status_code == 200
@@ -467,7 +473,7 @@ def test_registrar_listar_y_entregar_paqueteria(client: TestClient) -> None:
         # 3. Confirmar entrega por residente destinatario -> 200 ENTREGADO
         _setup(
             _mock_session(_result(paquete), _result_list([1]), _result(unidad)),
-            FakeUser(user_id=2, rol="RESIDENTE"),
+            FakeUser(user_id=2, rol="PROPIETARIO"),
         )
         r_ent = client.put("/api/paqueteria/70/entregar")
         assert r_ent.status_code == 200
@@ -494,7 +500,7 @@ def test_paqueteria_errores_ssrf_permisos_y_404(client: TestClient) -> None:
 
         # URL HTTP interna bloqueada por Anti-SSRF -> 400
         _setup(_mock_session(), FakeUser(user_id=5, rol="CONSERJE"))
-        with patch("src.routers.accesos.validate_safe_outgoing_url", side_effect=ValueError("SSRF bloqueado")):
+        with patch("src.routers.accesos.validate_safe_outgoing_url_async", side_effect=ValueError("SSRF bloqueado")):
             r_ssrf = client.post(
                 "/api/paqueteria/registrar",
                 headers=HEADERS,
@@ -531,7 +537,7 @@ def test_paqueteria_errores_ssrf_permisos_y_404(client: TestClient) -> None:
             estado="EN_GARITA",
             fecha_recepcion=datetime.now(UTC),
         )
-        _setup(_mock_session(_result(paquete_ajeno), _result_list([2])), FakeUser(user_id=9, rol="RESIDENTE"))
+        _setup(_mock_session(_result(paquete_ajeno), _result_list([2])), FakeUser(user_id=9, rol="PROPIETARIO"))
         assert client.put("/api/paqueteria/71/entregar").status_code == 403
     finally:
         app.dependency_overrides.clear()

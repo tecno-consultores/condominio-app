@@ -1,5 +1,6 @@
-"""Utilidades de seguridad Nivel 11X: KDF con sal, JWT, CSRF HMAC, Anti-SSRF, Anti-CSWSH y cuotas de archivos."""
+"""Utilidades de seguridad Nivel 11X: HKDF-SHA256, KDF con sal, JWT, CSRF HMAC, Anti-SSRF, Anti-CSWSH y cuotas."""
 
+import asyncio
 import hashlib
 import hmac
 import ipaddress
@@ -8,7 +9,7 @@ import secrets
 import socket
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import jwt
 from fastapi import HTTPException, status
@@ -18,16 +19,67 @@ _FALLBACK_DEV_SENTINEL = "qa-blueprint-11x-secret-key-super-secure-32bytes"
 DEFAULT_INSECURE_SECRET_KEY = _FALLBACK_DEV_SENTINEL
 SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_INSECURE_SECRET_KEY)
 ALGORITHM = "HS256"
+JWT_ISSUER = "condominio-app"
+JWT_AUDIENCE = "condominio-app-client"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
-PBKDF2_ITERATIONS = 100_000
+PBKDF2_ITERATIONS = 600_000
 MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB (Patrón 6 Anti-DoS / OOM)
 UPLOAD_CHUNK_SIZE = 64 * 1024  # 64 KB
+_HKDF_SALT = b"condominio-app-hkdf-v1"
 
 
 def _get_secret_key() -> str:
     """Resuelve dinámicamente la clave HMAC/JWT vigente."""
     return os.getenv("SECRET_KEY") or SECRET_KEY
+
+
+def _hkdf_extract(salt: bytes, ikm: bytes) -> bytes:
+    return hmac.new(salt, ikm, hashlib.sha256).digest()
+
+
+def _hkdf_expand(prk: bytes, info: bytes, length: int = 32) -> bytes:
+    okm = bytearray()
+    block = b""
+    counter = 1
+    while len(okm) < length:
+        block = hmac.new(prk, block + info + bytes([counter]), hashlib.sha256).digest()
+        okm.extend(block)
+        counter += 1
+    return bytes(okm[:length])
+
+
+def derive_subkey(purpose: str, master_secret: str | None = None) -> str:
+    """Deriva una subclave criptográfica independiente de 256 bits vía HKDF-SHA256 (RFC 5869)."""
+    ikm = (master_secret if master_secret is not None else _get_secret_key()).encode("utf-8")
+    prk = _hkdf_extract(_HKDF_SALT, ikm)
+    return _hkdf_expand(prk, purpose.encode("utf-8"), 32).hex()
+
+
+def get_solvency_signing_key() -> str:
+    """Subclave HKDF-SHA256 exclusiva para certificados de solvencia."""
+    return derive_subkey("solvency-hmac")
+
+
+def get_vote_signing_key() -> str:
+    """Subclave HKDF-SHA256 exclusiva para votos e IP-hash de consultas."""
+    return derive_subkey("vote-hmac")
+
+
+def get_qr_signing_key() -> str:
+    """Subclave HKDF-SHA256 exclusiva para tokens QR de acceso."""
+    return derive_subkey("qr-pass-hmac")
+
+
+def get_worm_signing_key(master_secret: str | None = None) -> str:
+    """Subclave HKDF-SHA256 exclusiva para encadenamiento WORM de auditoría."""
+    return derive_subkey("worm-audit-hmac", master_secret=master_secret)
+
+
+def compute_worm_record_hash(prev_hash: str, payload: str, master_secret: str | None = None) -> str:
+    """Calcula el sello HMAC-SHA256 encadenado para registros WORM inmutables."""
+    key = get_worm_signing_key(master_secret=master_secret).encode("utf-8")
+    return hmac.new(key, f"{prev_hash}|{payload}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def should_use_secure_cookie() -> bool:
@@ -114,63 +166,107 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return False
 
 
+async def get_password_hash_async(password: str) -> str:
+    """Calcula PBKDF2-HMAC-SHA256 sin bloquear el event loop."""
+    return await asyncio.to_thread(get_password_hash, password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """Verifica PBKDF2-HMAC-SHA256 en hilo separado manteniendo tiempo constante."""
+    return await asyncio.to_thread(verify_password, plain_password, hashed_password)
+
+
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
-    """Emite un JWT de acceso con expiración configurable."""
+    """Emite un JWT de acceso (typ=access, iss, aud, iat, exp) firmado con subclave HKDF."""
     to_encode = data.copy()
+    now = datetime.now(UTC)
     delta = expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now(UTC) + delta
-    to_encode.update({"exp": int(expire.timestamp())})
-    encoded_jwt = jwt.encode(to_encode, _get_secret_key(), algorithm=ALGORITHM)
+    expire = now + delta
+    to_encode.update(
+        {
+            "typ": "access",
+            "iat": int(now.timestamp()),
+            "iss": JWT_ISSUER,
+            "aud": JWT_AUDIENCE,
+            "exp": int(expire.timestamp()),
+        }
+    )
+    encoded_jwt = jwt.encode(to_encode, derive_subkey("jwt-access"), algorithm=ALGORITHM)
     return str(encoded_jwt)
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
-    """Decodifica y valida la firma y expiración del token JWT."""
-    payload: dict[str, Any] = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
+    """Decodifica y valida firma HKDF, claims estándar (iss/aud/iat/exp) y typ=access."""
+    payload: dict[str, Any] = jwt.decode(
+        token,
+        derive_subkey("jwt-access"),
+        algorithms=[ALGORITHM],
+        issuer=JWT_ISSUER,
+        audience=JWT_AUDIENCE,
+        options={"require": ["exp", "iat", "iss", "aud"]},
+    )
+    if payload.get("typ") != "access":
+        raise jwt.InvalidTokenError("Tipo de token inválido para acceso.")
     return payload
 
 
 def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
-    """Emite un JWT de renovación (typ=refresh) con JTI único y vigencia extendida."""
+    """Emite un JWT de renovación (typ=refresh) con JTI único y subclave HKDF independiente."""
     to_encode = data.copy()
+    now = datetime.now(UTC)
     delta = expires_delta if expires_delta is not None else timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    expire = datetime.now(UTC) + delta
+    expire = now + delta
     to_encode.update(
         {
             "typ": "refresh",
             "jti": str(to_encode.get("jti") or secrets.token_urlsafe(16)),
+            "iat": int(now.timestamp()),
+            "iss": JWT_ISSUER,
+            "aud": JWT_AUDIENCE,
             "exp": int(expire.timestamp()),
         }
     )
-    return str(jwt.encode(to_encode, _get_secret_key(), algorithm=ALGORITHM))
+    return str(jwt.encode(to_encode, derive_subkey("jwt-refresh"), algorithm=ALGORITHM))
 
 
 def decode_refresh_token(token: str) -> dict[str, Any]:
-    """Decodifica y valida firma, expiración y tipo explícito del refresh token."""
-    payload: dict[str, Any] = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
+    """Decodifica y valida firma HKDF, expiración, claims y tipo explícito refresh."""
+    payload: dict[str, Any] = jwt.decode(
+        token,
+        derive_subkey("jwt-refresh"),
+        algorithms=[ALGORITHM],
+        issuer=JWT_ISSUER,
+        audience=JWT_AUDIENCE,
+        options={"require": ["exp", "iat", "iss", "aud", "jti"]},
+    )
     if payload.get("typ") != "refresh":
         raise jwt.InvalidTokenError("Tipo de token inválido para renovación.")
     return payload
 
 
 def decode_token_unverified_exp(token: str) -> dict[str, Any] | None:
-    """Verifica firma HMAC del JWT ignorando exp; útil para leer sid/id al refrescar o cerrar sesión."""
-    try:
-        payload: dict[str, Any] = jwt.decode(
-            token,
-            _get_secret_key(),
-            algorithms=[ALGORITHM],
-            options={"verify_exp": False},
-        )
-        return payload
-    except jwt.InvalidTokenError:
-        return None
+    """Verifica firma HKDF de access o refresh ignorando exp para leer sid/jti al cerrar/refrescar sesión."""
+    for purpose, expected_typ in (("jwt-access", "access"), ("jwt-refresh", "refresh")):
+        try:
+            payload: dict[str, Any] = jwt.decode(
+                token,
+                derive_subkey(purpose),
+                algorithms=[ALGORITHM],
+                issuer=JWT_ISSUER,
+                audience=JWT_AUDIENCE,
+                options={"verify_exp": False, "require": ["exp", "iat", "iss", "aud"]},
+            )
+            if payload.get("typ") == expected_typ:
+                return payload
+        except jwt.InvalidTokenError:
+            continue
+    return None
 
 
 def generate_csrf_token(session_id: str) -> str:
-    """Genera un token CSRF firmado con HMAC-SHA256 (Patrón 8)."""
+    """Genera un token CSRF firmado con subclave HKDF y HMAC-SHA256 (Patrón 8)."""
     return hmac.new(
-        _get_secret_key().encode("utf-8"),
+        derive_subkey("csrf-hmac").encode("utf-8"),
         session_id.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
@@ -191,6 +287,50 @@ def _is_forbidden_ip(ip_addr_str: str) -> bool:
     )
 
 
+_DEFAULT_TRUSTED_PROXY_CIDRS: tuple[str, ...] = (
+    "127.0.0.1/32",
+    "::1/128",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+)
+
+
+def _host_matches_network(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address, entry: str) -> bool:
+    try:
+        if "/" in entry:
+            return ip_obj in ipaddress.ip_network(entry, strict=False)
+        return ip_obj == ipaddress.ip_address(entry)
+    except ValueError:
+        return False
+
+
+def _resolve_trusted_proxy_entries(clean_host: str) -> tuple[bool, tuple[str, ...]]:
+    raw_cfg = os.getenv("TRUSTED_PROXY_IPS", "").strip()
+    if not raw_cfg:
+        is_dev_testclient = (
+            clean_host == "testclient" and os.getenv("APP_ENV", "development").strip().lower() != "production"
+        )
+        return is_dev_testclient, _DEFAULT_TRUSTED_PROXY_CIDRS
+    entries = tuple(item.strip() for item in raw_cfg.split(",") if item.strip())
+    return clean_host in entries, entries
+
+
+def is_trusted_proxy_ip(client_host: str | None) -> bool:
+    """Determina si la IP directa del socket pertenece a un proxy inverso confiable."""
+    clean_host = (client_host or "").strip()
+    if not clean_host:
+        return False
+    direct_match, entries = _resolve_trusted_proxy_entries(clean_host)
+    if direct_match:
+        return True
+    try:
+        ip_obj = ipaddress.ip_address(clean_host)
+    except ValueError:
+        return False
+    return any(_host_matches_network(ip_obj, entry) for entry in entries)
+
+
 def _resolve_and_validate_ips(hostname: str) -> None:
     try:
         resolved_items = socket.getaddrinfo(hostname, None)
@@ -203,21 +343,37 @@ def _resolve_and_validate_ips(hostname: str) -> None:
             raise ValueError(f"Destino prohibido en red privada o reservada ({ip_str})")
 
 
-def validate_safe_outgoing_url(url_str: str) -> str:
-    """Defensa Anti-SSRF estricta con resolución DNS previa (Patrón 4)."""
-    parsed = urlparse(url_str.strip())
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Esquema no permitido: {parsed.scheme}")
+def _normalizar_url_saliente(url_str: str) -> tuple[str, str]:
+    clean_url = url_str.strip()
+    parsed = urlparse(clean_url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Esquema no permitido: {scheme}")
 
     hostname = parsed.hostname
     if not hostname:
         raise ValueError("URL sin hostname válido")
 
-    if hostname.lower() in FORBIDDEN_CONTAINER_HOSTS:
+    host_lower = hostname.lower()
+    if host_lower in FORBIDDEN_CONTAINER_HOSTS or host_lower.endswith((".local", ".internal")):
         raise ValueError("Acceso prohibido a recursos internos de infraestructura")
 
-    _resolve_and_validate_ips(hostname)
-    return url_str.strip()
+    normalized_url = urlunparse(parsed._replace(scheme=scheme, netloc=parsed.netloc.lower()))
+    return normalized_url, host_lower
+
+
+def validate_safe_outgoing_url(url_str: str) -> str:
+    """Defensa Anti-SSRF estricta con resolución DNS previa (Patrón 4)."""
+    normalized_url, host_lower = _normalizar_url_saliente(url_str)
+    _resolve_and_validate_ips(host_lower)
+    return normalized_url
+
+
+async def validate_safe_outgoing_url_async(url_str: str) -> str:
+    """Versión asíncrona Anti-SSRF sin bloqueo del event loop y con normalización de esquema/host."""
+    normalized_url, host_lower = _normalizar_url_saliente(url_str)
+    await asyncio.to_thread(_resolve_and_validate_ips, host_lower)
+    return normalized_url
 
 
 def validate_file_magic_bytes(header: bytes) -> str:

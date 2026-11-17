@@ -19,7 +19,7 @@ HEADERS = {"Idempotency-Key": "018f4a13-1313-7000-8000-000000001313"}
 
 
 class FakeUser:
-    def __init__(self, user_id: int = 1, rol: str = "RESIDENTE", es_activo: bool = True) -> None:
+    def __init__(self, user_id: int = 1, rol: str = "PROPIETARIO", es_activo: bool = True) -> None:
         self.id = user_id
         self.correo = f"{rol.lower()}_{user_id}@condominio.test"
         self.rol = rol
@@ -132,7 +132,7 @@ def test_crear_area_social_exitosa_y_duplicada() -> None:
     assert resp_idem.status_code == 409
 
     # Rol no autorizado (RESIDENTE) -> 403
-    _setup(_mock_session(), FakeUser(3, "RESIDENTE"))
+    _setup(_mock_session(), FakeUser(3, "PROPIETARIO"))
     resp_rol = client.post(
         "/api/reservas/areas",
         headers=HEADERS,
@@ -153,7 +153,7 @@ def test_listar_areas_sociales_y_bloqueo_fantasma() -> None:
         es_activa=True,
     )
     session = _mock_session(_result_list([area]))
-    _setup(session, FakeUser(10, "RESIDENTE"))
+    _setup(session, FakeUser(10, "PROPIETARIO"))
     client = TestClient(app)
 
     resp = client.get("/api/reservas/areas")
@@ -199,7 +199,7 @@ def test_solicitar_reserva_unidad_solvente_crea_tarea_inspeccion() -> None:
         _result_list([recibo_pagado]),
         _result(None),
     )
-    _setup(session, FakeUser(7, "RESIDENTE"))
+    _setup(session, FakeUser(7, "PROPIETARIO"))
     client = TestClient(app)
 
     resp = client.post(
@@ -246,7 +246,7 @@ def test_solicitar_reserva_rechazada_por_morosidad_403() -> None:
         _result(area),
         _result_list([recibo_moroso]),
     )
-    _setup(session, FakeUser(8, "RESIDENTE"))
+    _setup(session, FakeUser(8, "PROPIETARIO"))
     client = TestClient(app)
 
     resp = client.post(
@@ -322,7 +322,7 @@ def test_solicitar_reserva_conflictos_fecha_unidad_area_e_idempotencia() -> None
     assert resp_u404.status_code == 404
 
     # 3. Usuario sin contrato en unidad -> 403
-    _setup(_mock_session(_result(unidad), _result_list([99])), FakeUser(7, "RESIDENTE"))
+    _setup(_mock_session(_result(unidad), _result_list([99])), FakeUser(7, "PROPIETARIO"))
     resp_u403 = client.post(
         "/api/reservas/solicitar",
         headers=HEADERS,
@@ -409,7 +409,7 @@ def test_listar_reservas_junta_y_residente() -> None:
         _result_list([12]),
         _result_rows([(r1, "Salón Principal", "PB-02")]),
     )
-    _setup(session_res, FakeUser(7, "RESIDENTE"))
+    _setup(session_res, FakeUser(7, "PROPIETARIO"))
     resp_own = client.get("/api/reservas")
     assert resp_own.status_code == 200
     assert len(resp_own.json()) == 1

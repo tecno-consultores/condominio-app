@@ -28,6 +28,11 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
   Scenario: 2. Métricas del sistema expuestas en formato Prometheus (/metrics)
     Given path '/metrics'
     When method get
+    Then status 401
+
+    Given path '/metrics'
+    And header Authorization = 'Bearer fake-qa-metrics-token-11x'
+    When method get
     Then status 200
     And match response contains 'http_'
 
@@ -793,6 +798,99 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     Given path '/api/tareas/diarias'
     When method get
     Then status 403
+
+  Scenario: 27. Blindaje Hito 20: bloqueo de escalación Vicepresidente->Presidente y ocultación horizontal en unidades
+    # 1. Login con Presidente bootstrap
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf = response.csrf_token
+
+    # 2. Registrar dos usuarios aislados por UUID (futuro VICEPRESIDENTE y objetivo FANTASMA)
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    * def vpEmail = 'vp.h20.' + uid + '@condominio.test'
+    * def vpCedula = 'V-201' + uid
+    Given path '/api/auth/register'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request
+      """
+      {
+        "nombre": "Vicepresidente H20",
+        "cedula": "#(vpCedula)",
+        "correo": "#(vpEmail)",
+        "telefono": "+584145550201",
+        "password": "fake-qa-vp-h20-123456!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    * def vpId = response.id
+
+    * def objEmail = 'obj.h20.' + uid + '@condominio.test'
+    * def objCedula = 'V-202' + uid
+    Given path '/api/auth/register'
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request
+      """
+      {
+        "nombre": "Objetivo H20",
+        "cedula": "#(objCedula)",
+        "correo": "#(objEmail)",
+        "telefono": "+584145550202",
+        "password": "fake-qa-obj-h20-123456!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    * def objId = response.id
+
+    # 3. Presidente activa al VICEPRESIDENTE y luego activa al objetivo como PROPIETARIO
+    Given path '/api/usuarios/' + vpId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request { unidad_id: 1, tipo_ocupante: 'PROPIETARIO', rol: 'VICEPRESIDENTE' }
+    When method put
+    Then status 200
+    And match response.rol == 'VICEPRESIDENTE'
+
+    Given path '/api/usuarios/' + objId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request { unidad_id: 1, tipo_ocupante: 'PROPIETARIO', rol: 'PROPIETARIO' }
+    When method put
+    Then status 200
+
+    # 4. VICEPRESIDENTE intenta promover a objetivo (o a sí mismo) a PRESIDENTE -> 403 Forbidden
+    Given path '/api/auth/login'
+    And request { correo: "#(vpEmail)", password: 'fake-qa-vp-h20-123456!' }
+    When method post
+    Then status 200
+    * def vpCsrf = response.csrf_token
+
+    Given path '/api/usuarios/' + objId + '/asignar'
+    And header X-CSRF-Token = vpCsrf
+    And header Idempotency-Key = java.util.UUID.randomUUID() + ''
+    And request { unidad_id: 1, tipo_ocupante: 'PROPIETARIO', rol: 'PRESIDENTE' }
+    When method put
+    Then status 403
+
+    # 5. Propietario consulta /api/estructura/unidades y NO recibe campos financieros de terceros
+    Given path '/api/auth/login'
+    And request { correo: "#(objEmail)", password: 'fake-qa-obj-h20-123456!' }
+    When method post
+    Then status 200
+
+    Given path '/api/estructura/unidades'
+    When method get
+    Then status 200
+    And match response[0].alicuota == '#notpresent'
+    And match response[0].credito_disponible_usd == '#notpresent'
+
 
 
 
