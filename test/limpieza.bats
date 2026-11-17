@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Condominio App Contributors
-# Suite BATS para certificar limpieza.sh, scripts/limpieza.sh y .gitignore (Estándar QA 11X).
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
+# Suite BATS para certificar scripts/limpieza.sh y .gitignore (Estándar QA 11X).
 
 REPO_ROOT="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
 
@@ -14,10 +14,7 @@ setup() {
   MOCK_HOME="${BATS_TEST_TMPDIR}/home"
   DOCKER_LOG="${BATS_TEST_TMPDIR}/docker_calls.log"
 
-  mkdir -p "${SANDBOX}/scripts" "${MOCK_BIN}" "${MOCK_HOME}"
-  cp "${REPO_ROOT}/limpieza.sh" "${SANDBOX}/limpieza.sh"
-  cp "${REPO_ROOT}/scripts/limpieza.sh" "${SANDBOX}/scripts/limpieza.sh"
-  chmod +x "${SANDBOX}/limpieza.sh" "${SANDBOX}/scripts/limpieza.sh"
+  mkdir -p "${SANDBOX}/scripts" "${SANDBOX}/backend" "${SANDBOX}/frontend" "${MOCK_BIN}" "${MOCK_HOME}"
 
   cat >"${MOCK_BIN}/docker" <<EOF
 #!/usr/bin/env bash
@@ -28,13 +25,17 @@ EOF
   : >"${DOCKER_LOG}"
 }
 
-@test "limpieza.sh --help imprime uso y retorna 0" {
-  run env HOME="${MOCK_HOME}" PATH="${MOCK_BIN}:${PATH}" bash "${SANDBOX}/limpieza.sh" --help
+@test "scripts/limpieza.sh --help imprime uso y rechaza opcion desconocida" {
+  run env QA_REPO_ROOT="${SANDBOX}" bash "${REPO_ROOT}/scripts/limpieza.sh" --help
   assert_success
-  assert_output --partial "Uso: ./limpieza.sh"
+  assert_output --partial "Uso: ./scripts/limpieza.sh"
+
+  run env QA_REPO_ROOT="${SANDBOX}" bash "${REPO_ROOT}/scripts/limpieza.sh" --invalida
+  assert_failure
+  assert_output --partial "Opción desconocida"
 }
 
-@test "limpieza.sh --quiet purga residuos de pruebas y preserva grafos AST y plantillas" {
+@test "scripts/limpieza.sh --quiet purga residuos QA, preserva grafos AST, artifacts/sbom y docker-compose productivos" {
   mkdir -p \
     "${SANDBOX}/backend/.venv/bin" \
     "${SANDBOX}/backend/htmlcov" \
@@ -43,11 +44,16 @@ EOF
     "${SANDBOX}/frontend/node_modules/pkg" \
     "${SANDBOX}/frontend/dist/assets" \
     "${SANDBOX}/frontend/coverage" \
+    "${SANDBOX}/artifacts/sbom" \
     "${SANDBOX}/graphify-out/cache" \
     "${SANDBOX}/graphify-out/20261113" \
     "${SANDBOX}/.agents"
 
   touch \
+    "${SANDBOX}/docker-compose.yml" \
+    "${SANDBOX}/docker-compose.prod.yml" \
+    "${SANDBOX}/docker-compose.qa.yml" \
+    "${SANDBOX}/backend/docker-compose.qa.yml" \
     "${SANDBOX}/.coverage" \
     "${SANDBOX}/backend/.venv/bin/python" \
     "${SANDBOX}/backend/htmlcov/index.html" \
@@ -61,6 +67,7 @@ EOF
     "${SANDBOX}/zap-report.html" \
     "${SANDBOX}/profile.speedscope.json" \
     "${SANDBOX}/sbom.cyclonedx.json" \
+    "${SANDBOX}/artifacts/sbom/sbom.cyclonedx.json" \
     "${SANDBOX}/trivy-results.sarif" \
     "${SANDBOX}/graphify-out/cache/tmp.json" \
     "${SANDBOX}/graphify-out/20261113/old.json" \
@@ -72,7 +79,8 @@ EOF
     "${SANDBOX}/.agents/ACTIVE_TASK.md" \
     "${SANDBOX}/.agents/ACTIVE_TASK.md.example"
 
-  run env HOME="${MOCK_HOME}" PATH="${MOCK_BIN}:${PATH}" bash "${SANDBOX}/limpieza.sh" --quiet
+  run env QA_REPO_ROOT="${SANDBOX}" HOME="${MOCK_HOME}" PATH="${MOCK_BIN}:${PATH}" \
+    bash "${REPO_ROOT}/scripts/limpieza.sh" --quiet
   assert_success
   assert_output ""
 
@@ -93,6 +101,7 @@ EOF
   [ ! -d "${SANDBOX}/graphify-out/20261113" ]
   [ ! -e "${SANDBOX}/graphify-out/.graphify_tmp" ]
 
+  [ -f "${SANDBOX}/artifacts/sbom/sbom.cyclonedx.json" ]
   [ -f "${SANDBOX}/graphify-out/graph.json" ]
   [ -f "${SANDBOX}/graphify-out/GRAPH_REPORT.md" ]
   [ -f "${SANDBOX}/graphify-out/graph.html" ]
@@ -100,14 +109,21 @@ EOF
   [ -f "${SANDBOX}/backend/zap.yaml" ]
   [ -f "${SANDBOX}/.agents/ACTIVE_TASK.md" ]
   [ -f "${SANDBOX}/.agents/ACTIVE_TASK.md.example" ]
+
+  run cat "${DOCKER_LOG}"
+  assert_output --partial "docker-compose.qa.yml down"
+  refute_output --partial "docker-compose.yml"
+  refute_output --partial "docker-compose.prod.yml"
 }
 
-@test "limpieza.sh --deep --quiet depura respaldos locales y evita docker system prune" {
+@test "scripts/limpieza.sh --deep depura evidencias locales y evita docker system prune" {
   mkdir -p "${SANDBOX}/.agents/backups" "${SANDBOX}/.agents/proposals"
   touch "${SANDBOX}/.agents/backups/a.bak" "${SANDBOX}/.agents/proposals/p.md" "${SANDBOX}/.agents/.qa-evidence.json"
 
-  run env HOME="${MOCK_HOME}" PATH="${MOCK_BIN}:${PATH}" bash "${SANDBOX}/limpieza.sh" --deep --quiet
+  run env QA_REPO_ROOT="${SANDBOX}" HOME="${MOCK_HOME}" PATH="${MOCK_BIN}:${PATH}" \
+    bash "${REPO_ROOT}/scripts/limpieza.sh" --deep
   assert_success
+  assert_output --partial "[Clean 11X]"
 
   [ ! -d "${SANDBOX}/.agents/backups" ]
   [ ! -d "${SANDBOX}/.agents/proposals" ]
@@ -119,7 +135,7 @@ EOF
   refute_output --partial "system prune"
 }
 
-@test ".gitignore excluye artefactos efímeros y conserva plantillas y archivos fuente" {
+@test ".gitignore excluye artefactos efimeros y conserva plantillas y archivos fuente" {
   GIT_SANDBOX="${BATS_TEST_TMPDIR}/gitrepo"
   mkdir -p "${GIT_SANDBOX}"
   cp "${REPO_ROOT}/.gitignore" "${GIT_SANDBOX}/.gitignore"
@@ -135,7 +151,8 @@ EOF
     "frontend/dist/index.html" \
     "backend/qa.db-wal" \
     "zap-report.html" \
-    "sbom.cyclonedx.json" \
+    "artifacts/sbom/sbom.cyclonedx.json" \
+    "coverage_report/index.html" \
     "trivy-results.sarif" \
     "graphify-out/graph.json" \
     "frontend/reports/mutation.html" \
@@ -150,7 +167,6 @@ EOF
     ".agents/ACTIVE_TASK.md.example" \
     "backend/zap.yaml" \
     "backend/alembic/env.py" \
-    "limpieza.sh" \
     "scripts/limpieza.sh" \
     "test/limpieza.bats"; do
     run git -C "${GIT_SANDBOX}" check-ignore -q "${tracked}"

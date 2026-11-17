@@ -14,51 +14,51 @@ export HOST_PWD
 
 qa-lint:
 	@echo "🔍 Ejecutando Ruff, Mypy (strict) y Bandit (SAST)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run ruff check . && uv run ruff format --check . && uv run mypy --strict --cache-dir=/tmp/mypy src/ && uv run bandit -r src/"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync --frozen && uv run ruff check . && uv run ruff format --check . && uv run mypy --strict --cache-dir=/tmp/mypy src/ && uv run bandit -r src/"
 
 qa-complexity:
 	@echo "📊 Verificando Complejidad Ciclomática (Radon) con gates Nivel 11X..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run radon cc src/ -s -nb && uv run radon mi src/ -s && uv run python scripts/radon_gates.py"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync --frozen && uv run radon cc src/ -s -nb && uv run radon mi src/ -s && uv run python scripts/radon_gates.py"
 
 qa-deps:
 	@echo "🔐 Auditoría de vulnerabilidades en dependencias (uv audit)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv audit"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync --frozen && uv audit"
 
 qa-unit:
 	@echo "🧪 Ejecutando Pruebas Unitarias Aisladas (Pytest con cobertura >=95%)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync && uv run pytest --cov=src --cov-fail-under=95"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync --frozen && uv run pytest --cov=src --cov-fail-under=95"
 
 qa-parity:
 	@echo "🗄️ Verificando Paridad ORM vs Migraciones Alembic, Motor Real PostgreSQL 17 e Integración RLS..."
-	docker run --rm -v "${HOST_PWD}/..:/workspace:ro" -w /workspace/backend sinfallas/base-python-uv:3.13 python3 /workspace/.agents/scripts/verify_alembic_orm_parity.py
+	docker run --rm -v "${HOST_PWD}/..:/workspace:ro" -w /workspace/backend sinfallas/base-python-uv:3.13@sha256:1594cbb33269c6a535a8ae5242b07a5866aa519d00975868f0a0d03fdc3bc155 python3 /workspace/.agents/scripts/verify_alembic_orm_parity.py
 	docker compose -f $(COMPOSE_FILE) up -d --wait postgres
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e POSTGRES_TEST_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync && uv run pytest -o addopts='--import-mode=importlib --strict-markers --cov=src --cov-fail-under=0' tests/test_hito17_4_integridad_rls.unit.py tests/test_bootstrap_cli.unit.py"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync --frozen && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) -e POSTGRES_TEST_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync --frozen && uv run pytest -o addopts='--import-mode=importlib --strict-markers --cov=src --cov-fail-under=0' tests/test_hito17_4_integridad_rls.unit.py tests/test_bootstrap_cli.unit.py"
 
 wait-api:
-	@docker compose -f $(COMPOSE_FILE) run --rm --no-deps qa-backend bash -c 'for i in $$(seq 1 60); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
+	@docker compose -f $(COMPOSE_FILE) run --rm -T --no-deps qa-backend bash -c 'for i in $$(seq 1 60); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
 
 qa-bdd:
 	@echo "📚 Ejecutando Pruebas BDD de Caja Negra (Karate Labs API)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
 	$(MAKE) wait-api
-	docker compose -f $(COMPOSE_FILE) run --rm karatelabs mvn clean test
+	docker compose -f $(COMPOSE_FILE) run --rm -T karatelabs mvn clean test
 
 qa-mutation:
 	@echo "👽 Ejecutando Pruebas de Mutación (Mutmut)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync -q && uv run --no-sync python scripts/mutmut_gates.py"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync --frozen -q && uv run --no-sync python scripts/mutmut_gates.py"
 
 qa-contracts:
 	@echo "📑 Fuzzing y Verificación de Contratos OpenAPI (Schemathesis)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
 	$(MAKE) wait-api
-	docker compose -f $(COMPOSE_FILE) run --rm $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync && uv run schemathesis run http://api:8000/openapi.json"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync --frozen && uv run schemathesis run http://api:8000/openapi.json"
 
 qa-dast:
 	@echo "🛡️ Escaneo Dinámico de Seguridad (OWASP ZAP)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
 	$(MAKE) wait-api
-	@set +e; docker compose -f $(COMPOSE_FILE) run --rm zap zap-baseline.py -t http://api:8000 -r zap-report.html; \
+	@set +e; docker compose -f $(COMPOSE_FILE) run --rm -T zap zap-baseline.py -t http://api:8000 -r zap-report.html; \
 	status=$$?; set -e; \
 	if [ $$status -eq 0 ] || [ $$status -eq 2 ]; then \
 		echo "✅ DAST finalizado sin fallos (FAIL-NEW=0; código $$status)."; \
@@ -75,13 +75,13 @@ qa-all: qa-lint qa-complexity qa-unit qa-parity
 
 qa-infra:
 	@echo "🛰️ Auditoría de Infraestructura como Código (Trivy IaC + FS) sobre el repositorio..."
-	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy:latest config . --severity HIGH,CRITICAL --exit-code 1 --skip-dirs backend/.venv,frontend/node_modules,node_modules,graphify-out
-	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy:latest fs . --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs backend/.venv,frontend/node_modules,node_modules,graphify-out
+	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb config . --severity HIGH,CRITICAL --exit-code 1 --skip-dirs backend/.venv,frontend/node_modules,node_modules,graphify-out,artifacts
+	docker run --rm -v "${HOST_PWD}/..:/app:ro" -w /app aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb fs . --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs backend/.venv,frontend/node_modules,node_modules,graphify-out,artifacts
 
 qa-profile:
 	@echo "📈 Perfilando la API con py-spy bajo carga de Locust (guardando profile.svg)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
-	docker compose -f $(COMPOSE_FILE) run -d --name condominio_backend_profiler $(SERVICE_NAME) bash -c "uv sync -q && uv run locust -f tests/locustfile.py --headless -u 30 -r 5 -t 30s --host http://api:8000"
+	docker compose -f $(COMPOSE_FILE) run -d -T --name condominio_backend_profiler $(SERVICE_NAME) bash -c "uv sync --frozen -q && uv run locust -f tests/locustfile.py --headless -u 30 -r 5 -t 30s --host http://api:8000"
 	@sleep 6; \
 	worker=$$(docker exec condominio_backend_api python /app/scripts/find_worker.py); \
 	echo "📊 Muestreando reloader/workers (PID $$worker)..."; \
@@ -93,4 +93,3 @@ qa-profile:
 clean-cache:
 	@echo "🧹 Limpiando volúmenes de caché de uv y contenedores..."
 	docker compose -f $(COMPOSE_FILE) down -v
-	docker compose -f $(COMPOSE_FILE) --profile chaos down -v

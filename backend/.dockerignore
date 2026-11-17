@@ -25,6 +25,5 @@ test
 *.md
 Dockerfile
 docker-compose*.yml
-limpieza.sh
 tox.ini
 zap.yaml

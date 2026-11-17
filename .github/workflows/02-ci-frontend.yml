@@ -9,34 +9,102 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
 jobs:
-  qa-frontend:
-    name: 🧩 Huérfanos UI, Lint SonarJS, Unit >= 95%, E2E/A11y/Visual, Lighthouse y Karate UI
+  build-and-unit:
+    name: 🧩 Huérfanos UI, Lint SonarJS, Vitest >= 95% y Build Compartido
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: frontend
 
     steps:
       - name: 📥 Checkout del código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: 🔐 Escaneo de Secretos y Credenciales
+        working-directory: .
+        run: ./scripts/verificar-secretos.sh
 
       - name: 🧩 Verificar Cero Componentes UI Huérfanos
         run: make qa-orphans
 
-      - name: 🔍 Formato, Tipado y Complejidad Cognitiva (Prettier + vue-tsc + ESLint SonarJS ≤ 15)
+      - name: 🔍 Formato, Tipado y Complejidad Cognitiva (Prettier + vue-tsc + ESLint SonarJS)
         run: make qa-lint
 
-      - name: 🧪 Pruebas Unitarias Vitest (Cobertura V8 ≥ 95%) + Build Vite
+      - name: 🧪 Pruebas Unitarias Vitest (Cobertura V8 >= 95%) + Build Vite
         run: make qa-unit
 
-      - name: 🎭 Pruebas E2E Screenplay, Geometría Anti-JSDOM, Axe WCAG 2.1 AA y Regresión Visual
+      - name: 📦 Publicar artefacto compilado frontend/dist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+      - name: 🧹 Limpieza de contenedores QA
+        if: always()
+        run: make clean-cache
+
+  e2e-and-a11y:
+    name: 🎭 Playwright Screenplay, Geometría Anti-JSDOM y WCAG 2.1 AA
+    needs: build-and-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: 📥 Descargar artefacto compilado frontend/dist
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: 🎭 Ejecutar E2E y WCAG sin recompilar
+        env:
+          UI_SKIP_BUILD: "1"
         run: make qa-e2e
 
-      - name: ⚡ Auditoría de Rendimiento y Core Web Vitals (Lighthouse CI)
+      - name: 🧹 Limpieza de contenedores QA
+        if: always()
+        run: make clean-cache
+
+  perf-and-bdd:
+    name: ⚡ Lighthouse CI y Karate UI BDD (Chrome CDP)
+    needs: build-and-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: 📥 Descargar artefacto compilado frontend/dist
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: ⚡ Auditoría Lighthouse CI sin recompilar
+        env:
+          UI_SKIP_BUILD: "1"
         run: make qa-perf
 
-      - name: 📚 Pruebas BDD de Aceptación UI (Karate Labs + Chrome CDP)
+      - name: 📚 Ejecutar Karate UI BDD sin recompilar
+        env:
+          UI_SKIP_BUILD: "1"
         run: make qa-bdd
 
       - name: 🧹 Limpieza de contenedores QA

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Jesus Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
 """
 Script de Auditoría de Salud Topológica y Límites de Capas (Graphify AST).
-Verifica que las relaciones entre componentes y módulos respeten las reglas
-arquitectónicas y no existan acoplamientos inversos ni dependencias cíclicas prohibidas.
+Audita módulos planos (`models.py`, `schemas.py`, `finanzas.py`, `facturacion_lph.py`),
+routers (`src/routers/`, `src/main.py`) y límites UI comunes vs vistas.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def find_graph_files(target_root: Path | None = None) -> list[Path]:
     root = target_root or REPO_ROOT
-    ignored = {"node_modules", ".venv", ".trivycache", "dist", "coverage"}
+    ignored = {"node_modules", ".venv", ".trivycache", "dist", "coverage", "artifacts"}
     graphs: list[Path] = []
     seen: set[Path] = set()
     for pattern in ["**/graphify-out/graph.json", "**/graph.json"]:
@@ -39,20 +39,21 @@ def load_graph(path: Path) -> dict[str, Any]:
 
 
 def audit_layers(graph: dict[str, Any], graph_path: Path) -> tuple[list[str], dict[str, Any]]:
+    del graph_path
     nodes = {n["id"]: n for n in graph.get("nodes", [])}
     links = graph.get("links", [])
     violations: list[str] = []
 
-    domain_re = re.compile(r"(?:^|/)src/(?:models|schemas|core|domain)/")
-    api_re = re.compile(r"(?:^|/)src/(?:api|controllers)/")
-    ui_common_re = re.compile(r"(?:^|/)src/components/common/")
+    domain_re = re.compile(r"(?:^|/)src/(?:models|schemas|core|domain|finanzas|facturacion_lph)(?:\.py|/)")
+    api_re = re.compile(r"(?:^|/)src/(?:api|controllers|routers|main)(?:\.py|/)")
+    ui_common_re = re.compile(r"(?:^|/)src/components/(?:common/|AppFooter\.vue|StaleDataBanner\.vue|EmptyStateCard\.vue|SkeletonCard\.vue)")
     ui_views_re = re.compile(r"(?:^|/)src/(?:views|pages)/")
+    frontend_re = re.compile(r"(?:^|/)frontend/src/")
+    backend_re = re.compile(r"(?:^|/)backend/src/")
 
     for link in links:
         src_node = nodes.get(link.get("source", ""))
-        src_file = str(link.get("source_file") or (src_node.get("source_file", "") if src_node else "")).replace(
-            "\\", "/"
-        )
+        src_file = str(link.get("source_file") or (src_node.get("source_file", "") if src_node else "")).replace("\\", "/")
         tgt_id = link.get("target", "")
         tgt_node = nodes.get(tgt_id)
         if not src_file or not tgt_node:
@@ -67,6 +68,9 @@ def audit_layers(graph: dict[str, Any], graph_path: Path) -> tuple[list[str], di
         if ui_common_re.search(src_file) and ui_views_re.search(tgt_file):
             violations.append(f"Acoplamiento invertido UI: Componente común '{src_file}' depende de vista '{tgt_file}'")
 
+        if frontend_re.search(src_file) and backend_re.search(tgt_file):
+            violations.append(f"Fuga de frontera Front-Back: '{src_file}' importa '{tgt_file}'")
+
     stats = {
         "nodes": len(nodes),
         "links": len(links),
@@ -75,8 +79,9 @@ def audit_layers(graph: dict[str, Any], graph_path: Path) -> tuple[list[str], di
     return violations, stats
 
 
-def main() -> int:
-    graph_files = find_graph_files()
+def main(target_root: Path | None = None) -> int:
+    cli_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 and target_root is None else None
+    graph_files = find_graph_files(target_root or cli_root)
     if not graph_files:
         print("✔ [AST Topology] 0 grafos AST (graph.json) detectados.")
         return 0

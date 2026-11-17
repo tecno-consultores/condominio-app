@@ -40,7 +40,7 @@ El código defectuoso o con riesgos de seguridad no debe tener derecho a ingresa
 
 ## 7. Seguridad Integral (SAST + DAST + IaC)
 Asumimos que el código y la infraestructura son vulnerables por defecto:
-* **SAST (Seguridad Estática):** `bandit` y `uv pip audit` en Python; `eslint-plugin-security` y `pnpm audit` en Vue.
+* **SAST (Seguridad Estática):** `bandit` y `uv audit` en Python; `eslint-plugin-security` y `pnpm audit` en Vue.
 * **DAST (Seguridad Dinámica):** `OWASP ZAP` ejecuta ataques en modo Baseline sobre la API viva en Docker para detectar cabeceras HTTP inseguras, CORS indebidos o fugas de información.
 * **IaC (Infraestructura como Código):** `aquasec/trivy` escanea archivos de configuración Docker Compose y permisos de contenedores.
 
@@ -58,7 +58,7 @@ No se puede proteger ni optimizar lo que no se mide:
 
 ## 10. Seguridad Zero-Trust en Dependencias
 * Para Node/Vue, se implementa `.npmrc` con `ignore-scripts=true` para mitigar ataques de cadena de suministro (Supply Chain Attacks).
-* Para Python, `uv` resuelve y descarga dependencias con verificación de hashes y auditoría de vulnerabilidades con `uv pip audit`.
+* Para Python, `uv` resuelve y descarga dependencias con verificación de hashes y auditoría de vulnerabilidades con `uv audit`.
 
 ## 11. Fronteras Estrictas de Herramientas (Tool Boundaries)
 Para evitar que las herramientas se interfieran mutuamente, los nombres de archivos siguen convenciones estrictas:

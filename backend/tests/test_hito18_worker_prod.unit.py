@@ -383,3 +383,44 @@ async def test_consumidor_notificaciones_y_media_opcional(monkeypatch: pytest.Mo
 
     await worker_mod._loop_media_opcional(cfg, stop_media, lambda: _RedisMedia())
     assert llamadas["media"] == 2
+
+
+def test_worker_settings_minio_use_ssl_y_normalizacion(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MINIO_ENDPOINT", "minio:9000")
+    monkeypatch.setenv("MINIO_USE_SSL", "true")
+    cfg_ssl = WorkerSettings.from_env()
+    assert cfg_ssl.minio_use_ssl is True
+    assert cfg_ssl.minio_endpoint == "https://minio:9000"
+
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000/")
+    cfg_upgrade = WorkerSettings.from_env()
+    assert cfg_upgrade.minio_endpoint == "https://minio:9000"
+
+    monkeypatch.setenv("MINIO_USE_SSL", "false")
+    monkeypatch.setenv("MINIO_ENDPOINT", "minio:9000")
+    cfg_plain = WorkerSettings.from_env()
+    assert cfg_plain.minio_use_ssl is False
+    assert cfg_plain.minio_endpoint == "http://minio:9000"
+
+    monkeypatch.setenv("MINIO_ROOT_USER", "minio_qa_user")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "minio_qa_secret_123")
+    capturado: dict[str, str] = {}
+
+    def _tls_handler(request: httpx.Request) -> httpx.Response:
+        capturado["url"] = str(request.url)
+        return httpx.Response(200)
+
+    png_bytes = _crear_png_bytes()
+    with httpx.Client(transport=httpx.MockTransport(_tls_handler)) as client:
+        uri = convertir_y_subir_avif(
+            png_bytes,
+            "incidencias/tls",
+            minio_endpoint="minio.internal:9000",
+            minio_use_ssl=True,
+            http_client=client,
+        )
+    assert uri.startswith("s3://")
+    assert capturado["url"].startswith("https://minio.internal:9000/")
+    assert worker_mod._normalize_minio_endpoint("https://minio.local:9000", True) == "https://minio.local:9000"
+    assert worker_mod._normalize_minio_endpoint("s3://bucket-local", True) == "s3://bucket-local"
+    assert worker_mod._normalize_minio_endpoint("", True) == ""

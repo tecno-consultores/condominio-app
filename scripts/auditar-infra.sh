@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Jesus Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
-# Propósito: Auditoría efímera de Infraestructura como Código (IaC) usando Trivy.
-# Cumple estrictamente con la Regla Cero (ejecución en contenedor Docker efímero con montaje :ro)
-# e incluye caché criptográfica SHA-256 para evitar re-escaneos redundantes cuando IaC/lockfiles no cambian.
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
+# Propósito: Auditoría efímera de Infraestructura como Código (IaC) y FS usando Trivy (Rule Zero).
 
 LC_ALL=C
 set -euo pipefail
 
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  echo "Uso: ./scripts/auditar-infra.sh [--force]"
+  exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="${QA_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb}"
 FORCE_SCAN=false
 
 if [ "${1:-}" = "--force" ]; then
   FORCE_SCAN=true
 fi
 
-# Calcular huella SHA-256 de archivos IaC y lockfiles de dependencias
 IAC_FINGERPRINT=$(find "${REPO_ROOT}" -maxdepth 3 \
   \( -name node_modules -o -name .git -o -name dist -o -name .venv -o -name vendor \) -prune \
-  -o -type f \( -name 'docker-compose*.yml' -o -name 'Dockerfile*' -o -name '.trivy.yaml' -o -name 'pnpm-lock.yaml' -o -name 'package-lock.json' -o -name 'uv.lock' -o -name 'composer.lock' \) \
+  -o -type f \( -name 'docker-compose*.yml' -o -name 'Dockerfile*' -o -name '.trivy.yaml' -o -name 'pnpm-lock.yaml' -o -name 'package-lock.json' -o -name 'uv.lock' \) \
   -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}')
 
-CACHE_MARKER="/tmp/.qa11x_trivy_cache_${IAC_FINGERPRINT}"
+CACHE_MARKER="${QA_CACHE_DIR:-/tmp}/.qa11x_trivy_cache_${IAC_FINGERPRINT}"
 
 if [ "${FORCE_SCAN}" = false ] && [ -n "${IAC_FINGERPRINT}" ] && [ -f "${CACHE_MARKER}" ]; then
   echo "✔ [Trivy] IaC (HIGH/CRIT=0) y File System (HIGH/CRIT=0) verificados sin hallazgos (caché SHA-256)."
@@ -32,14 +35,13 @@ fi
 TRIVY_CACHE_VOLUME="qa11x_trivy_cache"
 TRIVY_DB_REPOS="public.ecr.aws/aquasecurity/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2,mirror.gcr.io/aquasec/trivy-db:2"
 
-# 1. Escaneo de misconfiguraciones IaC (Pass-Quiet / Fail-Verbose)
 if ! IAC_OUT=$(docker run --rm \
   -v "${REPO_ROOT}:/app:ro" \
   -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
   -w /app \
-  aquasec/trivy:latest config . \
+  "${TRIVY_IMAGE}" config . \
   --quiet \
-  --skip-dirs backend/.venv,frontend/node_modules,node_modules,.git,dist,target,graphify-out \
+  --skip-dirs backend/.venv,frontend/node_modules,node_modules,.git,dist,target,graphify-out,artifacts \
   --severity HIGH,CRITICAL \
   --exit-code 1 2>&1); then
   echo "❌ [Trivy IaC] Misconfiguraciones HIGH/CRITICAL detectadas:" >&2
@@ -47,15 +49,14 @@ if ! IAC_OUT=$(docker run --rm \
   exit 1
 fi
 
-# 2. Escaneo de vulnerabilidades altas y críticas (CVEs) en lockfiles y dependencias locales
 if ! FS_OUT=$(docker run --rm \
   -v "${REPO_ROOT}:/app:ro" \
   -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
   -w /app \
-  aquasec/trivy:latest fs . \
+  "${TRIVY_IMAGE}" fs . \
   --quiet \
   --scanners vuln \
-  --skip-dirs backend/.venv,frontend/node_modules,node_modules,.git,dist,target,graphify-out \
+  --skip-dirs backend/.venv,frontend/node_modules,node_modules,.git,dist,target,graphify-out,artifacts \
   --db-repository "${TRIVY_DB_REPOS}" \
   --timeout 10m \
   --severity HIGH,CRITICAL \
@@ -67,7 +68,7 @@ if ! FS_OUT=$(docker run --rm \
 fi
 
 if [ -n "${IAC_FINGERPRINT}" ]; then
-  rm -f /tmp/.qa11x_trivy_cache_* 2>/dev/null || true
+  rm -f "${QA_CACHE_DIR:-/tmp}"/.qa11x_trivy_cache_* 2>/dev/null || true
   touch "${CACHE_MARKER}" 2>/dev/null || true
 fi
 

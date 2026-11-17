@@ -1,3 +1,3 @@
-# Developer:
+# Autores y Mantenedores — Condominio App
 
-* [Jesús Palencia](https://github.com/sinfallas)
+- **Jesús Palencia** (<sinfallas@gmail.com>) — [GitHub @sinfallas](https://github.com/sinfallas) — *Tecno Consultores*

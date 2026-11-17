@@ -10,7 +10,7 @@ Construida con una arquitectura modular **Mobile-First**, resuelve los problemas
 
 ## 🚀 Tecnologías Principales
 
-- **Backend:** FastAPI (Python 3.12+) + SQLAlchemy 2.0 Async + Alembic + PostgreSQL 17
+- **Backend:** FastAPI (Python 3.13) + SQLAlchemy 2.0 Async + Alembic + PostgreSQL 17
 - **Motor en Memoria (Idempotencia, Rate-Limiting & Colas):** KeyDB Multi-Hilo (`eqalpha/keydb:alpine --server-threads 2`)
 - **Frontend:** Vue 3 (`<script setup lang="ts">`) + Pinia + Vue Router + CSS Nativo con Tokens `OKLCH` y `light-dark()` (Mobile-First, Anti-JSDOM Layout & WCAG 2.1 AA)
 - **Almacenamiento Multimedia:** MinIO (S3 Compatible) con conversión asíncrona a formato AVIF y lectura segura por chunks ($\le 2\text{ MB}$)
@@ -22,13 +22,16 @@ Construida con una arquitectura modular **Mobile-First**, resuelve los problemas
 
 ```text
 condominio-app/
-├── .agents/                # Gobernanza IA Nivel 11X (rules, skills y scripts de certificación)
-├── backend/                # API FastAPI + Seguridad 11X (Fase 1)
+├── .agents/                # Gobernanza IA Nivel 11X (rules y scripts de certificación Thin-Repo v3.1.0)
+├── architecture/           # Modelo arquitectónico FINOS CALM 1.2 (qa-11x.calm.json, 7 controles 11X)
+├── artifacts/sbom/         # Inventario CycloneDX generado por scripts/generar-sbom-cyclonedx.sh (ignorado en git)
+├── backend/                # API FastAPI + Worker Unificado (CONTAINER_ROLE=api|worker)
 │   ├── src/                # Código fuente (models, schemas, routers, finanzas, security, redis_client, worker, bootstrap)
 │   ├── tests/              # Suites unitarias aisladas (test_*.unit.py, cobertura >= 95%)
 │   ├── test/               # Escenarios BDD Gherkin (Karate Labs: api_test.feature)
 │   ├── alembic/            # Migraciones verificadas contra PostgreSQL 17 real
-│   ├── Dockerfile          # Build multi-stage productivo no-root (UID/GID 10001)
+│   ├── Dockerfile          # Build multi-stage Python 3.13 --no-dev multi-arch no-root (UID/GID 10001)
+│   ├── docker-entrypoint.sh # Entrypoint y HEALTHCHECK consciente de rol (api | worker)
 │   ├── Makefile            # Orquestación de gates QA efímeros en Docker
 │   ├── docker-compose.qa.yml
 │   └── TESTING.md          # Bitácora detallada de pruebas del backend
@@ -36,13 +39,13 @@ condominio-app/
 │   ├── src/                # Componentes Anti-JSDOM, vistas, stores Pinia no destructivos, router RBAC y apiClient
 │   ├── test/               # Escenarios BDD UI Gherkin (Karate Labs: ui_business_flow.feature)
 │   ├── e2e/                # Auditoría E2E y accesibilidad WCAG 2.1 AA (Playwright + axe-core)
-│   ├── Dockerfile          # Build multi-stage Vue 3 + nginx:1.27-alpine no-root (UID/GID 101, puerto 8080)
+│   ├── Dockerfile          # Build multi-stage Vue 3 + nginx:1.27-alpine multi-arch no-root (UID/GID 101, puerto 8080)
 │   ├── nginx.conf          # Proxy inverso /api + /health + /ws + cabeceras OSHP/STIG
 │   ├── Makefile            # Orquestación de gates QA frontend en Docker efímero
 │   ├── docker-compose.qa.yml
 │   └── TESTING.md          # Bitácora detallada de pruebas del frontend
 ├── docs/
-│   ├── specs/              # Especificaciones técnicas de Dominio, Seguridad 11X y GUI Vue 3
+│   ├── specs/              # Especificaciones técnicas de Dominio, Seguridad 11X, GUI Vue 3 y Remediación PropTech (01..13)
 │   ├── qa/                 # Manuales maestros de Arquitectura, Buenas Prácticas, QA y Seguridad 11X
 │   ├── ARCHITECTURE.md     # Visión general de roles y máquinas de estado
 │   └── API_ROUTES.md       # Mapa de vistas (GUI) y endpoints REST
@@ -50,21 +53,19 @@ condominio-app/
 │   ├── actualizar-grafos-graphify.sh # Extractor AST --code-only sin daemons (sinfallas/remote-graphify)
 │   ├── auditar-infra.sh              # Escáner Trivy IaC + FS (HIGH/CRITICAL = 0, caché SHA-256)
 │   ├── backup-diario.sh              # Respaldo diario PG17 + MinIO con .sha256, AES-256 opcional y alerta 75%
-│   ├── generar-sbom-cyclonedx.sh     # Generador de inventario SBOM CycloneDX del lanzamiento
-│   ├── limpieza.sh                   # Purga efímera sin sudo ni docker system prune global
-│   └── verificar-secretos.sh         # Escáner global de credenciales y llaves privadas
+│   ├── generar-sbom-cyclonedx.sh     # Generador de inventario SBOM CycloneDX en artifacts/sbom/
+│   ├── limpieza.sh                   # Purga efímera exclusiva de docker-compose*.qa.yml (protege volúmenes prod)
+│   └── verificar-secretos.sh         # Escáner global de credenciales y llaves privadas (árbol completo)
+├── test/                   # 11 suites BATS 11X con kcov >= 95% (limpieza, backup, secretos, sbom, CALM, certify, CI...)
 ├── Makefile                # Orquestación unificada QA 11X (qa-lint, qa-unit, qa-parity, qa-bdd, qa-infra, qa-bash)
 ├── .env.example            # Plantilla productiva unificada (API, PG17, KeyDB, MinIO, Worker, SMTP, Backup)
-├── docker-compose.yml      # Stack productivo no-root endurecido (postgres, keydb, minio, api, worker, frontend)
-├── limpieza.sh             # Wrapper unificado en la raíz hacia scripts/limpieza.sh
-├── test/limpieza.bats      # Suite BATS 11X que certifica limpieza.sh y .gitignore
-├── test/backup_diario.bats # Suite BATS 11X que certifica scripts/backup-diario.sh
-├── test/ci_workflows.bats  # Suite BATS 11X que certifica workflows GitHub Actions y Makefiles
+├── docker-compose.yml      # Stack de compilación local no-root endurecido (postgres, keydb, minio, api, worker, frontend)
+├── docker-compose.prod.yml # Despliegue productivo directo desde Docker Hub multi-arch sin compilación local
 ├── .npmrc                  # Política supply-chain ignore-scripts=true
 ├── .trivy.yaml             # Exclusiones corporativas para Trivy IaC y File System
-├── AGENTS.md               # Directivas supremas para agentes de IA y desarrolladores (Thin-Repo v2.20.3)
+├── AGENTS.md               # Directivas supremas para agentes de IA y desarrolladores (Thin-Repo v3.1.0)
 ├── SECURITY.md             # Política de seguridad y arquitectura defensiva 11X (20+ vectores)
-├── ROADMAP.md              # Plan maestro de hitos y sub-tareas (Hitos 1..18)
+├── ROADMAP.md              # Plan maestro de hitos y sub-tareas (Hitos 1..26)
 ├── TESTING.md              # Resumen ejecutivo de certificación QA 11X
 ├── CHANGELOG.md            # Historial semántico de cambios
 └── README.md
@@ -102,12 +103,22 @@ make -C frontend qa-perf        # Auditoría Lighthouse CI (Performance >= 90%, 
 make -C frontend qa-bdd         # Escenarios BDD UI en Gherkin (Karate Labs + sidecar chrome-cdp)
 
 # Orquestación unificada y limpieza desde la raíz
-make qa-bash                    # shfmt, ShellCheck y suites BATS (limpieza + backup + workflows CI)
+make qa-bash                    # shfmt, ShellCheck y suites BATS con kcov >= 95%
 make qa-all
-./limpieza.sh --quiet          # Purga residuos de pruebas (--deep para pruned local seguro)
+./scripts/limpieza.sh --quiet   # Purga contenedores/redes *.qa.yml sin tocar volúmenes prod ni SBOM/AST
 
-# Gate Integral de Certificación de Cierre (.agents + @sinfallas/mcp-qa-11x)
-./.agents/scripts/certify_task_completion.sh
+# Gate Integral de Certificación de Cierre (.agents + @sinfallas/mcp-qa-11x v3.1.0)
+./.agents/scripts/validate_calm_architecture.sh
+./.agents/scripts/certify_task_completion.sh --strict
+```
+
+### 🐳 Despliegue Productivo Directo desde Docker Hub (Sin Compilación Local)
+
+Para operar una instancia **Single-Condo** en servidores `linux/amd64` o `linux/arm64` consumiendo directamente las imágenes firmadas `sinfallas/condominio-backend` (`CONTAINER_ROLE=api|worker`) y `sinfallas/condominio-frontend` (`nginx:1.27-alpine`, puerto `8080`, no-root):
+
+```bash
+cp .env.example .env            # Configurar credenciales seguras y SECRET_KEY / POSTGRES_* / KEYDB_* / MINIO_*
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 ---
@@ -126,7 +137,8 @@ make qa-all
 10. **[`docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md`](./docs/specs/09_DOMINIO_ACCESOS_QR_PAQUETERIA_Y_AMENIDADES.md)** — Control de Acceso QR (`HMAC-SHA256` + `jti` anti-replay en KeyDB), Paquetería en Garita y Reserva de Áreas Sociales vinculada a Solvencia.
 11. **[`docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md`](./docs/specs/10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md)** — Diseño UX/UI de "Hospitalidad Residencial", Sistema de Tokens `OKLCH` + `light-dark()`, Navegación agrupada con SVG, Dashboard Contextual, Estados Vacíos ilustrados, `View Transitions API`, `@starting-style` + Bottom Sheet en `<dialog>` y `calc-size()`.
 12. **[`docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md`](./docs/specs/11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md)** — Endurecimiento Backend Fase 5 (Hito 17): packaging `--no-dev`, Fail-Fast en producción, eliminación de SHA-256 sin sal, ciclo de sesión/CSRF real, bloqueo pesimista PostgreSQL (`with_for_update()`), unicidad contable LPH y aislamiento multi-tenant PostgreSQL 17 `FORCE ROW LEVEL SECURITY` en las 27 tablas.
-13. **[`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md)** — Gobernanza Thin-Repo v2.20.3, Higiene AST `--code-only` sin daemons, `Rule Zero` (`Makefile` unificado + CI/CD GitHub Actions en verde), Infraestructura Productiva Multi-Stage No-Root, Worker AVIF/SMTP (`QA-HEALTH-01`), Bootstrap Día 0 (`python -m src.bootstrap`) y Certificación `v1.0.0`.
+13. **[`docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md`](./docs/specs/12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md)** — Gobernanza Thin-Repo, Higiene AST `--code-only` sin daemons, `Rule Zero` (`Makefile` unificado + CI/CD GitHub Actions en verde), Infraestructura Productiva Multi-Stage No-Root, Worker AVIF/SMTP (`QA-HEALTH-01`), Bootstrap Día 0 (`python -m src.bootstrap`) y Certificación `v1.0.0`.
+14. **[`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md)** — Plan maestro Post-Auditoría `v1.1.0`–`v1.2.0`: Contención Operativa, Gobernanza Thin-Repo `v3.1.0`, FINOS CALM `1.2`, CI/CD Docker Hub Multi-Arch (`Hito 19` ✅), Defensa PG17 RLS/HKDF/RBAC (`Hito 20`), Exactitud LPH (`Hito 21`), Rescate Frontend (`Hito 22`), Erradicación Anti-Mock (`Hito 23`) y Completitud Funcional PropTech (`Hitos 24–26`).
 
 ---
 
@@ -139,6 +151,6 @@ make qa-all
 
 ## 📄 Licencia y Autoría
 
-**Copyright (C) 2026 Jesus Palencia `<sinfallas@gmail.com>` (Creado en Tecno Consultores)**
+**Copyright (C) 2026 Jesús Palencia `<sinfallas@gmail.com>` (Creado en Tecno Consultores)**
 
 Este proyecto es Software Libre distribuido bajo los términos de la licencia **MIT**. Ver [`LICENSE`](./LICENSE) para más detalles.

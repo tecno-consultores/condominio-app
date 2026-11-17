@@ -160,7 +160,7 @@ Siguiendo el estándar de calidad corporativo **QA Nivel 11X**, ningún servicio
    ```
 4. Inicialice de forma idempotente el primer usuario administrativo ("Día 0", rol `PRESIDENTE`) evitando pasar la contraseña por argumentos de línea de comandos:
    ```bash
-   docker compose exec -e BOOTSTRAP_ADMIN_PASSWORD="SU_CONTRASENA_SEGURA_MIN_12" api \
+   docker compose exec -e BOOTSTRAP_ADMIN_PASSWORD="CHANGE_ME_CONTRASENA_SEGURA_MIN_12" api \
      python -m src.bootstrap \
        --condominio-id 1 \
        --nombre "Presidente Junta Inicial" \

@@ -3,7 +3,23 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "description": "Frontend Mobile-First Vue 3 + Pinia + Vue Router para Condominio App (Estándar QA Nivel 11X)",
+  "author": "Jesús Palencia <sinfallas@gmail.com> (https://github.com/sinfallas)",
+  "homepage": "https://github.com/tecno-consultores/condominio-app#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tecno-consultores/condominio-app.git",
+    "directory": "frontend"
+  },
+  "bugs": {
+    "url": "https://github.com/tecno-consultores/condominio-app/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",

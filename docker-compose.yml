@@ -110,6 +110,7 @@ services:
       - /tmp:size=64M,noexec,nosuid,nodev
     environment:
       TZ: 'America/Caracas'
+      CONTAINER_ROLE: api
       APP_ENV: ${APP_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY en .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
@@ -157,6 +158,7 @@ services:
     command: ["python", "-m", "src.worker"]
     environment:
       TZ: 'America/Caracas'
+      CONTAINER_ROLE: worker
       APP_ENV: ${APP_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY en .env}
       DATABASE_URL: ${DATABASE_URL:?Defina DATABASE_URL en .env}
@@ -165,6 +167,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Defina MINIO_ROOT_USER en .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Defina MINIO_ROOT_PASSWORD en .env}
       MINIO_BUCKET_NAME: ${MINIO_BUCKET:-condominio-media}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
       WORKER_HEARTBEAT_PATH: ${WORKER_HEARTBEAT_PATH:-/tmp/worker_heartbeat}
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
       WORKER_MEDIA_ENABLED: ${WORKER_MEDIA_ENABLED:-false}

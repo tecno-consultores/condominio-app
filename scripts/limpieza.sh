@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Jesus Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
 # Propósito: Script universal de limpieza y saneamiento de espacio de trabajo (Estándar QA 11X)
-# Erradica bloqueos de permisos generados por Docker (UID 0 / UID 10001) sin requerir sudo mediante Alpine efímero.
+# Restringido a archivos docker-compose*.qa.yml (protege volúmenes productivos postgres_data y minio_data).
 
 LC_ALL=C
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="${QA_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 cd "${REPO_ROOT}"
 
 mostrar_ayuda() {
   cat <<'EOF'
-Uso: ./limpieza.sh [opciones]
+Uso: ./scripts/limpieza.sh [opciones]
 
 Elimina residuos de pruebas, cachés, entornos virtuales locales, node_modules,
-reportes de cobertura/seguridad y contenedores QA efímeros, preservando los
-grafos AST (graphify-out/graph.json, GRAPH_REPORT.md, graph.html, manifest.json)
-y la configuración del repositorio.
+reportes de cobertura/seguridad y contenedores QA efímeros (*.qa.yml), preservando
+los volúmenes productivos (postgres_data, minio_data), artifacts/sbom/ y los
+grafos AST (graphify-out/graph.json, GRAPH_REPORT.md, graph.html, manifest.json).
 
 Opciones:
   -q, --quiet           Modo silencioso (omite el mensaje final de resumen).
@@ -39,6 +39,10 @@ for arg in "$@"; do
     -h | --help)
       mostrar_ayuda
       exit 0
+      ;;
+    *)
+      echo "❌ Opción desconocida: ${arg}" >&2
+      exit 1
       ;;
   esac
 done
@@ -69,14 +73,13 @@ purge_dir_artifacts() {
     "${dir}/sbom.cyclonedx.json" "${dir}"/sbom-*.cdx.json "${dir}"/sbom* \
     "${dir}"/*.cdx.json "${dir}"/*.spdx.json \
     "${dir}/mutmut-stats.json" "${dir}"/mutmut-*.json \
-    "${dir}/.phpunit.result.cache" "${dir}/infection.log" "${dir}/infection-summary.log" \
     "${dir}"/zap-report* "${dir}"/chaos-report* \
     "${dir}/profile.svg" "${dir}/profile.speedscope.json" \
     "${dir}/locust-report.html" "${dir}"/locust_*.csv \
     "${dir}/.dmypy.json" "${dir}/dmypy.json" \
     "${dir}/dependency-reduced-pom.xml" \
     "${dir}/.task_scratchpad.md" "${dir}"/.agents/*.scratchpad.md \
-    "${dir}"/*.clinic-*.html "${dir}"/*.log "${dir}"/*.tsbuildinfo \
+    "${dir}"/*.log "${dir}"/*.tsbuildinfo \
     "${dir}"/*.tmp "${dir}"/*.temp "${dir}"/*.bak "${dir}"/*.orig "${dir}"/*.rej \
     "${dir}"/*.swp "${dir}"/*.swo "${dir}"/*~ \
     2>/dev/null || true
@@ -86,22 +89,18 @@ purge_dir_artifacts() {
     "${dir}/.pnpm-store" "${dir}/.turbo" "${dir}/.parcel-cache" \
     "${dir}/.pytest_cache" "${dir}/.mypy_cache" "${dir}/.ruff_cache" \
     "${dir}/.hypothesis" "${dir}/.schemathesis" "${dir}/schemathesis-report" \
-    "${dir}/.tox" "${dir}/.nox" "${dir}/.uv" "${dir}/.phpunit.cache" \
+    "${dir}/.tox" "${dir}/.nox" "${dir}/.uv" \
     "${dir}/htmlcov" "${dir}/coverage_report" "${dir}/.bats-battery" \
     "${dir}/build" "${dir}/wheels" "${dir}/.eggs" "${dir}"/*.egg-info \
     "${dir}/mutants" "${dir}/.mutmut-cache" "${dir}/locust_reports" \
     "${dir}/target" "${dir}/test/target" "${dir}/karate.jar" \
     "${dir}/zap_out" "${dir}/.trivycache" "${dir}/prometheus_data" \
-    "${dir}/dist-ssr" "${dir}/.nuxt" "${dir}/.vite" "${dir}/.vite-ssg-temp" \
+    "${dir}/dist" "${dir}/dist-ssr" "${dir}/.nuxt" "${dir}/.vite" "${dir}/.vite-ssg-temp" \
     "${dir}/coverage" "${dir}/.nyc_output" "${dir}/.eslintcache" "${dir}/.stylelintcache" \
     "${dir}/playwright-report" "${dir}/blob-report" "${dir}/test-results" "${dir}/playwright/.cache" \
     "${dir}/.lighthouseci" "${dir}/lhci-reports" "${dir}/.lhcache" \
-    "${dir}/.stryker-tmp" "${dir}/reports" "${dir}/.clinic" \
+    "${dir}/.stryker-tmp" "${dir}/reports" \
     2>/dev/null || true
-
-  if [ "${dir}" != "mcp-server" ]; then
-    rm -rf -- "${dir}/dist" 2>/dev/null || true
-  fi
 
   if [ "${dir}" != "." ]; then
     rm -rf -- "${dir}/.agents" 2>/dev/null || true
@@ -114,56 +113,51 @@ purge_dir_artifacts() {
   fi
 }
 
-# 1. Detener contenedores efímeros y redes huérfanas (excluyendo node_modules y fixtures semilla de example/)
+# 1. Detener únicamente contenedores QA efímeros (*.qa.yml), protegiendo docker-compose.yml y docker-compose.prod.yml
 if command -v docker >/dev/null 2>&1; then
-  find . -maxdepth 3 -name "docker-compose*.yml" \
-    -not -path "*/.git/*" \
-    -not -path "*/node_modules/*" \
-    -not -path "./mcp-server/example/*" | while read -r compose_file; do
+  while IFS= read -r compose_file; do
+    [ -n "${compose_file}" ] || continue
     compose_dir="$(dirname "${compose_file}")"
     (cd "${compose_dir}" && docker compose -f "$(basename "${compose_file}")" down --remove-orphans -v >/dev/null 2>&1 || true)
-  done
+  done < <(find . -maxdepth 3 -name "docker-compose*.qa.yml" \
+    -not -path "*/.git/*" \
+    -not -path "*/node_modules/*" 2>/dev/null)
   if [ -f "backend/docker-compose.qa.yml" ]; then
     (cd backend && docker compose -f docker-compose.qa.yml --profile chaos down --remove-orphans -v >/dev/null 2>&1 || true)
   fi
 fi
 
-# 2. Eliminación de artefactos temporales del sistema / clean-room huérfanos y limpieza en raíz + stacks
-rm -rf -- "${HOME}/.cache/qa_mcp_cleanroom_"* "${TMPDIR:-/tmp}/qa-11x-mcp-example-e2e-"* /tmp/qa-11x-mcp-example-e2e-* 2>/dev/null || true
+# 2. Eliminación de residuos de pruebas y normalización en raíz, backend/ y frontend/
 rm -f -- /tmp/graphify_ast_*.log 2>/dev/null || true
-
 purge_dir_artifacts "."
-for sub in backend frontend fastapi vue3 react-frontend node-backend python php bash-scripts mcp-server mcp-server/example mcp-server/example/backend mcp-server/example/frontend; do
+for sub in backend frontend; do
   purge_dir_artifacts "${sub}"
 done
 
 find . -type d \( -name "__pycache__" -o -name ".pytest_cache" -o -name ".mypy_cache" -o -name ".ruff_cache" -o -name "*.egg-info" \) \
   -not -path "*/.git/*" -exec rm -rf -- {} + 2>/dev/null || true
 find . -type f \( -name "*.py[cod]" -o -name "*~" -o -name "*.swp" -o -name "*.swo" -o -name "*.tmp" -o -name "*.temp" -o -name "*.bak" -o -name "*.orig" -o -name "*.rej" \) \
-  -not -path "*/.git/*" -delete 2>/dev/null || true
+  -not -path "*/.git/*" -not -path "./artifacts/*" -delete 2>/dev/null || true
 
-# 3. Fallback con contenedor efímero Alpine para archivos creados por UID 0 (root) o UID 10001 (base-node-ionic) y normalización UID:GID
+# 3. Fallback con contenedor efímero Alpine para artefactos creados por UID 0 o UID 10001
 CURRENT_UID="$(id -u)"
 CURRENT_GID="$(id -g)"
 if command -v docker >/dev/null 2>&1; then
-  docker run --rm -v "${REPO_ROOT}:/workspace" alpine sh -c "\
-    for d in /workspace /workspace/backend /workspace/frontend /workspace/fastapi /workspace/vue3 /workspace/react-frontend /workspace/node-backend /workspace/python /workspace/php /workspace/bash-scripts; do \
+  docker run --rm -v "${REPO_ROOT}:/workspace" alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab sh -c "\
+    for d in /workspace /workspace/backend /workspace/frontend; do \
       rm -rf \"\${d}/venv\" \"\${d}/.venv\" \"\${d}/ENV\" \"\${d}/node_modules\" \
-             \"\${d}/.coverage\" \"\${d}\"/.coverage.* \"\${d}/.pnpm-store\" \"\${d}/.turbo\" \
+             \"\${d}/.coverage\" \"\${d}\"/.coverage.* \"\${d}/.pnpm-store\" \
              \"\${d}/.pytest_cache\" \"\${d}/.mypy_cache\" \"\${d}/.ruff_cache\" \
              \"\${d}/.hypothesis\" \"\${d}/.schemathesis\" \"\${d}/.tox\" \"\${d}/.uv\" \
-             \"\${d}/.phpunit.cache\" \"\${d}/htmlcov\" \"\${d}/coverage_report\" \"\${d}/.bats-battery\" \
-             \"\${d}/mutants\" \"\${d}/.mutmut-cache\" \"\${d}/target\" \"\${d}/test/target\" \
-             \"\${d}/karate.jar\" \"\${d}/.trivycache\" \"\${d}/dist\" \"\${d}/dist-ssr\" \
-             \"\${d}/coverage\" \"\${d}/.vite\" \"\${d}/reports\" \"\${d}/.stryker-tmp\" \
-             \"\${d}/playwright-report\" \"\${d}/blob-report\" \"\${d}/test-results\" \
-             \"\${d}/.lighthouseci\" \"\${d}/lhci-reports\" \"\${d}/.clinic\" \"\${d}/zap_out\" 2>/dev/null || true; \
+             \"\${d}/htmlcov\" \"\${d}/coverage_report\" \"\${d}/mutants\" \"\${d}/.mutmut-cache\" \
+             \"\${d}/target\" \"\${d}/test/target\" \"\${d}/karate.jar\" \"\${d}/.trivycache\" \
+             \"\${d}/dist\" \"\${d}/dist-ssr\" \"\${d}/coverage\" \"\${d}/.vite\" \
+             \"\${d}/reports\" \"\${d}/.stryker-tmp\" \"\${d}/playwright-report\" \
+             \"\${d}/blob-report\" \"\${d}/test-results\" \"\${d}/.lighthouseci\" \
+             \"\${d}/lhci-reports\" \"\${d}/zap_out\" 2>/dev/null || true; \
       rm -f \"\${d}\"/*.db \"\${d}\"/*.db-* \"\${d}\"/*.sqlite* 2>/dev/null || true; \
     done; \
-    rm -rf /workspace/backend/.agents /workspace/frontend/.agents /workspace/mcp-server/example/.pnpm-store /workspace/mcp-server/coverage /workspace/mcp-server/test/target 2>/dev/null || true; \
-    find /workspace -type d -name '__pycache__' -not -path '*/.git/*' -exec rm -rf {} + 2>/dev/null || true; \
-    find /workspace -type f -name '*.py[cod]' -not -path '*/.git/*' -delete 2>/dev/null || true; \
-    chown -R ${CURRENT_UID}:${CURRENT_GID} /workspace/src /workspace/tests /workspace/test /workspace/scripts /workspace/docs /workspace/mcp-server /workspace/.agents /workspace/graphify-out /workspace/*/graphify-out 2>/dev/null || true; \
+    rm -rf /workspace/backend/.agents /workspace/frontend/.agents 2>/dev/null || true; \
     find /workspace -not -path '*/.git/*' -not -path '*/node_modules/*' \\( -user 0 -o -user 10001 \\) -exec chown ${CURRENT_UID}:${CURRENT_GID} {} + 2>/dev/null || true" >/dev/null 2>&1 || true
 fi
 
@@ -178,6 +172,6 @@ if [ "${DEEP_PRUNE}" = true ]; then
 fi
 
 if [ "${QUIET}" = false ]; then
-  echo "✔ [Clean 11X] Contenedores detenidos, cachés purgados y permisos normalizados (UID ${CURRENT_UID}:${CURRENT_GID})."
+  echo "✔ [Clean 11X] Contenedores QA detenidos, cachés purgados y permisos normalizados (UID ${CURRENT_UID}:${CURRENT_GID})."
 fi
 exit 0

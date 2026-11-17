@@ -1,0 +1,198 @@
+name: "Paso 3: Construcción, Smoke Test, Trivy y Publicación Multi-Arch Docker Hub"
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*.*.*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  smoke-and-scan:
+    name: 🛡️ Build Local, Smoke Test --no-dev, Trivy Image & SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: 🔧 Configurar Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: 🏗️ Construir imagen Backend (--no-dev) para smoke test
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: ./backend
+          platforms: linux/amd64
+          load: true
+          tags: sinfallas/condominio-backend:smoke
+
+      - name: 🏗️ Construir imagen Frontend Nginx no-root para smoke test
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: ./frontend
+          platforms: linux/amd64
+          load: true
+          tags: sinfallas/condominio-frontend:smoke
+
+      - name: 🧪 Smoke Test QA-DOCKER-LOCK-01 y QA-HEALTH-01 (api + worker + frontend)
+        run: |
+          set -euo pipefail
+          test "$(docker run --rm --entrypoint id sinfallas/condominio-backend:smoke -u)" != "0"
+          test "$(docker run --rm --entrypoint id sinfallas/condominio-frontend:smoke -u)" != "0"
+          docker run --rm --entrypoint python sinfallas/condominio-backend:smoke -c "import src.main, src.worker"
+          EPHEMERAL_KEY="$(openssl rand -hex 32)"
+          docker run --rm --read-only --tmpfs /tmp:size=64M,noexec,nosuid,nodev \
+            -e CONTAINER_ROLE=worker \
+            -e APP_ENV=production \
+            -e SECRET_KEY="${EPHEMERAL_KEY}" \
+            -e DATABASE_URL="sqlite+aiosqlite:////tmp/worker_smoke.db" \
+            -e REDIS_URL="redis://127.0.0.1:6379/0" \
+            --entrypoint sh sinfallas/condominio-backend:smoke \
+            -c "python -m src.worker --once && /usr/local/bin/docker-entrypoint.sh --healthcheck"
+          docker run -d --name smoke_api --read-only --tmpfs /tmp:size=64M,noexec,nosuid,nodev \
+            -p 127.0.0.1:18000:8000 \
+            -e CONTAINER_ROLE=api \
+            -e APP_ENV=production \
+            -e SECRET_KEY="${EPHEMERAL_KEY}" \
+            -e ALLOWED_ORIGINS="https://condominio.example.com" \
+            -e DATABASE_URL="sqlite+aiosqlite:////tmp/api_smoke.db" \
+            -e REDIS_URL="redis://127.0.0.1:6379/0" \
+            sinfallas/condominio-backend:smoke
+          trap 'docker rm -f smoke_api smoke_ui >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18000/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18000/health)" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18000/api/auth/me)" = "401"
+          docker run -d --name smoke_ui --read-only --tmpfs /tmp:size=32M,noexec,nosuid,nodev \
+            -p 127.0.0.1:18080:8080 \
+            sinfallas/condominio-frontend:smoke
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/nginx-health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/nginx-health)" = "200"
+
+      - name: 🔍 Escaneo Trivy de Imagen Backend (0 HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.35.0
+        with:
+          scan-type: 'image'
+          image-ref: 'sinfallas/condominio-backend:smoke'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: 🔍 Escaneo Trivy de Imagen Frontend (0 HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.35.0
+        with:
+          scan-type: 'image'
+          image-ref: 'sinfallas/condominio-frontend:smoke'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: 📦 Generar y archivar SBOM CycloneDX
+        run: ./scripts/generar-sbom-cyclonedx.sh
+
+      - name: 📤 Subir artefacto SBOM CycloneDX
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-cyclonedx
+          path: artifacts/sbom/sbom.cyclonedx.json
+          retention-days: 7
+
+  publish-dockerhub-multiarch:
+    name: 🚀 Publicar Multi-Arch (amd64/arm64) en Docker Hub
+    needs: smoke-and-scan
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: 🔑 Verificar disponibilidad de credenciales Docker Hub
+        id: creds
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASS: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "${DOCKERHUB_USER}" ] && [ -n "${DOCKERHUB_PASS}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Credenciales DOCKERHUB_USERNAME/DOCKERHUB_TOKEN no configuradas; publicación omitida."
+          fi
+
+      - name: 🦾 Configurar QEMU multi-arquitectura
+        if: steps.creds.outputs.enabled == 'true'
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: 🔧 Configurar Docker Buildx
+        if: steps.creds.outputs.enabled == 'true'
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: 🔐 Autenticar en Docker Hub
+        if: steps.creds.outputs.enabled == 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🏷️ Metadatos Backend
+        if: steps.creds.outputs.enabled == 'true'
+        id: meta-backend
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: sinfallas/condominio-backend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: 🚀 Build y Push Multi-Arch sinfallas/condominio-backend
+        if: steps.creds.outputs.enabled == 'true'
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: ./backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+
+      - name: 🏷️ Metadatos Frontend
+        if: steps.creds.outputs.enabled == 'true'
+        id: meta-frontend
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: sinfallas/condominio-frontend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: 🚀 Build y Push Multi-Arch sinfallas/condominio-frontend
+        if: steps.creds.outputs.enabled == 'true'
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: ./frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}

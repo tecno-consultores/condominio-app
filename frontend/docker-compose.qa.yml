@@ -1,6 +1,6 @@
 services:
   ui-prod:
-    image: nginx:alpine
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     container_name: condominio_ui_prod
     hostname: ui-prod
     pull_policy: if_not_present
@@ -14,7 +14,7 @@ services:
       - "${UI_HOST_PORT:-0}:80"
 
   qa-vue3:
-    image: sinfallas/base-node-ionic:26
+    image: sinfallas/base-node-ionic:26@sha256:275f3d8bbfef87f4e836e4f77d92c0d199821154079b050eaef53ce33ae6de60
     container_name: condominio_qa_frontend
     hostname: qa-vue3
     pull_policy: if_not_present
@@ -28,7 +28,7 @@ services:
     command: bash -c "echo 'Contenedor QA Vue 3 listo para Lint, Type-Check, Unit y Mutación'; sleep infinity"
 
   ui-e2e:
-    image: mcr.microsoft.com/playwright:v1.64.1-jammy
+    image: mcr.microsoft.com/playwright:v1.64.1-jammy@sha256:a3966b653e8d48a30901889081b616307fca73e0d843a117fadf6609397dac38
     container_name: condominio_ui_e2e
     hostname: ui-e2e
     pull_policy: if_not_present
@@ -42,7 +42,7 @@ services:
     command: bash -c "echo 'Contenedor E2E listo'; sleep infinity"
 
   chrome-cdp:
-    image: mcr.microsoft.com/playwright:v1.64.1-jammy
+    image: mcr.microsoft.com/playwright:v1.64.1-jammy@sha256:a3966b653e8d48a30901889081b616307fca73e0d843a117fadf6609397dac38
     container_name: condominio_ui_chrome_cdp
     hostname: chrome-cdp
     pull_policy: if_not_present
@@ -52,7 +52,7 @@ services:
       bash -c "CHROME_SHELL=$$(find /ms-playwright -name chrome-headless-shell -type f | head -n 1); exec \"$$CHROME_SHELL\" --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 about:blank"
 
   karatelabs:
-    image: sinfallas/karatelabs:latest
+    image: sinfallas/karatelabs@sha256:f0cb9342d141abc74935c45ffea277f9c0c58af768b1af5614b046d7ce0b6647
     container_name: condominio_ui_karate
     pull_policy: if_not_present
     network_mode: "service:chrome-cdp"

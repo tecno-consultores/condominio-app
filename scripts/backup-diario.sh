@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Condominio App Contributors
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
 # Propósito: Respaldo diario no destructivo de PostgreSQL 17 (pg_dump) y MinIO S3 (mc mirror)
-# con cifrado opcional AES-256-PBKDF2, sumas SHA-256, rotación y alerta al >= 75% de disco (APSC-DV-001090).
+# con cifrado opcional AES-256-PBKDF2, sumas SHA-256, verificación > 0 bytes y alerta >= 75% (APSC-DV-001090).
 
 LC_ALL=C
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="${QA_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 cd "${REPO_ROOT}"
 
 mostrar_ayuda() {
@@ -108,7 +108,15 @@ cifrar_y_firmar() {
       -in "${archivo_origen}" -out "${archivo_final}" -pass env:BACKUP_PASSPHRASE
     rm -f -- "${archivo_origen}"
   fi
+  if [ ! -s "${archivo_final}" ]; then
+    echo "❌ Error crítico: el artefacto de respaldo '${archivo_final}' está vacío (0 bytes)." >&2
+    exit 1
+  fi
   sha256sum "${archivo_final}" >"${archivo_final}.sha256"
+  if [ ! -s "${archivo_final}.sha256" ]; then
+    echo "❌ Error crítico: no se pudo generar la suma SHA-256 para '${archivo_final}'." >&2
+    exit 1
+  fi
   printf '%s\n' "${archivo_final}"
 }
 
@@ -121,6 +129,8 @@ POSTGRES_DB="${POSTGRES_DB:-condominio_db}"
 MINIO_ROOT_USER="${MINIO_ROOT_USER:-}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-}"
 MINIO_BUCKET="${MINIO_BUCKET:-condominio-media}"
+MINIO_ENDPOINT="${MINIO_ENDPOINT:-minio:9000}"
+MINIO_USE_SSL="${MINIO_USE_SSL:-false}"
 COMPOSE_FILE="${COMPOSE_FILE:-${REPO_ROOT}/docker-compose.yml}"
 MC_IMAGE="minio/mc:RELEASE.2025-02-15T09-17-07Z"
 COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "${REPO_ROOT}")}"
@@ -130,43 +140,70 @@ if ! [[ "${RETENTION_DAYS}" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+MINIO_HOST_PORT="${MINIO_ENDPOINT#http://}"
+MINIO_HOST_PORT="${MINIO_HOST_PORT#https://}"
+MINIO_HOST_PORT="${MINIO_HOST_PORT%/}"
+[ -n "${MINIO_HOST_PORT}" ] || MINIO_HOST_PORT="minio:9000"
+
+MINIO_SSL_LOWER="$(printf '%s' "${MINIO_USE_SSL}" | tr '[:upper:]' '[:lower:]')"
+case "${MINIO_SSL_LOWER}" in
+  true | 1 | yes | on) MINIO_SCHEME="https" ;;
+  *) MINIO_SCHEME="http" ;;
+esac
+
 mkdir -p -- "${BACKUP_DIR}"
-chmod 700 "${BACKUP_DIR}" || true
+chmod 700 "${BACKUP_DIR}"
 verificar_uso_disco "${BACKUP_DIR}"
 
 FECHA="$(date +%Y%m%d_%H%M%S)"
+PG_TMP_DUMP="${BACKUP_DIR}/.pg17_${FECHA}.dump.tmp"
 PG_RAW="${BACKUP_DIR}/pg17_${FECHA}.dump.gz"
 MINIO_STAGING="${BACKUP_DIR}/.staging_minio_${FECHA}"
 MINIO_RAW="${BACKUP_DIR}/minio_${FECHA}.tar.gz"
+BACKUP_COMPLETED_OK=0
 
+# shellcheck disable=SC2329
 cleanup_staging() {
-  rm -rf -- "${MINIO_STAGING}" 2>/dev/null || true
+  local rc=$?
+  rm -rf -- "${MINIO_STAGING}" "${PG_TMP_DUMP}" 2>/dev/null || true
+  if [ "${rc}" -ne 0 ] || [ "${BACKUP_COMPLETED_OK}" -ne 1 ]; then
+    rm -f -- \
+      "${PG_RAW}" "${PG_RAW}.enc" "${PG_RAW}.sha256" "${PG_RAW}.enc.sha256" \
+      "${MINIO_RAW}" "${MINIO_RAW}.enc" "${MINIO_RAW}.sha256" "${MINIO_RAW}.enc.sha256" \
+      2>/dev/null || true
+  fi
 }
 trap cleanup_staging EXIT
+trap 'exit 130' INT TERM
 
-# 1. Respaldo lógico consistente PostgreSQL 17
+# 1. Respaldo lógico consistente PostgreSQL 17 con verificación estricta > 0 bytes
 docker compose -f "${COMPOSE_FILE}" exec -T postgres \
-  pg_dump -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" --format=custom --no-owner --no-acl |
-  gzip -9 >"${PG_RAW}"
+  pg_dump -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" --format=custom --no-owner --no-acl >"${PG_TMP_DUMP}"
+if [ ! -s "${PG_TMP_DUMP}" ]; then
+  echo "❌ Error crítico: pg_dump generó una salida vacía (0 bytes)." >&2
+  exit 1
+fi
+gzip -9 -c "${PG_TMP_DUMP}" >"${PG_RAW}"
+rm -f -- "${PG_TMP_DUMP}"
 PG_FINAL="$(cifrar_y_firmar "${PG_RAW}")"
 
-# 2. Espejo e empaquetado del bucket MinIO S3 (usando red Docker interna de compose)
+# 2. Espejo e empaquetado del bucket MinIO S3 (fallo explícito sin || true y soporte MINIO_USE_SSL)
 mkdir -p -- "${MINIO_STAGING}"
-export MC_HOST_prod="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000"
+export MC_HOST_prod="${MINIO_SCHEME}://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@${MINIO_HOST_PORT}"
 docker run --rm --network "${COMPOSE_PROJECT}_backend_net" \
   -v "${MINIO_STAGING}:/backup_out" \
   -e MC_HOST_prod \
-  "${MC_IMAGE}" mirror --overwrite "prod/${MINIO_BUCKET}" /backup_out >/dev/null 2>&1 || true
+  "${MC_IMAGE}" mirror --overwrite "prod/${MINIO_BUCKET}" /backup_out >/dev/null
 
 tar -czf "${MINIO_RAW}" -C "${MINIO_STAGING}" .
 MINIO_FINAL="$(cifrar_y_firmar "${MINIO_RAW}")"
-cleanup_staging
 
 # 3. Rotación por ventana de retención
 find "${BACKUP_DIR}" -maxdepth 1 -type f \
   \( -name "pg17_*" -o -name "minio_*" \) \
   -mtime "+${RETENTION_DAYS}" -delete 2>/dev/null || true
 
+BACKUP_COMPLETED_OK=1
 if [ "${QUIET}" = false ]; then
   echo "✔ [Backup 11X] Respaldos generados: $(basename "${PG_FINAL}"), $(basename "${MINIO_FINAL}") (retención ${RETENTION_DAYS}d)."
 fi

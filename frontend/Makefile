@@ -19,42 +19,46 @@ NODE_USER_FLAGS = -u "$$(id -u):$$(id -g)" -e HOME=/tmp
 PNPM_STORE_SETUP = if [ -w /pnpm ]; then export pnpm_config_store_dir=/pnpm; else export pnpm_config_store_dir=/tmp/pnpm-store; fi
 
 build-ui:
-	@echo "🏗️ Compilando aplicación Vue 3 / Vite para entorno E2E/Producción..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install && pnpm run build"
+	@if [ "$(UI_SKIP_BUILD)" = "1" ] && [ -f dist/index.html ]; then \
+		echo "♻️ Reutilizando artefacto dist/ precompilado (UI_SKIP_BUILD=1)..."; \
+	else \
+		echo "🏗️ Compilando aplicación Vue 3 / Vite para entorno E2E/Producción..."; \
+		docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile && pnpm run build"; \
+	fi
 	docker compose -f $(COMPOSE_FILE) up -d --force-recreate ui-prod chrome-cdp
 
 qa-lint:
 	@echo "🔍 [11X] Ejecutando Auditoría de CVEs, Type-Check, Prettier y ESLint (SonarJS)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install && pnpm run audit:deps && pnpm run type-check && pnpm run format:check && pnpm run lint"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile && pnpm run audit:deps && pnpm run type-check && pnpm run format:check && pnpm run lint"
 
 qa-unit:
 	@echo "🧪 [11X] Ejecutando Pruebas Unitarias Aisladas (Vitest >= 95%) + Build Vite..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install && pnpm run test:coverage && pnpm run build"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile && pnpm run test:coverage && pnpm run build"
 
 qa-orphans:
 	@echo "🧩 [11X] Verificando Invariante de Cero Componentes UI Huérfanos..."
-	docker run --rm -v "${HOST_PWD}/..:/workspace:ro" -w /workspace/frontend sinfallas/base-python-uv:3.13 python3 /workspace/.agents/scripts/verify_zero_orphan_vue_components.py
+	docker run --rm -v "${HOST_PWD}/..:/workspace:ro" -w /workspace/frontend sinfallas/base-python-uv:3.13@sha256:1594cbb33269c6a535a8ae5242b07a5866aa519d00975868f0a0d03fdc3bc155 python3 /workspace/.agents/scripts/verify_zero_orphan_vue_components.py
 
 qa-mutation:
 	@echo "👽 [11X] Ejecutando Pruebas de Mutación Frontend (Stryker)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install"
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "./node_modules/.bin/stryker run stryker.conf.json"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "./node_modules/.bin/stryker run stryker.conf.json"
 
 qa-perf: build-ui
 	@echo "⚡ [11X] Ejecutando Auditoría de Rendimiento (Lighthouse CI)..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/lhci autorun"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/lhci autorun"
 
 qa-lighthouse: qa-perf
 
 qa-e2e: build-ui
 	@echo "🎭 [11X] Ejecutando Regresión Visual, Geometría Anti-JSDOM y Accesibilidad WCAG 2.1 AA..."
-	docker compose -f $(COMPOSE_FILE) run --rm $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/playwright test"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/playwright test"
 
 qa-a11y: qa-e2e
 
 qa-bdd: build-ui
 	@echo "📚 [11X] Ejecutando Pruebas de Aceptación BDD (Karate UI en Chrome Headless)..."
-	docker compose -f $(COMPOSE_FILE) run --rm karatelabs mvn clean test
+	docker compose -f $(COMPOSE_FILE) run --rm -T karatelabs mvn clean test
 
 qa-ui-bdd: qa-bdd
 

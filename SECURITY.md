@@ -146,12 +146,19 @@ flowchart TD
   - **Aislamiento Runtime y Red (`docker-compose.yml`, `frontend/nginx.conf`):** Bandera `read_only: true` + `tmpfs /tmp`, `cap_drop: [ALL]`, `no-new-privileges:true`, red interna aislada `backend_net` (`internal: true`), exposición únicamente de `127.0.0.1:${FRONTEND_PORT:-8080}:8080`, `server_tokens off`, `client_max_body_size 2M` y cabeceras OWASP OSHP (`CSP`, `X-Frame-Options: DENY`, `COOP`, `CORP`).
   - **Worker Real Endurecido (`backend/src/worker.py`) y Respaldos (`scripts/backup-diario.sh`):** Sanitización anti-inyección CRLF en cabeceras SMTP (`STARTTLS`), reintentos acotados con Dead-Letter Queue (`queue:notifications:dlq`), carga MinIO autenticada con `AWS4-HMAC-SHA256`, supervisión `QA-HEALTH-01` por heartbeat físico, integridad `.sha256`, cifrado opcional `AES-256-CBC + PBKDF2` (`100000` iteraciones) y alerta operativa `APSC-DV-001090` al superar el `75%` de uso en disco.
 
+### 4.23. Contención Operativa, Gobernanza `v3.1.0`, FINOS CALM `1.2` y Multi-Arch (`Hito 19`)
+- **Mitigación Implementada:**
+  - **Protección de Volúmenes Productivos (`scripts/limpieza.sh`) y Respaldos Transaccionales (`scripts/backup-diario.sh`):** Restricción exclusiva de desmontaje a archivos `docker-compose*.qa.yml` protegiendo `postgres_data` y `minio_data`; preservación de `artifacts/sbom/` y grafos AST; eliminación de `|| true` en `mc mirror`, verificación estricta `> 0 bytes` previa al empaquetado/cifrado, `trap cleanup_staging EXIT` y soporte TLS/SSL `MINIO_USE_SSL` unificado hacia `backend/src/worker.py`.
+  - **Escáner de Secretos Sin Puntos Ciegos (`scripts/verificar-secretos.sh`):** Uso de `grep -e` para impedir que patrones iniciados con `-` (p. ej. cabeceras PEM `-----BEGIN`) sean interpretados como opciones, ejecutado siempre desde `REPO_ROOT` sobre el árbol completo (`291` archivos, incluyendo `.env.example` y suites de prueba).
+  - **Validación Arquitectónica FINOS CALM `1.2` y Workflows SHA-40 (`architecture/qa-11x.calm.json`, `.github/workflows/00..03.yml`):** Modelo validado en `validate_calm_architecture` con `7` controles de seguridad obligatorios; todas las GitHub Actions fijadas por digest SHA-40 (`SEC-CI-ACTION-REF`); despliegue productivo sin compilación en `docker-compose.prod.yml` validado con smoke `--read-only` (`CONTAINER_ROLE=api|worker`) y **`Trivy HIGH/CRITICAL = 0`**.
+  - **Seguimiento Temporal de Dependencias Dev (`frontend/pnpm-workspace.yaml`):** Documentada exclusión quirúrgica de `GHSA-fc5q-39xc-vjpf` (`picomatch <=4.0.7`, ReDoS sin parche upstream disponible) al afectar exclusivamente herramientas de compilación/pruebas (`vite`/`vitest`); `pnpm audit --prod --audit-level=high` certifica **`0` vulnerabilidades en dependencias de producción**.
+
 ---
 
 ## 5. Barreras Automatizadas DevSecOps
 
-Antes de cada commit y push, el código supera:
-1. **Detección de Secretos:** `./scripts/verificar-secretos.sh` (0 credenciales expuestas).
-2. **SAST Estático y Complejidad:** `Ruff`, `Mypy --strict`, `Bandit` y `Radon` (Grado A/B).
-3. **Auditoría IaC y Dependencias:** `./scripts/auditar-infra.sh` (Trivy IaC + FS `HIGH/CRITICAL`) y `uv audit` / `pnpm audit`.
-4. **Compuerta de Certificación 11X:** `certify_11x_gate` (`@sinfallas/mcp-qa-11x`) y `./.agents/scripts/certify_task_completion.sh`.
+Antes de cada commit y push (`QA-GIT-GATE-01`), el código supera:
+1. **Detección de Secretos:** `./scripts/verificar-secretos.sh` (0 credenciales expuestas en árbol completo).
+2. **SAST Estático, Complejidad y CALM:** `Ruff`, `Mypy --strict`, `Bandit`, `Radon` (Grado A/B), `validate_calm_architecture.sh` y `audit_security_stig_owasp` (`0` hallazgos).
+3. **Auditoría IaC, Dependencias y Bash `kcov`:** `./scripts/auditar-infra.sh` (Trivy IaC + FS `HIGH/CRITICAL = 0`), `uv audit` / `pnpm audit`, SBOM CycloneDX en `artifacts/sbom/` y `make qa-bash` (`33/33` BATS, `kcov >= 95%`).
+4. **Compuerta de Certificación 11X:** `certify_11x_gate` (`@sinfallas/mcp-qa-11x`) y `./.agents/scripts/certify_task_completion.sh --strict` (`10/10 PASS`).

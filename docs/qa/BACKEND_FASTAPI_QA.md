@@ -23,7 +23,7 @@ Toda validación de Backend se ejecuta dentro de contenedores efímeros usando i
 2. **Tipado Estático:** `mypy` con `strict = true`.
 3. **Pruebas Unitarias y Mocking:** `pytest`, `pytest-asyncio`, `pytest-mock`, `httpx` / `TestClient`.
 4. **Piso de Cobertura:** `pytest-cov` con fallo obligatorio si `--cov-fail-under=95`.
-5. **Seguridad Estática (SAST):** `bandit` (detección de patrones vulnerables) y `uv pip audit` (escaneo de CVEs en dependencias).
+5. **Seguridad Estática (SAST):** `bandit` (detección de patrones vulnerables) y `uv audit` (escaneo de CVEs en dependencias).
 6. **Seguridad Dinámica (DAST):** `OWASP ZAP` (escaneo *Baseline* interceptando cabeceras y configuraciones).
 7. **Deuda Técnica y Complejidad:** `radon` (auditoría de complejidad ciclomática e índice de mantenibilidad).
 8. **Profiling:** `py-spy` (análisis de CPU y detección de bloqueos en el Event Loop asíncrono con Flamegraphs).

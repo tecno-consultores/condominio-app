@@ -9,19 +9,27 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
 jobs:
   trivy-iac-scan:
-    name: 🛡️ Escaneo IaC/FS (Trivy), Scripts Bash y Gobernanza 11X
+    name: 🛡️ Escaneo IaC/FS (Trivy), Secretos, Bash kcov y Gobernanza 11X
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: 📥 Checkout del código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 2
 
-      - name: 🔍 Escaneo de Misconfiguraciones (Docker Compose / Scripts)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      - name: 🔐 Escaneo global de secretos en árbol completo
+        run: ./scripts/verificar-secretos.sh
+
+      - name: 🔍 Escaneo de Misconfiguraciones (Docker Compose / Dockerfiles)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.35.0
         with:
           scan-type: 'config'
           scan-ref: '.'
@@ -30,10 +38,10 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
-          skip-dirs: 'backend/.venv,frontend/node_modules,node_modules,dist,target,graphify-out'
+          skip-dirs: 'backend/.venv,frontend/node_modules,node_modules,dist,target,graphify-out,artifacts'
 
       - name: 📦 Escaneo de Vulnerabilidades en Manifiestos (CVEs)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.35.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -41,18 +49,13 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
-          skip-dirs: 'backend/.venv,frontend/node_modules,node_modules,dist,target,graphify-out'
+          skip-dirs: 'backend/.venv,frontend/node_modules,node_modules,dist,target,graphify-out,artifacts'
 
-      - name: 🐚 QA Scripts Operativos Bash (shfmt + ShellCheck + BATS)
+      - name: 🐚 QA Scripts Operativos Bash (shfmt + ShellCheck + BATS + kcov >= 95%)
         run: make qa-bash
 
-      - name: 🧭 Validadores Estáticos de Gobernanza 11X (Docker)
-        run: |
-          docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/workspace:ro" -w /workspace sinfallas/base-python-uv:3.13 bash -c "
-            python3 .agents/scripts/verify_json_no_duplicate_keys.py &&
-            python3 .agents/scripts/verify_zero_orphan_vue_components.py &&
-            python3 .agents/scripts/verify_no_orphan_api_endpoints.py &&
-            python3 .agents/scripts/verify_alembic_orm_parity.py &&
-            python3 .agents/scripts/verify_roadmap_consistency.py &&
-            python3 .agents/scripts/verify_docs_invariants.py
-          "
+      - name: 🏛️ Validar arquitectura FINOS CALM 1.2 y controles 11X
+        run: ./.agents/scripts/validate_calm_architecture.sh
+
+      - name: 🧭 Compuerta Integral de Certificación 10/10 (Rule Zero)
+        run: ./.agents/scripts/certify_task_completion.sh --strict

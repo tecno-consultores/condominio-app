@@ -28,6 +28,14 @@
 | **Hito 18** | Infraestructura Productiva Docker No-Root, Worker Real y Respaldos (Fase 5) | `12_GOBERNANZA_DESPLIEGUE...` | ✅ Completado | `100%` |
 | **Hito 15** | Rediseño UX/UI "Hospitalidad Residencial", Tokens `OKLCH` y Transiciones (Fase 4) | `10_DISENO_UX_UI_AMIGABLE...` | ✅ Completado | `100%` |
 | **Hito 8** | Certificación Integral E2E, Geometría Anti-JSDOM, WCAG 2.1 AA y Lighthouse CI (Fase 6) | `05_ARQUITECTURA_GUI...` | ✅ Completado | `100%` |
+| **Hito 19** | Contención Operativa, Gobernanza v3.1.0 y Docker Hub Multi-Arch (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
+| **Hito 20** | Defensa PG17 RLS Single-Condo, HKDF/JWT, KeyDB y RBAC/IDOR (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 21** | Exactitud Contable LPH, Idempotencia con Replay y Worker Real (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 22** | Rescate Frontend Mobile-First, Shell Unificado y WCAG 2.2 AA (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 23** | Erradicación Anti-Mock Blindness QA 11X y Docs Thin-Repo (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 24** | Recuperación de Contraseña, Multi-Inmueble y Estacionamientos/Maleteros (Fase 8) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 25** | Motor PDF + Envío SMTP y Código QR Gráfico con Escáner de Cámara (Fase 8) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 26** | Notificaciones en Vivo por WebSocket (`/ws/`) y Cierre `v1.2.0` (Fase 8) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
 
 - **Leyenda:**
   - `✅ Completado` = Hito certificado bajo el estándar QA Nivel 11X en contenedores Docker efímeros (`>= 95%` cobertura, 0 errores SAST/lint/complejidad, paridad Alembic↔ORM en PostgreSQL 17 y escenarios BDD Karate Labs).
@@ -128,7 +136,7 @@
 
 ---
 
-> **🏛️ FASE 4: Evolución Funcional PropTech, LPH, Ayuda Contextual y UX/UI Amigable (Hitos 10 al 15) — `[EN EJECUCIÓN]`**
+> **🏛️ FASE 4: Evolución Funcional PropTech, LPH, Ayuda Contextual y UX/UI Amigable (Hitos 10 al 15) — `[100% COMPLETADA]`**
 
 ## ✅ Hito 10: Motor de Alícuotas, Facturación Mensual LPH, Fondos y Solvencia Digital
 - **Especificaciones:** [`docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md`](./docs/specs/01_ARQUITECTURA_Y_SEGURIDAD_11X.md), [`docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md`](./docs/specs/07_DOMINIO_ALICUOTAS_FACTURACION_Y_SOLVENCIA.md)
@@ -223,3 +231,65 @@
   - [x] **Sub-tarea 8.1 (Playwright Screenplay E2E, Entorno Determinista y Geometría Visual Anti-JSDOM):** Configurado `frontend/nginx.qa.conf` (`/health`, CSP/OSHP, fallback `/api/estructura/unidades`) y mock stateful (`frontend/e2e/fixtures/condominioApiMock.ts`), viewports `375x667`, `390x844` y `1440x900` en `frontend/playwright.config.ts`, arquitectura Screenplay (`frontend/e2e/screenplay/`), flujos autenticados completos de Hitos 5 al 17.4 (`frontend/e2e/authenticated-flows.e2e.ts`) y auditoría `getBoundingClientRect()` / `elementsFromPoint()` verificando `0` desbordamientos horizontales y `0` oclusiones sobre controles primarios, `#fab-reportar-pago` y `#app-inflow-footer`.
   - [x] **Sub-tarea 8.2 (Auditoría WCAG 2.1 AA, Contraste Oscuro Atómico y Regresión Visual):** Reparada asimetría transicional de contraste en tema oscuro (`AppShellLayout.vue`, `SidebarNav.vue`), certificados **`0` hallazgos `critical` o `serious`** con `@axe-core/playwright` en rutas públicas, `/espera-aprobacion`, vistas autenticadas y modales Top Layer en claro/oscuro (`light-dark()`), y generados/verificados `15` baselines PNG Linux (`maxDiffPixelRatio: 0.02`, **`51/51` pass** en Playwright).
   - [x] **Sub-tarea 8.3 (Karate UI BDD vía `chrome-cdp` y Lighthouse CI):** Sidecar `chrome-cdp` headless (`127.0.0.1:9222`) habilitado en `frontend/docker-compose.qa.yml` certificando `frontend/test/ui_business_flow.feature` (**`12/12` pass**), y `make -C frontend qa-perf` (`frontend/lighthouserc.cjs`) aprobado sobre `/login` y `/register` con **99% Performance, 100% Accessibility y 100% Best Practices** (excluyendo auditorías TLS en red interna HTTP).
+
+---
+
+> **🛠️ FASE 7: Remediación Integral Post-Auditoría `v1.0.0` (Hitos 19 al 23 — Spec 13) — `[20% EN PROGRESO]`**  
+> **Política de Distribución Aprobada:** Sin publicación en `npmjs.com` (`"private": true`); distribución exclusiva en Docker Hub mediante 2 imágenes multi-arquitectura (`linux/amd64,linux/arm64`): `sinfallas/condominio-backend` y `sinfallas/condominio-frontend` para despliegues Single-Condo con PostgreSQL 17 RLS activo.
+
+## ✅ Hito 19: Contención Operativa, Gobernanza v3.1.0 y Docker Hub Multi-Arch
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.1)
+- **Sub-tareas de Implementación:**
+  - [x] **Sub-tarea 19.1 (Blindaje de `limpieza.sh`, `backup-diario.sh`, `verificar-secretos.sh` y SBOM):** Restringir `scripts/limpieza.sh` exclusivamente a `docker-compose*.qa.yml` (protegiendo `postgres_data` y `minio_data`), consolidar scripts duplicados en raíz/subcarpetas hacia `scripts/`, mover salida de `generar-sbom-cyclonedx.sh` a `artifacts/sbom/`, eliminar `|| true` silencioso y residuos `0-byte` en `scripts/backup-diario.sh` (respetando `MINIO_USE_SSL`), propagar `MINIO_USE_SSL` a `worker` y escanear el árbol completo (incluyendo `.env.example` y tests) en `scripts/verificar-secretos.sh`.
+  - [x] **Sub-tarea 19.2 (Actualización Thin-Repo QA 11X `v3.1.0`, Validadores Reales y FINOS CALM):** Sincronizar `.agents/` y `AGENTS.md` con `v3.1.0` (`QA-GIT-GATE-01` sin `git push` automático, 10 skills globales e inglés conciso en `.agents/**`), ejecutar `certify_task_completion.sh` íntegramente bajo `Rule Zero` (`sinfallas/base-python-uv:3.13`), corregir falsos positivos ciegos en `verify_no_orphan_api_endpoints.py`, `verify_topological_health.py` y `verify_docs_invariants.py` (más `.trivy.yaml` y `commitlint.config.js`), crear `architecture/qa-11x.calm.json` y regenerar los 3 grafos AST (`--code-only`) purgando nodos Markdown heredados.
+  - [x] **Sub-tarea 19.3 (Manifiestos, Hooks Efímeros y CI/CD Multi-Arch hacia Docker Hub):** Completar metadatos (`MIT`, `repository`, `author`, `engines`, `packageManager`) y unificar autoría (`LICENSE`, `AUTHORS.md`, `README.md`, `AGENTS.md`); unificar Python `3.13` y deduplicar grupos `dev` en `backend/pyproject.toml`; ejecutar `lefthook` + `commitlint` en contenedor efímero; añadir `--frozen`/`--frozen-lockfile` y pinning SHA-40 en `.github/workflows/00..02.yml` (`SEC-CI-ACTION-REF`); configurar pipeline buildx multi-arch (`linux/amd64,linux/arm64`) hacia `sinfallas/condominio-backend` (`CONTAINER_ROLE=api|worker`) y `sinfallas/condominio-frontend` con `docker-compose.prod.yml`; y añadir suites BATS con `kcov >= 95%`.
+
+## ⏳ Hito 20: Defensa PG17 RLS Single-Condo, HKDF/JWT, KeyDB y RBAC/IDOR
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.2)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 20.1 (PG17 RLS Runtime No-Superusuario, Migración `0010` y Paridad SQLite):** Separar usuario `condominio_admin` (migraciones) de `condominio_app` (runtime) con `SET LOCAL ROLE condominio_app_runtime`, establecer `tenant_id = ""` fail-closed en `database.py`, inyectar `condominio_id` desde JWT en `dependencies.py` y `facturacion_lph.py`, activar `PRAGMA foreign_keys=ON` en SQLite y crear migración `0010_rls_multitenant_worm_checks.py` (`UNIQUE` compuestos con `condominio_id`, índices en FKs, `CheckConstraint`, `ALTER DEFAULT PRIVILEGES` y WORM `REVOKE UPDATE, DELETE` en `auditoria_recibos` y `votos_consulta`).
+  - [ ] **Sub-tarea 20.2 (Subclaves `HKDF-SHA256`, TTL Revocación 7d, KeyDB Fail-Closed y Anti-SSRF):** Derivar subclaves independientes en `security.py`, exigir `typ == "access"`, alinear TTL de revocación en KeyDB (`>= 7 días`) fail-closed sin fugas `_local_revoked_*` en RAM, aislar `logout` por `sid` sin borrar bloqueos admin en `login`, subir `PBKDF2 >= 600_000` en `asyncio.to_thread` con contraseñas `8..128`, implementar lockout Lua atómico (`ip` + `correo`), bloquear `javascript:`/`//` en `ComunicadoCreate` y usar DNS asíncrono normalizando minúsculas en `accesos.py`.
+  - [ ] **Sub-tarea 20.3 (Middleware HTTP, Cabeceras Nginx OSHP y Cierre RBAC/IDOR):** Exigir `X-CSRF-Token` cuando haya sesión por cookie, proteger `/metrics`, preservar cabeceras OSHP/CSP dentro de `location /assets/` + `gzip on` + directorios `/tmp/nginx_*_temp` en `frontend/nginx.conf`/`Dockerfile`, bloquear escalación `VICEPRESIDENTE -> PRESIDENTE`, exigir `ContratoOcupacion.fecha_fin.is_(None)` en `_verificar_acceso_unidad` y restringir exposición horizontal en `estructura/unidades`, `finanzas/resumen`, `paqueteria`, `reservas` y `accesos/pases/mios`.
+
+## ⏳ Hito 21: Exactitud Contable LPH, Idempotencia con Replay y Worker Real
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.3)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 21.1 (Desbloqueo Cross-Módulo y Cuadre Contable LPH):** Resolver el deadlock `HTTP 409` integrando cargos por daños/uso de `AreaSocial` en `facturar-periodo` vía `UPSERT` de `ReciboItem`, impedir `cierre-mensual` con pagos `EN_REVISION`, añadir `with_for_update()` + `Idempotency-Key` en `rechazar_pago`, cuadrar `Recibo` vs `ReciboItem` al cubrir con `credito_disponible_usd` + `AuditoriaRecibo`, proteger `FondoCondominio` contra saldos negativos, corregir `MAYORIA_SIMPLE > 50.0000%`, `Decimal("0.00")` falsy y acotar `Decimal` (`allow_inf_nan=False`, `le`) + mes `01..12` en `schemas.py`.
+  - [ ] **Sub-tarea 21.2 (Idempotencia Transaccional, Paginación y Worker Resiliente):** Implementar gestor `idemp:{condominio_id}:{usuario_id}:{scope}:{key}` con *response replay* y liberación en `4xx/5xx` en las 14 mutaciones faltantes, añadir `limit`/`offset` en los 14 listados `GET` y `response_model` en los 7 endpoints restantes, conectar subida segura de comprobantes/evidencias (`read_uploaded_file_safely` + `validate_file_magic_bytes`) con `convertir_y_subir_avif`, capturar `RedisError`/JSON inválido, migrar `BLPOP` a `BLMOVE` con backoff, respetar `PlantillaTarea.frecuencia` y desacoplar `HEALTHCHECK` por `CONTAINER_ROLE`.
+
+## ⏳ Hito 22: Rescate Frontend Mobile-First, Shell Unificado y WCAG 2.2 AA
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.4)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 22.1 (Aislamiento de Sesión SPA, `apiClient` y Contratos DTO):** Resetear los 5 stores Pinia + `activeCsrfToken` al cerrar sesión/`401`, endurecer `isSafeRedirectUrl` y `generateIdempotencyKey` (`crypto.getRandomValues`), soportar `FormData` + `.delete()`/`.patch()` + `try/catch` en `apiClient.ts`, reutilizar `Idempotency-Key` en reintentos, eliminar doble escapado HTML en `{{ ... }}` y alinear todos los DTOs con `schemas.py` (`url_comprobante`, `enlace_externo`, `/api/comunicados`).
+  - [ ] **Sub-tarea 22.2 (Ruta Padre `<AppShellLayout>` y Navegación Móvil `< 768px`):** Agrupar todas las vistas autenticadas bajo ruta padre con `<AppShellLayout>` en `router/index.ts` (corrigiendo las 6 vistas huérfanas), añadir ruta `404`, hidratación en `/login` y `/register`, *code-splitting* dinámico y cajón móvil completo más botón de **Cerrar sesión** en `< 768px`.
+  - [ ] **Sub-tarea 22.3 (Vistas Críticas, Tokens OKLCH e Invariantes 11X):** Desacoplar `GET /api/finanzas/tasa` con `Promise.allSettled` evitando mostrar falsa solvencia, corregir el `403` de `SolvencyCertificateView.vue`, cargar recibos reales y subida real de comprobantes en `PaymentWizardView.vue`, renderizar `<img>` en galería/incidencias, visibilizar errores en vistas admin, aplicar `String(val.value ?? '').trim()` en todos los números, erradicar UUIDs/JTIs/PKs crudos y badges catch-all invertidos (`UI-11X-02`), corregir `tokens.css:555`, `ExpensesDonutChart.vue`, `CollectionTrafficLight.vue`, `<dialog>` Top-Layer, colores `OKLCH` y añadir `useDualRefresh` (`setInterval` + `[ 🔄 Refrescar ]`).
+
+## ⏳ Hito 23: Erradicación Anti-Mock Blindness QA 11X y Docs Thin-Repo
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.5)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 23.1 (Suites Reales Backend, Mutmut/Radon 11X, ZAP y Locust):** Crear `.unit.py` para los 5 módulos faltantes, cubrir 27 tablas y todos los esquemas dinámicamente, migrar suites de `_mock_session` a BD real (`PRAGMA foreign_keys=ON` + HTTP PG17 real + `asyncio.gather`), exigir `radon` Grado A (`MAX_GRADE = 1`), corregir `mutmut_gates.py`, activar `zap.yaml` en `make qa-dast`, reparar `locustfile.py` y cubrir flujos nominales `2xx` de los 9 routers en `backend/test/api_test.feature`.
+  - [ ] **Sub-tarea 23.2 (Suites Frontend, Mock OpenAPI, Playwright Tablet y Karate UI):** Añadir `navIcons.unit.ts` y `main.unit.ts`, correr Stryker en `qa-vue3` ampliando módulos, alinear `condominioApiMock.ts` 1:1 con OpenAPI/RBAC/`404`, cubrir `22/22` vistas en `accessibility.e2e.ts`, añadir `consultation-detail-dark` + viewport Tablet `768x1024`, incluir `e2e/` en ESLint/Prettier y añadir flujos autenticados reales en `frontend/test/ui_business_flow.feature`.
+  - [ ] **Sub-tarea 23.3 (Saneamiento Documental Integral y READMEs):** Corregir comandos rotos de restauración (`api`/`worker`, `condominio_admin`, `pg17_*.dump.gz`) y rutas reales en `MANUAL_ADMINISTRADOR_E_INSTALADOR.md`, `MANUAL_USUARIO_RESIDENTE.md`, `API_ROUTES.md` y `ARCHITECTURE.md`; sincronizar `SECURITY.md` (`22` vectores), `CHANGELOG.md`, `TESTING.md`; podar `docs/qa/*` bajo Thin-Repo; actualizar `docs/specs/01..12` y rediseñar `README.md` raíz + crear `backend/README.md` y `frontend/README.md`.
+
+---
+
+> **✨ FASE 8: Completitud Funcional PropTech Prometida `v1.2.0` (Hitos 24 al 26 — Spec 13) — `[0% PENDIENTE]`**
+
+## ⏳ Hito 24: Recuperación de Contraseña, Multi-Inmueble y Estacionamientos/Maleteros
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 3.1)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 24.1 (Recuperación de Contraseña Autoservicio y Junta Directiva):** Implementar `POST /api/auth/forgot-password`, `POST /api/auth/reset-password` (token de un solo uso en KeyDB `TTL <= 900s` + envío SMTP) y `POST /api/usuarios/{id}/reset-password-temporal` con bandera `debe_cambiar_password`, revocación de sesiones previas y flujo GUI `/recuperar-clave`.
+  - [ ] **Sub-tarea 24.2 (Selector de Unidad Activa `unidad_activa_id`):** Implementar `PUT /api/auth/unidad-activa` validando `ContratoOcupacion` vigente y selector global en `AppShellLayout.vue`/`SidebarNav.vue` refrescando los stores de dominio por inmueble seleccionado.
+  - [ ] **Sub-tarea 24.3 (Puestos de Estacionamiento y Maleteros — Migración `0011`):** Crear migración `0011_funcionalidad_proptech_complementaria.py`, modelar y exponer endpoints CRUD para puestos de estacionamiento y maleteros vinculados a `Unidad` e integrarlos en `AdminStructureView.vue`, recibos y solvencias (con suites unitarias, PG17 y BDD).
+
+## ⏳ Hito 25: Motor PDF + Envío SMTP y Código QR Gráfico con Escáner de Cámara
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 3.2)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 25.1 (Motor PDF Determinista y Distribución SMTP):** Implementar generación PDF no-root compatible con `read_only: true` para recibos (`PRELIMINAR` y `OFICIAL`) y certificados de solvencia, endpoints `GET /api/finanzas/recibos/{id}/pdf` y `GET /api/finanzas/solvencia/{id}/pdf`, envío automático vía `worker.py` y botones de descarga/reenvío en GUI.
+  - [ ] **Sub-tarea 25.2 (Código QR Gráfico SVG/Canvas y Escáner de Cámara en Garita):** Renderizar matrices QR locales sin dependencias externas en `VisitorPassesView.vue` y `SolvencyCertificateView.vue`, habilitar escaneo por cámara en `GatehouseScannerView.vue` (`Permissions-Policy: camera=(self)` acotado con fallback manual accesible) y certificar con pruebas E2E, WCAG y Karate BDD.
+
+## ⏳ Hito 26: Notificaciones en Vivo por WebSocket (`/ws/`) y Cierre `v1.2.0`
+- **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 3.3)
+- **Sub-tareas de Implementación:**
+  - [ ] **Sub-tarea 26.1 (Servidor `WS /ws/notificaciones` + Pub/Sub KeyDB):** Implementar handshake autenticado en FastAPI con `verify_websocket_origin`, validación de revocación, heartbeat `ping/pong` y publicación de eventos en tiempo real desde routers y `worker.py` vía KeyDB Pub/Sub.
+  - [ ] **Sub-tarea 26.2 (Proxy Nginx/Vite, Composable `useRealtimeNotifications` y Lanzamiento `v1.2.0`):** Habilitar proxy `/ws/` en `nginx.conf`/`vite.config.ts`, integrar reconexión exponencial junto a `useDualRefresh` en SPA, certificar los 13 niveles QA 11X (incluyendo caos Pumba WS y `Trivy = 0`), sincronizar manuales y publicar tag multi-arch `v1.2.0` en Docker Hub (`sinfallas/condominio-backend` y `sinfallas/condominio-frontend`).

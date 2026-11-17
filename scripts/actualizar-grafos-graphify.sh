@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Jesus Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
-# Propósito: Extracción y actualización canónica e incremental de grafos semánticos AST (Graphify)
-# para los stacks presentes en el proyecto (FastAPI, Python, Node, Vue 3, React, PHP, MCP, Backend, Frontend o Raíz).
-# Cumple estrictamente con la Regla Cero (ejecución en contenedor Docker efímero) y salida Pass-Quiet (1 línea).
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
+# Propósito: Extracción y actualización limpia (--code-only) de grafos semánticos AST (Graphify).
+# Purga nodos heredados antes de reconstruir y opera bajo Rule Zero (sinfallas/remote-graphify).
 
+LC_ALL=C
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE_NAME="sinfallas/remote-graphify:latest"
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  echo "Uso: ./scripts/actualizar-grafos-graphify.sh [--all|--force|<stack>]"
+  exit 0
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${QA_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+IMAGE_NAME="${GRAPHIFY_IMAGE:-sinfallas/remote-graphify@sha256:08aa6a6fc5e72f25bb6a37da632932fe295ba0d72fd971ae5b365eeea3f778b0}"
 FORCE_ALL=false
 
 if [ "${1:-}" = "--all" ] || [ "${1:-}" = "--force" ]; then
@@ -16,16 +22,26 @@ if [ "${1:-}" = "--all" ] || [ "${1:-}" = "--force" ]; then
   shift
 fi
 
-if ! command -v docker &>/dev/null; then
+if ! command -v docker >/dev/null 2>&1; then
   echo "❌ Error: Docker no está instalado o no se encuentra en el PATH." >&2
   exit 1
 fi
 
-docker pull -q "${IMAGE_NAME}" >/dev/null 2>&1 || true
-
 extract_graph_in_dir() {
   local target_dir="$1"
-  local log_file="/tmp/graphify_ast_$$.log"
+  local log_file
+  log_file="$(mktemp /tmp/graphify_ast.XXXXXX.log)"
+
+  rm -rf -- \
+    "${target_dir}/graphify-out/graph.json" \
+    "${target_dir}/graphify-out/manifest.json" \
+    "${target_dir}/graphify-out/GRAPH_REPORT.md" \
+    "${target_dir}/graphify-out/graph.html" \
+    "${target_dir}/graphify-out/cache" \
+    "${target_dir}/graphify-out/20"* \
+    "${target_dir}/graphify-out/.graphify_"* \
+    2>/dev/null || true
+
   if ! docker run --rm \
     -e OLLAMA_BASE_URL="" \
     -v "${target_dir}:/app" \
@@ -34,10 +50,11 @@ extract_graph_in_dir() {
     sh -c "graphify extract . --code-only && graphify cluster-only ." >"${log_file}" 2>&1; then
     echo "❌ [Graphify AST] Error al extraer el grafo en '${target_dir}':" >&2
     cat "${log_file}" >&2
-    rm -f "${log_file}"
+    rm -f -- "${log_file}"
     return 1
   fi
-  rm -f "${log_file}"
+  rm -f -- "${log_file}"
+
   docker run --rm \
     -v "${target_dir}:/work" \
     "${IMAGE_NAME}" \
@@ -49,22 +66,20 @@ stack_needs_update() {
   local rel_name="$2"
   local graph_file="${target_dir}/graphify-out/graph.json"
 
-  if [ "${FORCE_ALL}" = true ] || [ ! -f "${graph_file}" ]; then
+  if [ "${FORCE_ALL}" = true ] || [ ! -s "${graph_file}" ]; then
     return 0
   fi
 
-  # 1. Revisar si existen archivos de código más recientes que graph.json
   local newer_files
   newer_files=$(find "${target_dir}" -maxdepth 4 \
-    \( -name node_modules -o -name .git -o -name dist -o -name coverage -o -name graphify-out -o -name .venv -o -name vendor \) -prune \
-    -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.py' -o -name '*.vue' -o -name '*.php' -o -name '*.sh' \) \
+    \( -name node_modules -o -name .git -o -name dist -o -name coverage -o -name graphify-out -o -name .venv -o -name artifacts \) -prune \
+    -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.py' -o -name '*.vue' -o -name '*.sh' \) \
     -newer "${graph_file}" -print -quit 2>/dev/null || true)
   if [ -n "${newer_files}" ]; then
     return 0
   fi
 
-  # 2. Revisar git status para cambios de código (excluyendo *.md y graphify-out)
-  if command -v git &>/dev/null && [ -d "${REPO_ROOT}/.git" ]; then
+  if command -v git >/dev/null 2>&1 && [ -d "${REPO_ROOT}/.git" ]; then
     local git_code_changes
     git_code_changes=$(git -C "${REPO_ROOT}" status --porcelain "${rel_name}" 2>/dev/null |
       grep -vE '(\.md$|graphify-out/)' || true)
@@ -82,21 +97,9 @@ if [ $# -ge 1 ] && [ -d "${REPO_ROOT}/$1" ]; then
   exit 0
 fi
 
-is_active_code_stack() {
-  local dir="$1"
-  [ -d "${dir}" ] || return 1
-  if [ -f "${dir}/package.json" ] || [ -f "${dir}/pyproject.toml" ] || [ -f "${dir}/composer.json" ]; then
-    return 0
-  fi
-  if [ -d "${dir}/src" ] || [ -d "${dir}/app" ]; then
-    return 0
-  fi
-  return 1
-}
-
 STACKS=()
-for s in fastapi python node-backend vue3 react-frontend php mcp-server backend frontend; do
-  if is_active_code_stack "${REPO_ROOT}/${s}"; then
+for s in backend frontend; do
+  if [ -d "${REPO_ROOT}/${s}" ]; then
     STACKS+=("${s}")
   fi
 done
@@ -104,14 +107,11 @@ done
 UPDATED=()
 SKIPPED=()
 
-# Si existen scripts o validadores en la raíz (.agents/scripts o scripts), mantener también el grafo raíz al día
-if [ -d "${REPO_ROOT}/scripts" ] || [ -d "${REPO_ROOT}/.agents/scripts" ] || [ ${#STACKS[@]} -eq 0 ]; then
-  if stack_needs_update "${REPO_ROOT}" "."; then
-    extract_graph_in_dir "${REPO_ROOT}"
-    UPDATED+=("root")
-  else
-    SKIPPED+=("root")
-  fi
+if stack_needs_update "${REPO_ROOT}" "."; then
+  extract_graph_in_dir "${REPO_ROOT}"
+  UPDATED+=("root")
+else
+  SKIPPED+=("root")
 fi
 
 for s in "${STACKS[@]}"; do
@@ -124,3 +124,4 @@ for s in "${STACKS[@]}"; do
 done
 
 echo "✔ [Graphify AST] Actualizados: ${#UPDATED[@]} (${UPDATED[*]:-ninguno}) | Omitidos sin cambios de código: ${#SKIPPED[@]} (${SKIPPED[*]:-ninguno})."
+exit 0

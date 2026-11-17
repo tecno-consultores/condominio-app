@@ -10,27 +10,28 @@
 
 | Capa de la Pirámide 11X | Herramienta / Gate | Umbral Exigido | Estado Actual |
 | :--- | :--- | :--- | :--- |
-| **Secret Scanning** | `./scripts/verificar-secretos.sh` | 0 secretos expuestos | ✅ **0 hallazgos** |
-| **Lint, Tipado & SAST (Backend)** | `make -C backend qa-lint` (`ruff`, `mypy --strict`, `bandit`) | 0 errores / 0 advertencias | ✅ **100% Limpio** |
+| **Secret Scanning** | `./scripts/verificar-secretos.sh` | 0 secretos expuestos | ✅ **0 hallazgos (`291` archivos escaneados con `grep -e`, `.env.example` y tests incluidos)** |
+| **Lint, Tipado & SAST (Backend)** | `make -C backend qa-lint` (`ruff`, `mypy --strict`, `bandit`) | 0 errores / 0 advertencias | ✅ **100% Limpio (`mypy --strict` `22` archivos, `bandit` `6.640` LoC)** |
 | **Complejidad Ciclomática & MI** | `make -C backend qa-complexity` (`radon_gates.py`) | CC $\le$ Grado B, MI $\ge$ Grado B | ✅ **Grado A/B (CC <= 10, MI >= B)** |
 | **Auditoría de Dependencias** | `make -C backend qa-deps` (`uv audit`) | 0 CVEs conocidos | ✅ **0 vulnerabilidades (`118` paquetes incluyendo `pillow==13.0.0`)** |
-| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **97.22% cobertura (`276/276` pass, `0 skipped` con PostgreSQL 17; `src/bootstrap.py` `99%`, `src/worker.py` `98%`)** |
+| **Pruebas Unitarias Backend** | `make -C backend qa-unit` (`pytest` + `coverage`) | Cobertura $\ge 95\%$ | ✅ **97% (`275 passed, 2 skipped` en SQLite; PG17 `qa-parity`: `25 passed` y baseline `v1.0.0`: `276/276`, `97.22%`)** |
 | **Pruebas de Mutación Backend** | `make -C backend qa-mutation` (`scripts/mutmut_gates.py`) | $\text{MSI} \ge 80\%$ | ✅ **86.40% MSI (`788/912`, `0` timeouts: `security.py` `93.14%`, `facturacion_lph.py` `85.00%`, `bootstrap.py` `84.90%`, `finanzas.py` `83.70%`)** |
-| **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (27 tablas + RLS PG17 + migración reversible `0009_hito18_tarea_diaria_unica`)** |
-| **Lint, Tipado & SonarJS (Frontend)** | `make -C frontend qa-lint` (`vue-tsc`, `prettier`, `eslint`) | 0 errores / CC $\le 15$ | ✅ **100% Limpio (`src/` y `e2e/`, `0` HIGH/CRITICAL `pnpm audit`, `@playwright/test@1.64.1`)** |
-| **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **42/42 componentes cubiertos (`54` suites)** |
-| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **>= 95% cobertura V8 (`54` suites / `130/130` pass + build Vite limpio)** |
+| **Paridad ORM ↔ Alembic (Anti-Mock)** | `make -C backend qa-parity` (PostgreSQL 17 real) | 0 discrepancias de esquema | ✅ **Paridad 1:1 certificada (27 tablas + RLS PG17 + `25 passed` en ciclo reversible `0001..0009`)** |
+| **Lint, Tipado & SonarJS (Frontend)** | `make -C frontend qa-lint` (`vue-tsc`, `prettier`, `eslint`, `audit:deps`) | 0 errores / CC $\le 15$ | ✅ **100% Limpio (`720` entradas `--frozen-lockfile`, `0` CVEs en prod `pnpm audit --prod`; exclusión temporal `GHSA-fc5q-39xc-vjpf` solo dev sin parche upstream en `pnpm-workspace.yaml`)** |
+| **Cero Componentes UI Huérfanos** | `make -C frontend qa-orphans` | 100% componentes `.vue` con `.unit.ts` | ✅ **42/42 componentes cubiertos (`54` suites, `0` huérfanos)** |
+| **Pruebas Unitarias Frontend** | `make -C frontend qa-unit` (`vitest` + `coverage-v8`) | Cobertura $\ge 95\%$ | ✅ **98.9% Stmts / 95.21% Branch / 97.82% Funcs / 99.24% Lines (`54/54` suites, `130/130` pass + Vite `166` módulos)** |
 | **Pruebas de Mutación Frontend** | `make -C frontend qa-mutation` (`Stryker`) | $\text{MSI} \ge 80\%$ | ✅ **83.26% MSI (`stryker.conf.json`)** |
-| **Salud Topológica AST (Graphify)** | `python3 .agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **3.103 nodos, 7.551 relaciones, 163 comunidades (0 violaciones en 3 grafos: 5.520 nodos, 13.900 relaciones)** |
+| **Salud Topológica AST (Graphify)** | `.agents/scripts/verify_topological_health.py` | 0 acoplamientos inversos | ✅ **3 grafos `--code-only`: 5.529 nodos, 13.838 relaciones, 0 `.md`, 0 violaciones (raíz `3.094`, back `1.445`, front `990`)** |
+| **Arquitectura FINOS CALM `1.2`** | `./.agents/scripts/validate_calm_architecture.sh` | 7 controles obligatorios | ✅ **Aprobado (`architecture/qa-11x.calm.json`: `10` nodos, `14` relaciones, `7` controles)** |
 | **E2E Screenplay, Geometría, A11y & Visual** | `make -C frontend qa-e2e` (Playwright + `@axe-core/playwright`) | 0 fallos / 0 violaciones WCAG 2.1 AA / diff $\le 2\%$ | ✅ **51/51 pass (`375x667`, `390x844`, `1440x900`, claro/oscuro, `15` snapshots PNG)** |
-| **Karate API BDD (Backend)** | `make -C backend qa-bdd` (`karatelabs`) | 100% escenarios Gherkin API | ✅ **25/25 pass (`backend/test/api_test.feature`, incluyendo Bootstrap Día 0)** |
+| **Karate API BDD (Backend)** | `make -C backend qa-bdd` (`karatelabs`) | 100% escenarios Gherkin API | ✅ **26/26 pass (`backend/test/api_test.feature`, incluyendo Bootstrap Día 0 y Hito 19 `MINIO_USE_SSL`)** |
 | **Karate UI BDD (Frontend)** | `make -C frontend qa-bdd` (`karatelabs` + sidecar `chrome-cdp`) | 100% escenarios Gherkin UI | ✅ **13/13 pass (`frontend/test/ui_business_flow.feature`, Chrome CDP `9222`)** |
 | **Performance & Best Practices (Frontend)** | `make -C frontend qa-perf` (`lhci autorun` en `/login`, `/register`) | Perf $\ge 90\%$, A11y $\ge 95\%$, BP $\ge 95\%$ | ✅ **Performance `99%`, Accessibility `100%`, Best Practices `100%`** |
 | **Contratos OpenAPI & Fuzzing** | `make -C backend qa-contracts` (`schemathesis`) | 0 fallos 5xx / contrato | ✅ **59/59 operaciones OpenAPI aprobadas** |
 | **Seguridad Dinámica (DAST)** | `make -C backend qa-dast` (`zaproxy/zap-stable`) | `FAIL-NEW: 0` | ✅ **0 fallos (`PASS: 67`, `FAIL-NEW: 0`)** |
 | **Ingeniería del Caos & Carga** | `make -C backend qa-chaos` (`Pumba` + `Locust` + `Prometheus`) | 0 errores bajo `netem 500ms` | ✅ **2.786 peticiones, 0 fallos** |
-| **Auditoría IaC & Contenedores** | `./scripts/auditar-infra.sh` + `trivy image` (`condominio-backend:hito18`, `condominio-frontend:hito18`) | 0 HIGH/CRITICAL misconfigs & CVEs | ✅ **0 hallazgos + smoke checks `--read-only` no-root (`10001:10001` y `101:101`)** |
-| **Scripts Bash & Respaldos (`BATS`)** | `sinfallas/base-bash-qa:latest` (`shfmt -i 2 -ci`, `shellcheck`, `bats test/limpieza.bats test/backup_diario.bats test/ci_workflows.bats`) | 0 advertencias / 100% pass | ✅ **10/10 pass (0 warnings)** |
+| **Auditoría IaC, SBOM & Imágenes** | `./scripts/auditar-infra.sh` + `trivy image` (`:smoke`) + `generar-sbom-cyclonedx.sh` | 0 HIGH/CRITICAL misconfigs & CVEs | ✅ **Trivy IaC/FS/Image `0` hallazgos (`debian 12.15`, `alpine 3.21.3`), smoke `--read-only` (`10001`, `101`, `CONTAINER_ROLE=api\|worker`) y SBOM `39.7 KB` en `artifacts/sbom/`** |
+| **Scripts Bash & Respaldos (`BATS`)** | `qa-bash` (`sinfallas/base-bash-qa`: `shfmt -i 2 -ci`, `shellcheck`, `bats`, `kcov`) | Cobertura `kcov >= 95%` / 0 alertas | ✅ **33/33 pass en `11` suites / `kcov` `95.26%` (`522/548` líneas), `0` warnings** |
 
 ---
 
@@ -99,10 +100,9 @@ make -C backend qa-deps
 make -C backend qa-unit
 make -C backend qa-parity
 
-# Validar scripts Bash (shfmt, ShellCheck y BATS) y purgar residuos efímeros
-docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/workspace:ro" -w /workspace sinfallas/base-bash-qa:latest \
-  bash -c "shfmt -d -i 2 -ci limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh test/*.bats && shellcheck limpieza.sh auditar-infra.sh scripts/*.sh .agents/scripts/*.sh && bats test/limpieza.bats test/backup_diario.bats test/ci_workflows.bats"
-./limpieza.sh
+# Validar scripts Bash (shfmt, ShellCheck, BATS y kcov >= 95%) y purgar residuos efímeros
+make qa-bash
+./scripts/limpieza.sh
 
 # Ejecutar el gate integral de cierre de tarea (.agents)
 ./.agents/scripts/certify_task_completion.sh

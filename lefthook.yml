@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: MIT
-# Copyright (C) 2026 Condominio App Contributors
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
 # ==============================================================================
-# LEFTHOOK - BARRERA DE ENTRADA (Pre-commit, Commit-msg & Pre-push)
+# LEFTHOOK - BARRERA DE ENTRADA (Pre-commit, Commit-msg & Pre-push — Rule Zero)
 # ==============================================================================
-# Intercepta comandos Git y ejecuta validaciones efímeras en Docker (Rule Zero)
-# antes de incorporar commits al historial o hacer push al remoto.
 
 pre-commit:
   parallel: true
@@ -12,12 +10,12 @@ pre-commit:
     backend-lint:
       root: "backend/"
       glob: "*.py"
-      run: docker compose -f docker-compose.qa.yml run --rm -u "$(id -u):$(id -g)" qa-backend bash -c "uv run ruff check {staged_files} && uv run ruff format --check {staged_files}"
+      run: docker compose -f docker-compose.qa.yml run --rm -T -u "$(id -u):$(id -g)" qa-backend bash -c "uv sync --frozen -q && uv run ruff check {staged_files} && uv run ruff format --check {staged_files}"
 
     frontend-lint:
       root: "frontend/"
       glob: "*.{js,ts,vue}"
-      run: docker compose -f docker-compose.qa.yml run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp qa-vue3 bash -c "[ -w /pnpm ] && export pnpm_config_store_dir=/pnpm || export pnpm_config_store_dir=/tmp/pnpm-store; pnpm install --silent && npx prettier --check {staged_files} && npx eslint {staged_files}"
+      run: docker compose -f docker-compose.qa.yml run --rm -T -u "$(id -u):$(id -g)" -e HOME=/tmp qa-vue3 bash -c "[ -w /pnpm ] && export pnpm_config_store_dir=/pnpm || export pnpm_config_store_dir=/tmp/pnpm-store; pnpm install --frozen-lockfile --silent && npx prettier --check {staged_files} && npx eslint {staged_files}"
 
     leaks-check:
       glob: "**/*"
@@ -26,7 +24,7 @@ pre-commit:
 commit-msg:
   commands:
     conventional-commits:
-      run: bash -c 'first_line=$(head -n 1 "{1}"); printf "%s\n" "$first_line" | grep -Eq "^(Merge |Revert \"|(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_.,/-]+\))?!?: .+)" || { echo "❌ [Conventional Commits] Formato requerido: <tipo>(<alcance>): <descripción>" >&2; exit 1; }'
+      run: docker run --rm -i -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$(pwd):/repo:ro" -v "condominio_hooks_pnpm:/pnpm" -w /tmp sinfallas/base-node-ionic:26@sha256:275f3d8bbfef87f4e836e4f77d92c0d199821154079b050eaef53ce33ae6de60 bash -c 'mkdir -p /tmp/cl && cp /repo/package.json /repo/pnpm-lock.yaml /repo/commitlint.config.js /tmp/cl/ && cd /tmp/cl && pnpm_config_store_dir=/pnpm pnpm install --frozen-lockfile --ignore-scripts --silent && ./node_modules/.bin/commitlint --config /tmp/cl/commitlint.config.js' < "{1}"
 
 pre-push:
   commands:

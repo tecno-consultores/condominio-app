@@ -2,7 +2,22 @@
   "name": "condominio-app",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Barrera de entrada corporativa (Lefthook + Commitlint) del ecosistema Condominio App",
+  "author": "Jesús Palencia <sinfallas@gmail.com> (https://github.com/sinfallas)",
+  "homepage": "https://github.com/tecno-consultores/condominio-app#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tecno-consultores/condominio-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tecno-consultores/condominio-app/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "prepare": "lefthook install"
   },

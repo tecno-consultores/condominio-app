@@ -2,7 +2,9 @@
 name = "condominio-app-backend"
 version = "1.0.0"
 description = "API para administración y control financiero de condominios"
-requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Jesús Palencia", email = "sinfallas@gmail.com" }]
+requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
@@ -59,34 +61,10 @@ dev = [
     "tox-uv>=1.16.0"
 ]
 
-[project.optional-dependencies]
-dev = [
-    # Core Testing & Mocking
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.5",
-    "pytest-cov>=4.1.0",
-    "pytest-mock>=3.14.0",
-    
-    # Linting & Tipado
-    "ruff>=0.3.0",
-    "mypy>=1.9.0",
-    
-    # Seguridad y Mutación
-    "bandit>=1.7.8",
-    "mutmut>=2.4.5,<3.0.0",
-    
-    # Complejidad y Profiling
-    "radon>=6.0.1",
-    "py-spy>=0.3.14",
-    
-    # Contratos y Estrés
-    "schemathesis>=3.25.0",
-    "locust>=2.24.0",
-
-    # Orquestación QA local
-    "tox>=4.14.0",
-    "tox-uv>=1.16.0"
-]
+[project.urls]
+Homepage = "https://github.com/tecno-consultores/condominio-app#readme"
+Repository = "https://github.com/tecno-consultores/condominio-app.git"
+Issues = "https://github.com/tecno-consultores/condominio-app/issues"
 
 [build-system]
 requires = ["hatchling"]

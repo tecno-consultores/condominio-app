@@ -10,7 +10,7 @@ Este documento describe la estrategia corporativa **Nivel 11X** para pruebas aut
 * **Caché Persistente:** El volumen `pnpm-store` evita descargas redundantes entre corridas.
 * **Contenedores Utilizados:**
   * `qa-vue3` (`sinfallas/base-node-ionic:26`): Para linting, type-checking, Vitest y mutación con Stryker.
-  * `ui-e2e` (`mcr.microsoft.com/playwright:v1.43.0-jammy`): Para regresión visual de Playwright y auditorías de Lighthouse CI.
+  * `ui-e2e` (`mcr.microsoft.com/playwright:v1.64.1-jammy`): Para regresión visual de Playwright y auditorías de Lighthouse CI.
   * `ui-prod` (`nginx:alpine`): Servidor estático que levanta el bundle compilado de Vue para pruebas E2E.
   * `karatelabs` (`sinfallas/karatelabs:latest`): Pruebas de aceptación BDD en navegador headless.
   * `nginx-exporter` y `prometheus`: Observabilidad de tráfico en pruebas de interfaz.
@@ -244,7 +244,7 @@ services:
     command: bash -c "echo 'Contenedor QA Vue 3 listo para Vitest y Lint'; sleep infinity"
 
   ui-e2e:
-    image: mcr.microsoft.com/playwright:v1.43.0-jammy
+    image: mcr.microsoft.com/playwright:v1.64.1-jammy
     container_name: condominio_frontend_ui_e2e
     hostname: condominio_frontend_ui_e2e
     pull_policy: always

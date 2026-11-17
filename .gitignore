@@ -88,6 +88,7 @@ graphify-out/
 .graphify_*
 trivy-results*
 .trivycache/
+artifacts/
 sbom*
 *.cdx.json
 *.spdx.json

@@ -21,7 +21,6 @@ src/**/*.unit.ts
 *.md
 Dockerfile
 docker-compose*.yml
-limpieza.sh
 playwright.config.ts
 vitest.config.ts
 stryker.conf.json

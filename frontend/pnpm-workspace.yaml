@@ -17,3 +17,7 @@ overrides:
   vite: "^6.4.5"
   vitest: "^4.1.12"
   zod: ">=4.6.6"
+auditConfig:
+  ignoreGhsas:
+    # Unpatched ReDoS in transitive devDependency picomatch <=4.0.7 (vite/vitest only); remove once >4.0.7 ships.
+    - GHSA-fc5q-39xc-vjpf

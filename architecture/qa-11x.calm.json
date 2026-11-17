@@ -1,0 +1,300 @@
+{
+  "$schema": "https://calm.finos.org/release/1.2/meta/calm.json",
+  "nodes": [
+    {
+      "unique-id": "qa-11x-ai-ide-host",
+      "node-type": "actor",
+      "name": "Asistente IA y Operador IDE",
+      "description": "Entorno IDE / CLI humano y agente de IA gobernado bajo protocolo QA 11X Thin-Repo."
+    },
+    {
+      "unique-id": "mcp-qa-11x-server",
+      "node-type": "service",
+      "name": "Servidor MCP @sinfallas/mcp-qa-11x",
+      "description": "Orquestador MCP v3.1.0 que audita seguridad STIG/OWASP, CALM y radio de impacto AST."
+    },
+    {
+      "unique-id": "ephemeral-docker-runners",
+      "node-type": "ecosystem",
+      "name": "Contenedores Efímeros QA Rule Zero",
+      "description": "Runners Docker no-root aislados (sinfallas/base-python-uv, base-node-ionic, base-bash-qa, karatelabs)."
+    },
+    {
+      "unique-id": "postgres17-rls-store",
+      "node-type": "database",
+      "name": "PostgreSQL 17 RLS Store",
+      "description": "Motor relacional PostgreSQL 17 con ENABLE/FORCE ROW LEVEL SECURITY sobre las 27 tablas."
+    },
+    {
+      "unique-id": "keydb-state-cache",
+      "node-type": "database",
+      "name": "KeyDB Multi-Hilo Cache & Queues",
+      "description": "Almacén en memoria KeyDB para idempotencia, lockout, revocación JWT, nonces QR y colas worker."
+    },
+    {
+      "unique-id": "governance-certification-gate",
+      "node-type": "service",
+      "name": "Compuerta de Certificación 10/10",
+      "description": "Pipeline .agents/scripts/certify_task_completion.sh que exige secretos=0, Trivy=0, AST y paridad."
+    },
+    {
+      "unique-id": "condominio-vue3-spa",
+      "node-type": "webclient",
+      "name": "Frontend SPA Vue 3 + Nginx No-Root",
+      "description": "Aplicación web Mobile-First Vue 3 servida por Nginx no-root (UID 101, puerto 8080) con cabeceras OSHP."
+    },
+    {
+      "unique-id": "condominio-fastapi-api",
+      "node-type": "service",
+      "name": "Backend API FastAPI (CONTAINER_ROLE=api)",
+      "description": "API REST asíncrona Python 3.13 no-root (UID 10001, puerto 8000) con seguridad 11X y SQLAlchemy 2.0."
+    },
+    {
+      "unique-id": "condominio-async-worker",
+      "node-type": "service",
+      "name": "Worker Asíncrono (CONTAINER_ROLE=worker)",
+      "description": "Proceso worker Python 3.13 no-root para conversión AVIF/MinIO, notificaciones SMTP y scheduler LPH."
+    },
+    {
+      "unique-id": "minio-s3-media-store",
+      "node-type": "storage",
+      "name": "Almacenamiento MinIO S3",
+      "description": "Almacenamiento de objetos S3 compatible para comprobantes de pago y evidencias AVIF."
+    }
+  ],
+  "relationships": [
+    {
+      "unique-id": "rel-ide-to-mcp",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "qa-11x-ai-ide-host" },
+          "destination": { "node": "mcp-qa-11x-server" }
+        }
+      },
+      "description": "El operador e IDE invocan herramientas MCP stdio bajo contrato anti-hang TTY."
+    },
+    {
+      "unique-id": "rel-mcp-to-runners",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "mcp-qa-11x-server" },
+          "destination": { "node": "ephemeral-docker-runners" }
+        }
+      },
+      "description": "Ejecución estricta bajo Rule Zero dentro de contenedores Docker efímeros."
+    },
+    {
+      "unique-id": "rel-runners-to-postgres",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "ephemeral-docker-runners" },
+          "destination": { "node": "postgres17-rls-store" }
+        }
+      },
+      "description": "Validación de migraciones Alembic, paridad ORM y aislamiento RLS en PostgreSQL 17."
+    },
+    {
+      "unique-id": "rel-runners-to-keydb",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "ephemeral-docker-runners" },
+          "destination": { "node": "keydb-state-cache" }
+        }
+      },
+      "description": "Pruebas de idempotencia, lockout y colas en KeyDB multi-hilo."
+    },
+    {
+      "unique-id": "rel-mcp-to-gate",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "mcp-qa-11x-server" },
+          "destination": { "node": "governance-certification-gate" }
+        }
+      },
+      "description": "Certificación obligatoria de cierre 10/10 antes de cualquier commit local."
+    },
+    {
+      "unique-id": "rel-spa-to-api",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "condominio-vue3-spa" },
+          "destination": { "node": "condominio-fastapi-api" }
+        }
+      },
+      "description": "Tráfico SPA proxied por Nginx hacia /api y /health con CSRF HMAC y cookies HttpOnly."
+    },
+    {
+      "unique-id": "rel-api-to-postgres",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "condominio-fastapi-api" },
+          "destination": { "node": "postgres17-rls-store" }
+        }
+      },
+      "description": "Persistencia transaccional bajo RLS por condominio_id y bloqueo pesimista."
+    },
+    {
+      "unique-id": "rel-api-to-keydb",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "condominio-fastapi-api" },
+          "destination": { "node": "keydb-state-cache" }
+        }
+      },
+      "description": "Gestión de tokens revocados, llaves de idempotencia, rate-limiting y nonces QR."
+    },
+    {
+      "unique-id": "rel-api-to-minio",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "condominio-fastapi-api" },
+          "destination": { "node": "minio-s3-media-store" }
+        }
+      },
+      "description": "Carga y consulta controlada de adjuntos validados por magic bytes."
+    },
+    {
+      "unique-id": "rel-worker-to-postgres",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "condominio-async-worker" },
+          "destination": { "node": "postgres17-rls-store" }
+        }
+      },
+      "description": "Scheduler idempotente de tareas diarias de conserjería y consulta de datos."
+    },
+    {
+      "unique-id": "rel-worker-to-keydb",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "condominio-async-worker" },
+          "destination": { "node": "keydb-state-cache" }
+        }
+      },
+      "description": "Consumo resiliente de colas de notificaciones y procesamiento AVIF con DLQ."
+    },
+    {
+      "unique-id": "rel-worker-to-minio",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "condominio-async-worker" },
+          "destination": { "node": "minio-s3-media-store" }
+        }
+      },
+      "description": "Subida HTTP firmada con AWS SigV4 (HTTP/HTTPS según MINIO_USE_SSL)."
+    },
+    {
+      "unique-id": "rel-gate-to-api",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "governance-certification-gate" },
+          "destination": { "node": "condominio-fastapi-api" }
+        }
+      },
+      "description": "Validación AST topológica, paridad ORM Alembic y paridad de endpoints API."
+    },
+    {
+      "unique-id": "rel-gate-to-spa",
+      "relationship-type": {
+        "connects": {
+          "source": { "node": "governance-certification-gate" },
+          "destination": { "node": "condominio-vue3-spa" }
+        }
+      },
+      "description": "Verificación de cero componentes Vue huérfanos y paridad de consumo REST."
+    }
+  ],
+  "controls": {
+    "prompt-injection-guard": {
+      "description": "Delimitación de entradas no confiables, esquemas Pydantic extra=forbid y saneamiento NFKC.",
+      "requirements": [
+        {
+          "requirement-url": "https://calm.finos.org/release/1.2/meta/control-requirement.json",
+          "config": {
+            "control-id": "prompt-injection-guard",
+            "name": "Protección contra inyección de prompts y asignación masiva",
+            "description": "Validación estricta de esquemas DTO y normalización UTF-8 NFKC en todos los límites de entrada."
+          }
+        }
+      ]
+    },
+    "rule-zero-ephemeral-docker": {
+      "description": "Prohibición absoluta de ejecutar pruebas, migraciones o linters en el SO anfitrión.",
+      "requirements": [
+        {
+          "requirement-url": "https://calm.finos.org/release/1.2/meta/control-requirement.json",
+          "config": {
+            "control-id": "rule-zero-ephemeral-docker",
+            "name": "Aislamiento de ejecución en Docker efímero no-root",
+            "description": "Todas las compuertas QA y validadores operan en contenedores sinfallas/* con --rm y UID no privilegiado."
+          }
+        }
+      ]
+    },
+    "postgres-rls-isolation": {
+      "description": "Aislamiento por condominio_id mediante ENABLE y FORCE ROW LEVEL SECURITY en PostgreSQL 17.",
+      "requirements": [
+        {
+          "requirement-url": "https://calm.finos.org/release/1.2/meta/control-requirement.json",
+          "config": {
+            "control-id": "postgres-rls-isolation",
+            "name": "Segregación obligatoria PostgreSQL 17 RLS",
+            "description": "Políticas RLS activas sobre las 27 tablas y rol runtime no superusuario."
+          }
+        }
+      ]
+    },
+    "worm-hmac-audit-chain": {
+      "description": "Registro inmutable de auditoría financiera y votos criptográficos firmados con HMAC-SHA256.",
+      "requirements": [
+        {
+          "requirement-url": "https://calm.finos.org/release/1.2/meta/control-requirement.json",
+          "config": {
+            "control-id": "worm-hmac-audit-chain",
+            "name": "Integridad WORM y firmas HMAC-SHA256",
+            "description": "Trazabilidad criptográfica de recibos, cierres contables, solvencias y votos de consulta."
+          }
+        }
+      ]
+    },
+    "vault-aes-256-gcm": {
+      "description": "Protección criptográfica de secretos, tokens y respaldos con cifrado AES-256 y detección cero secretos.",
+      "requirements": [
+        {
+          "requirement-url": "https://calm.finos.org/release/1.2/meta/control-requirement.json",
+          "config": {
+            "control-id": "vault-aes-256-gcm",
+            "name": "Custodia criptográfica de secretos y respaldos",
+            "description": "Escaneo integral de credenciales, claves de firma derivadas y cifrado AES-256 en respaldos."
+          }
+        }
+      ]
+    },
+    "git-closure-human-gate": {
+      "description": "Compuerta QA-GIT-GATE-01: commit local certificado sin ejecución automática de git push.",
+      "requirements": [
+        {
+          "requirement-url": "https://calm.finos.org/release/1.2/meta/control-requirement.json",
+          "config": {
+            "control-id": "git-closure-human-gate",
+            "name": "Control humano de publicación Git",
+            "description": "Detención obligatoria en commit local tras superar certify_task_completion.sh."
+          }
+        }
+      ]
+    },
+    "cli-tty-anti-hang-guard": {
+      "description": "Contratos no interactivos (-T en Docker Compose CI y verificación TTY en CLIs/MCP).",
+      "requirements": [
+        {
+          "requirement-url": "https://calm.finos.org/release/1.2/meta/control-requirement.json",
+          "config": {
+            "control-id": "cli-tty-anti-hang-guard",
+            "name": "Guardia anti-bloqueo TTY en CI y CLI",
+            "description": "Flags -T en compose QA y retorno determinista <= 5s ante invocaciones CLI sin stdin."
+          }
+        }
+      ]
+    }
+  }
+}

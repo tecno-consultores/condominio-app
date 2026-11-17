@@ -61,6 +61,19 @@ def _env_int(name: str, default: int) -> int:
     return int(raw) if raw else default
 
 
+def _normalize_minio_endpoint(endpoint: str, use_ssl: bool) -> str:
+    """Normaliza el endpoint MinIO aplicando esquema HTTPS cuando MINIO_USE_SSL está activo."""
+    cleaned = endpoint.strip().rstrip("/")
+    if not cleaned or cleaned.startswith("s3://"):
+        return cleaned
+    if cleaned.startswith("http://"):
+        return f"https://{cleaned[7:]}" if use_ssl else cleaned
+    if cleaned.startswith("https://"):
+        return cleaned
+    scheme = "https" if use_ssl else "http"
+    return f"{scheme}://{cleaned}"
+
+
 @dataclass(frozen=True)
 class WorkerSettings:
     """Configuración inmutable del proceso worker resuelta desde variables de entorno."""
@@ -80,11 +93,13 @@ class WorkerSettings:
     smtp_use_tls: bool = True
     max_retries: int = 3
     minio_endpoint: str = ""
+    minio_use_ssl: bool = False
 
     @classmethod
     def from_env(cls) -> WorkerSettings:
         hb_raw = os.getenv("WORKER_HEARTBEAT_PATH", "").strip()
         hb_path = Path(hb_raw) if hb_raw else DEFAULT_HEARTBEAT_PATH
+        minio_use_ssl = _env_flag("MINIO_USE_SSL", False)
         return cls(
             heartbeat_path=hb_path,
             poll_seconds=_env_float("WORKER_POLL_SECONDS", 1.0),
@@ -100,7 +115,8 @@ class WorkerSettings:
             smtp_from=os.getenv("SMTP_FROM", "no-responder@condominio.local").strip(),
             smtp_use_tls=_env_flag("SMTP_USE_TLS", True),
             max_retries=max(1, _env_int("WORKER_MAX_RETRIES", 3)),
-            minio_endpoint=os.getenv("MINIO_ENDPOINT", "").strip(),
+            minio_endpoint=_normalize_minio_endpoint(os.getenv("MINIO_ENDPOINT", ""), minio_use_ssl),
+            minio_use_ssl=minio_use_ssl,
         )
 
 
@@ -208,13 +224,15 @@ def convertir_y_subir_avif(
     *,
     strict_image: bool = False,
     http_client: httpx.Client | None = None,
+    minio_use_ssl: bool | None = None,
 ) -> str:
     """Convierte el binario recibido a formato AVIF y lo carga en MinIO si hay endpoint HTTP(S)."""
     datos_avif = codificar_imagen_avif(contenido, strict_image=strict_image)
     digest = hashlib.sha256(datos_avif).hexdigest()[:24]
     ruta_limpia = prefijo.strip("/") or "general"
     objeto_key = f"{ruta_limpia}/{digest}.avif"
-    base_limpia = minio_endpoint.rstrip("/")
+    use_ssl = _env_flag("MINIO_USE_SSL", False) if minio_use_ssl is None else minio_use_ssl
+    base_limpia = _normalize_minio_endpoint(minio_endpoint, use_ssl)
     if base_limpia.startswith(("http://", "https://")):
         return subir_objeto_minio_s3(datos_avif, objeto_key, base_limpia, http_client=http_client)
     return f"{base_limpia}/{objeto_key}"

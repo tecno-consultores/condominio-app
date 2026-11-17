@@ -758,6 +758,42 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method get
     Then status 200
 
+  # ==============================================================================
+  # Grupo 12: Verificación de Contratos Operativos Día 1 tras Hito 19
+  # ==============================================================================
+
+  Scenario: 26. Rechazo 401/403 aislado de endpoints operativos sin credenciales válidas (Hito 19)
+    * def ghostEmail = 'hito19.fantasma.' + java.util.UUID.randomUUID() + '@test.com'
+    * def ghostCedula = 'V-' + ('' + java.lang.System.nanoTime()).substring(0, 8)
+    * def regKey = 'hito19-reg-' + java.util.UUID.randomUUID()
+
+    Given path '/api/auth/register'
+    And header Idempotency-Key = regKey
+    And request
+      """
+      {
+        "nombre": "Residente Hito 19",
+        "cedula": "#(ghostCedula)",
+        "correo": "#(ghostEmail)",
+        "telefono": "+584141190019",
+        "password": "fake-qa-hito19-123456!",
+        "unidad_solicitada_id": 1,
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    And match response.es_activo == false
+
+    Given path '/api/auth/login'
+    And request { correo: "#(ghostEmail)", password: 'fake-qa-hito19-123456!' }
+    When method post
+    Then status 200
+
+    Given path '/api/tareas/diarias'
+    When method get
+    Then status 403
+
 
 
 

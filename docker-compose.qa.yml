@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 Jesús Palencia <sinfallas@gmail.com> (Creado en Tecno Consultores)
+
+services:
+  qa-bash:
+    image: sinfallas/base-bash-qa@sha256:2d1f579e20ef384e85da839304dbae2d28231fcdc893c21cbe79861b44d675a7
+    container_name: condominio_qa_bash
+    hostname: qa-bash
+    pull_policy: if_not_present
+    user: "${QA_UID:-1000}:${QA_GID:-1000}"
+    environment:
+      TZ: 'America/Caracas'
+      HOME: /tmp
+    volumes:
+      - .:/app:ro
+    tmpfs:
+      - /tmp:size=256M,exec,nosuid,nodev
+    working_dir: /app
+    # NOTA 11X: kcov requiere ptrace exclusivamente en el contenedor efímero QA
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    command: bash -c "echo 'Contenedor QA Bash listo (ShellCheck, shfmt, BATS y kcov).'; sleep infinity"
