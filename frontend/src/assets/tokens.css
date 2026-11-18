@@ -46,6 +46,17 @@
   --autofill-bg-light: oklch(0.96 0.025 235);
   --focus-ring-light: oklch(0.44 0.16 235);
   --surface-hairline-color-light: oklch(1 0 0 / 0.65);
+  --text-on-accent-light: oklch(0.99 0.005 250);
+  --surface-backdrop-light: oklch(0.18 0.02 255 / 0.56);
+  --surface-code-bg-light: oklch(0.19 0.025 255);
+  --surface-code-text-light: oklch(0.96 0.008 250);
+  --surface-code-accent-light: oklch(0.8 0.12 220);
+  --chart-1-light: oklch(0.5 0.14 235);
+  --chart-2-light: oklch(0.56 0.12 185);
+  --chart-3-light: oklch(0.54 0.17 275);
+  --chart-4-light: oklch(0.68 0.16 75);
+  --chart-5-light: oklch(0.58 0.19 350);
+  --chart-track-light: oklch(0.9 0.01 250);
 
   /* --- Paleta Base OKLCH (Modo Oscuro) --- */
   --surface-canvas-dark: oklch(0.16 0.02 255);
@@ -88,6 +99,17 @@
   --autofill-bg-dark: oklch(0.25 0.04 235);
   --focus-ring-dark: oklch(0.76 0.14 220);
   --surface-hairline-color-dark: oklch(1 0 0 / 0.08);
+  --text-on-accent-dark: oklch(0.99 0.005 250);
+  --surface-backdrop-dark: oklch(0.08 0.02 255 / 0.72);
+  --surface-code-bg-dark: oklch(0.13 0.02 255);
+  --surface-code-text-dark: oklch(0.96 0.008 250);
+  --surface-code-accent-dark: oklch(0.82 0.13 220);
+  --chart-1-dark: oklch(0.68 0.14 235);
+  --chart-2-dark: oklch(0.72 0.12 185);
+  --chart-3-dark: oklch(0.7 0.16 275);
+  --chart-4-dark: oklch(0.78 0.15 75);
+  --chart-5-dark: oklch(0.72 0.18 350);
+  --chart-track-dark: oklch(0.32 0.02 255);
 
   /* --- Tokens Semánticos por Defecto (Fallback pre-light-dark) --- */
   --surface-canvas: var(--surface-canvas-light);
@@ -130,6 +152,17 @@
   --autofill-bg: var(--autofill-bg-light);
   --focus-ring: var(--focus-ring-light);
   --surface-hairline-color: var(--surface-hairline-color-light);
+  --text-on-accent: var(--text-on-accent-light);
+  --surface-backdrop: var(--surface-backdrop-light);
+  --surface-code-bg: var(--surface-code-bg-light);
+  --surface-code-text: var(--surface-code-text-light);
+  --surface-code-accent: var(--surface-code-accent-light);
+  --chart-1: var(--chart-1-light);
+  --chart-2: var(--chart-2-light);
+  --chart-3: var(--chart-3-light);
+  --chart-4: var(--chart-4-light);
+  --chart-5: var(--chart-5-light);
+  --chart-track: var(--chart-track-light);
   --surface-hairline: inset 0 1px 0 var(--surface-hairline-color);
   --btn-raised-shadow: inset 0 1px 0 oklch(1 0 0 / 0.18), 0 1px 2px oklch(0.15 0.02 250 / 0.18);
 
@@ -190,6 +223,17 @@
   --autofill-bg: var(--autofill-bg-dark);
   --focus-ring: var(--focus-ring-dark);
   --surface-hairline-color: var(--surface-hairline-color-dark);
+  --text-on-accent: var(--text-on-accent-dark);
+  --surface-backdrop: var(--surface-backdrop-dark);
+  --surface-code-bg: var(--surface-code-bg-dark);
+  --surface-code-text: var(--surface-code-text-dark);
+  --surface-code-accent: var(--surface-code-accent-dark);
+  --chart-1: var(--chart-1-dark);
+  --chart-2: var(--chart-2-dark);
+  --chart-3: var(--chart-3-dark);
+  --chart-4: var(--chart-4-dark);
+  --chart-5: var(--chart-5-dark);
+  --chart-track: var(--chart-track-dark);
 }
 
 :root:is(.theme-light, :has(> head > meta[name='color-scheme'][content='light'])) {
@@ -230,6 +274,17 @@
     --autofill-bg: var(--autofill-bg-dark);
     --focus-ring: var(--focus-ring-dark);
     --surface-hairline-color: var(--surface-hairline-color-dark);
+    --text-on-accent: var(--text-on-accent-dark);
+    --surface-backdrop: var(--surface-backdrop-dark);
+    --surface-code-bg: var(--surface-code-bg-dark);
+    --surface-code-text: var(--surface-code-text-dark);
+    --surface-code-accent: var(--surface-code-accent-dark);
+    --chart-1: var(--chart-1-dark);
+    --chart-2: var(--chart-2-dark);
+    --chart-3: var(--chart-3-dark);
+    --chart-4: var(--chart-4-dark);
+    --chart-5: var(--chart-5-dark);
+    --chart-track: var(--chart-track-dark);
   }
 }
 
@@ -290,6 +345,23 @@
       var(--surface-hairline-color-light),
       var(--surface-hairline-color-dark)
     );
+    --text-on-accent: light-dark(var(--text-on-accent-light), var(--text-on-accent-dark));
+    --surface-backdrop: light-dark(var(--surface-backdrop-light), var(--surface-backdrop-dark));
+    --surface-code-bg: light-dark(var(--surface-code-bg-light), var(--surface-code-bg-dark));
+    --surface-code-text: light-dark(
+      var(--surface-code-text-light),
+      var(--surface-code-text-dark)
+    );
+    --surface-code-accent: light-dark(
+      var(--surface-code-accent-light),
+      var(--surface-code-accent-dark)
+    );
+    --chart-1: light-dark(var(--chart-1-light), var(--chart-1-dark));
+    --chart-2: light-dark(var(--chart-2-light), var(--chart-2-dark));
+    --chart-3: light-dark(var(--chart-3-light), var(--chart-3-dark));
+    --chart-4: light-dark(var(--chart-4-light), var(--chart-4-dark));
+    --chart-5: light-dark(var(--chart-5-light), var(--chart-5-dark));
+    --chart-track: light-dark(var(--chart-track-light), var(--chart-track-dark));
   }
 }
 
@@ -461,8 +533,18 @@ dialog.top-layer-dialog:is([open]):where(:not([data-closing])) {
   }
 }
 
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: var(--surface-backdrop);
+}
+
 dialog.top-layer-dialog::backdrop {
-  background-color: oklch(0.15 0.02 255 / 0.55);
+  background-color: var(--surface-backdrop);
   transition-property: opacity, display, overlay;
   transition-duration: 0.22s;
   transition-behavior: allow-discrete;
@@ -552,5 +634,27 @@ dialog.top-layer-dialog:is([open]):where(:not([data-closing]))::backdrop {
 /* --- Renderizado diferido bajo el pliegue (content-visibility: auto) --- */
 .defer-feed-list > :nth-child(n + 5) {
   content-visibility: auto;
-  contain-intrinsic-size: auto none auto 180px;
+  contain-intrinsic-inline-size: none;
+  contain-intrinsic-block-size: auto 180px;
+}
+
+.dual-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dual-refresh-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }

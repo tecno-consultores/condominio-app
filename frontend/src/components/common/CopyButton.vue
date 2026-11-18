@@ -180,13 +180,13 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-inline-size: 2rem;
-  min-block-size: 2rem;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
   padding: 0.25rem 0.5rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #64748b);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
   font-size: 0.875rem;
   font-weight: 700;
   cursor: pointer;
@@ -197,20 +197,20 @@ onBeforeUnmount(() => {
 }
 
 .copy-control__button:hover {
-  background-color: var(--brand-tint, #f0f9ff);
-  border-color: var(--brand-accent, #0369a1);
+  background-color: var(--brand-tint);
+  border-color: var(--brand-accent);
 }
 
 .copy-control__button[data-copied] {
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #166534);
-  border-color: var(--status-ok-border, #16a34a);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
+  border-color: var(--status-ok-border);
 }
 
 .copy-control__button[data-failed] {
-  background-color: var(--status-danger-bg, #fef2f2);
-  color: var(--status-danger-text, #991b1b);
-  border-color: var(--status-danger-border, #dc2626);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  border-color: var(--status-danger-border);
 }
 
 .copy-control__tip {
@@ -225,10 +225,10 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1.2;
   padding: 0.2rem 0.5rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  background-color: var(--surface-elevated, #ffffff);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--surface-elevated);
+  color: var(--text-primary);
   box-shadow: var(--shadow-card);
   transition: opacity 0.15s ease;
 }
@@ -238,22 +238,15 @@ onBeforeUnmount(() => {
 }
 
 .copy-control__button[data-copied] + .copy-control__tip:not(:empty) {
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #166534);
-  border-color: var(--status-ok-border, #16a34a);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
+  border-color: var(--status-ok-border);
 }
 
 .copy-control__button[data-failed] + .copy-control__tip:not(:empty) {
-  background-color: var(--status-danger-bg, #fef2f2);
-  color: var(--status-danger-text, #991b1b);
-  border-color: var(--status-danger-border, #dc2626);
-}
-
-@media (pointer: coarse) {
-  .copy-control__button {
-    min-inline-size: 2.75rem;
-    min-block-size: 2.75rem;
-  }
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  border-color: var(--status-danger-border);
 }
 
 @media (prefers-reduced-motion: reduce) {

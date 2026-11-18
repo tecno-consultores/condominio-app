@@ -3,7 +3,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { RouterView, useRoute, useRouter } from 'vue-router';
 import { useAccessAmenitiesStore } from '../../stores/accessAmenitiesStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useFinanceStore } from '../../stores/financeStore';
@@ -12,6 +12,7 @@ import { useOperationsStore } from '../../stores/operationsStore';
 import AppFooter from './AppFooter.vue';
 import BottomNavBar from './BottomNavBar.vue';
 import ContextualHelpModal from './ContextualHelpModal.vue';
+import MobileNavDrawer from './MobileNavDrawer.vue';
 import SidebarNav from './SidebarNav.vue';
 import StaleDataBanner from './StaleDataBanner.vue';
 import ThemeToggleButton from './ThemeToggleButton.vue';
@@ -25,6 +26,7 @@ const route = useRoute();
 const router = useRouter();
 
 const isHelpOpen = ref(false);
+const isMobileMenuOpen = ref(false);
 
 const anyStoreStale = computed(
   () =>
@@ -51,6 +53,7 @@ async function handleNavigate(to: string): Promise<void> {
 }
 
 async function handleLogout(): Promise<void> {
+  isMobileMenuOpen.value = false;
   await authStore.logout();
   await router.push('/login');
 }
@@ -69,7 +72,32 @@ async function handleLogout(): Promise<void> {
     <main id="app-main-content" class="app-main">
       <div class="app-main__body">
         <header class="app-main__top-bar">
+          <button
+            id="btn-mobile-menu"
+            type="button"
+            class="mobile-top-trigger"
+            aria-label="Abrir menú completo"
+            :aria-expanded="isMobileMenuOpen ? 'true' : 'false'"
+            aria-controls="mobile-nav-drawer"
+            @click="isMobileMenuOpen = true"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+            <span>Menú</span>
+          </button>
+
           <div class="app-main__top-spacer"></div>
+
           <ThemeToggleButton button-id="btn-theme-toggle" />
           <button
             id="btn-contextual-help"
@@ -80,6 +108,15 @@ async function handleLogout(): Promise<void> {
           >
             <span class="contextual-help-trigger__icon" aria-hidden="true">?</span>
             <span class="contextual-help-trigger__label">Ayuda</span>
+          </button>
+          <button
+            id="btn-mobile-logout"
+            type="button"
+            class="mobile-logout-trigger"
+            aria-label="Salir y cerrar sesión"
+            @click="handleLogout"
+          >
+            Salir
           </button>
         </header>
 
@@ -95,7 +132,7 @@ async function handleLogout(): Promise<void> {
             id="btn-dismiss-rbac-notice"
             type="button"
             class="rbac-notice-banner__close"
-            aria-label="Cerrar aviso de permisos"
+            aria-label="Entendido, cerrar aviso de permisos"
             @click="authStore.setRbacNotice(null)"
           >
             Entendido
@@ -103,7 +140,9 @@ async function handleLogout(): Promise<void> {
         </div>
 
         <StaleDataBanner :is-stale="anyStoreStale" :message="staleBannerMessage" />
-        <slot />
+        <slot>
+          <RouterView />
+        </slot>
       </div>
       <AppFooter version="1.0.0" />
     </main>
@@ -112,6 +151,16 @@ async function handleLogout(): Promise<void> {
       :role="authStore.userRole"
       :current-path="route.path"
       @navigate="handleNavigate"
+    />
+
+    <MobileNavDrawer
+      :open="isMobileMenuOpen"
+      :user-name="authStore.data?.nombre || 'Residente'"
+      :role="authStore.userRole"
+      :current-path="route.path"
+      @close="isMobileMenuOpen = false"
+      @navigate="handleNavigate"
+      @logout="handleLogout"
     />
 
     <ContextualHelpModal
@@ -127,8 +176,8 @@ async function handleLogout(): Promise<void> {
 .app-shell {
   display: flex;
   min-height: 100dvh;
-  background-color: var(--surface-canvas, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  background-color: var(--surface-canvas);
+  color: var(--text-primary);
 }
 
 .app-main {
@@ -152,6 +201,7 @@ async function handleLogout(): Promise<void> {
 
 .app-main__top-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
@@ -162,16 +212,44 @@ async function handleLogout(): Promise<void> {
   flex: 1;
 }
 
+.mobile-top-trigger,
+.mobile-logout-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mobile-top-trigger {
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-card);
+}
+
+.mobile-logout-trigger {
+  border: 1px solid var(--status-danger-border);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
 .contextual-help-trigger {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   min-block-size: 2.75rem;
   padding: 0.375rem 0.75rem;
-  border-radius: var(--radius-pill, 9999px);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-control, #cbd5e1);
-  color: var(--brand-accent, #0369a1);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-control);
+  color: var(--brand-accent);
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
@@ -182,12 +260,12 @@ async function handleLogout(): Promise<void> {
 }
 
 .contextual-help-trigger:hover {
-  background-color: var(--brand-tint, #f0f9ff);
-  border-color: var(--brand-accent, #7dd3fc);
+  background-color: var(--brand-tint);
+  border-color: var(--brand-accent);
 }
 
 .contextual-help-trigger:focus-visible {
-  outline: 2px solid var(--brand-accent, #0369a1);
+  outline: 2px solid var(--brand-accent);
   outline-offset: 2px;
 }
 
@@ -199,21 +277,22 @@ async function handleLogout(): Promise<void> {
   gap: 0.75rem;
   margin-bottom: 0.75rem;
   padding: 0.625rem 0.875rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  background-color: var(--status-warn-bg, #fef3c7);
-  border: 1px solid var(--status-warn-border, #f59e0b);
-  color: var(--status-warn-text, #78350f);
+  border-radius: var(--radius-sm);
+  background-color: var(--status-warn-bg);
+  border: 1px solid var(--status-warn-border);
+  color: var(--status-warn-text);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .rbac-notice-banner__close {
   padding: 0.375rem 0.75rem;
-  min-block-size: 2.25rem;
-  border-radius: var(--radius-sm, 0.375rem);
-  border: 1px solid var(--status-warn-border, #d97706);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--status-warn-text, #78350f);
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-warn-border);
+  background-color: var(--surface-card);
+  color: var(--status-warn-text);
   font-size: 0.8125rem;
   font-weight: 700;
   cursor: pointer;
@@ -226,8 +305,8 @@ async function handleLogout(): Promise<void> {
   inline-size: 1.25rem;
   block-size: 1.25rem;
   border-radius: 50%;
-  background-color: var(--brand-tint, #e0f2fe);
-  color: var(--brand-accent, #0369a1);
+  background-color: var(--brand-tint);
+  color: var(--brand-accent);
   font-size: 0.75rem;
   font-weight: 800;
 }
@@ -235,6 +314,11 @@ async function handleLogout(): Promise<void> {
 @media (min-width: 768px) {
   .app-main {
     padding: clamp(1rem, 2vw, 2rem) clamp(1.5rem, 3vw, 3rem) 6rem;
+  }
+
+  .mobile-top-trigger,
+  .mobile-logout-trigger {
+    display: none;
   }
 }
 </style>

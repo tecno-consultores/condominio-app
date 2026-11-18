@@ -12,6 +12,7 @@ const themePreference = ref<ThemePreference>('system');
 const systemPrefersDark = ref<boolean>(false);
 
 let listenersRegistered = false;
+let boundMediaQueryList: MediaQueryList | null = null;
 
 function readStoredPreference(): ThemePreference {
   try {
@@ -96,9 +97,9 @@ function ensureGlobalListeners(): void {
   listenersRegistered = true;
   window.addEventListener('storage', handleStorageSync);
   if (typeof window.matchMedia === 'function') {
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
-    if (typeof mql.addEventListener === 'function') {
-      mql.addEventListener('change', handleMediaChange);
+    boundMediaQueryList = window.matchMedia('(prefers-color-scheme: dark)');
+    if (typeof boundMediaQueryList.addEventListener === 'function') {
+      boundMediaQueryList.addEventListener('change', handleMediaChange);
     }
   }
 }
@@ -107,6 +108,10 @@ export function resetThemeListenersForTests(): void {
   if (typeof window !== 'undefined' && listenersRegistered) {
     window.removeEventListener('storage', handleStorageSync);
   }
+  if (boundMediaQueryList && typeof boundMediaQueryList.removeEventListener === 'function') {
+    boundMediaQueryList.removeEventListener('change', handleMediaChange);
+  }
+  boundMediaQueryList = null;
   listenersRegistered = false;
   themePreference.value = 'system';
   systemPrefersDark.value = false;

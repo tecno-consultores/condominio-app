@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   escapeHtml,
   generateIdempotencyKey,
+  isSafeMediaUrl,
   isSafeRedirectUrl,
   MAX_UPLOAD_BYTES,
   sanitizeObject,
@@ -10,12 +11,12 @@ import {
 } from './security';
 
 describe('Utilidades de Seguridad Cliente Nivel 11X (security.ts)', () => {
-  it('escapa caracteres peligrosos XSS y limpia caracteres de control', () => {
+  it('escapa caracteres peligrosos XSS con escapeHtml y limpia controles sin doble-escapar en sanitizeUntrustedText', () => {
     expect(escapeHtml('<script>alert("xss" & \'1\')</script>')).toBe(
       '&lt;script&gt;alert(&quot;xss&quot; &amp; &#39;1&#39;)&lt;/script&gt;',
     );
-    expect(sanitizeUntrustedText('  Hola\u0000\u0007 <b>Mundo</b>  ')).toBe(
-      'Hola &lt;b&gt;Mundo&lt;/b&gt;',
+    expect(sanitizeUntrustedText('  Hola\u0000\u0007 "Mundo" & <tag>  ')).toBe(
+      'Hola "Mundo" & <tag>',
     );
   });
 
@@ -32,7 +33,7 @@ describe('Utilidades de Seguridad Cliente Nivel 11X (security.ts)', () => {
     expect(sanitizeObject(42)).toBe(42);
   });
 
-  it('valida redirecciones internas seguras y bloquea Open Redirects', () => {
+  it('valida redirecciones internas seguras y bloquea Open Redirects incluyendo caracteres de control', () => {
     expect(isSafeRedirectUrl('/dashboard')).toBe(true);
     expect(isSafeRedirectUrl('/finanzas/reportar-pago?recibo=1')).toBe(true);
     expect(isSafeRedirectUrl(null)).toBe(false);
@@ -40,8 +41,27 @@ describe('Utilidades de Seguridad Cliente Nivel 11X (security.ts)', () => {
     expect(isSafeRedirectUrl('https://evil.com')).toBe(false);
     expect(isSafeRedirectUrl('//evil.com')).toBe(false);
     expect(isSafeRedirectUrl('/\\evil.com')).toBe(false);
+    expect(isSafeRedirectUrl('/\t/evil.com')).toBe(false);
+    expect(isSafeRedirectUrl('/\n/evil.com')).toBe(false);
+    expect(isSafeRedirectUrl('/dashboard\r\n')).toBe(false);
     expect(isSafeRedirectUrl('/javascript:alert(1)')).toBe(false);
     expect(isSafeRedirectUrl('/data:text/html,xss')).toBe(false);
+    expect(isSafeRedirectUrl('/vbscript:msgbox(1)')).toBe(false);
+    expect(isSafeRedirectUrl('/file:///etc/passwd')).toBe(false);
+  });
+
+  it('valida URLs de medios seguras (isSafeMediaUrl)', () => {
+    expect(isSafeMediaUrl('/api/evidencias/1.avif')).toBe(true);
+    expect(isSafeMediaUrl('https://cdn.condominio.local/img.avif')).toBe(true);
+    expect(isSafeMediaUrl('http://localhost:9000/bucket/img.png')).toBe(true);
+    expect(isSafeMediaUrl('blob:http://localhost/123')).toBe(true);
+    expect(isSafeMediaUrl(null)).toBe(false);
+    expect(isSafeMediaUrl('   ')).toBe(false);
+    expect(isSafeMediaUrl('/\t/evil.png')).toBe(false);
+    expect(isSafeMediaUrl('s3://evidencias/pendiente.png')).toBe(false);
+    expect(isSafeMediaUrl('javascript:alert(1)')).toBe(false);
+    expect(isSafeMediaUrl('data:text/html,<script>1</script>')).toBe(false);
+    expect(isSafeMediaUrl('not-a-valid-url')).toBe(false);
   });
 
   it('valida cuota máxima de 2 MB y tipos MIME permitidos para comprobantes', () => {
@@ -82,18 +102,27 @@ describe('Utilidades de Seguridad Cliente Nivel 11X (security.ts)', () => {
     ).toEqual({ valid: true });
   });
 
-  it('genera claves de idempotencia con randomUUID y con fallback determinista', () => {
+  it('genera claves de idempotencia con randomUUID y fallback criptográfico getRandomValues (sin Math.random)', () => {
     const key1 = generateIdempotencyKey();
     expect(key1.length).toBeGreaterThan(10);
 
-    const spy = vi
-      .spyOn(crypto, 'randomUUID')
-      .mockImplementation((() => undefined) as unknown as typeof crypto.randomUUID);
+    const mathSpy = vi.spyOn(Math, 'random');
     const originalRandomUUID = crypto.randomUUID;
     Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
     const fallbackKey = generateIdempotencyKey();
-    expect(fallbackKey.startsWith('idemp-')).toBe(true);
+    expect(fallbackKey).toMatch(/^idemp-[0-9a-f]{32}$/);
+    expect(mathSpy).not.toHaveBeenCalled();
+
+    const originalGetRandomValues = crypto.getRandomValues;
+    Object.defineProperty(crypto, 'getRandomValues', { value: undefined, configurable: true });
+    expect(() => generateIdempotencyKey()).toThrow(
+      'Generador criptográfico (Web Crypto API) no disponible.',
+    );
+    Object.defineProperty(crypto, 'getRandomValues', {
+      value: originalGetRandomValues,
+      configurable: true,
+    });
     Object.defineProperty(crypto, 'randomUUID', { value: originalRandomUUID, configurable: true });
-    spy.mockRestore();
+    mathSpy.mockRestore();
   });
 });

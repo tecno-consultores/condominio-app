@@ -37,14 +37,7 @@ ARCHITECTURAL_WHITELIST: set[tuple[str, str]] = {
 }
 
 # Endpoints de operaciones pendientes de cableado SPA en Hito 22.1 (Spec 13 §2.4.1)
-DEFERRED_HITO22_ROUTES: set[tuple[str, str]] = {
-    ("POST", "/api/tareas/plantillas"),
-    ("POST", "/api/tareas/diarias"),
-    ("POST", "/api/tareas/generar-diarias"),
-    ("POST", "/api/comunicados"),
-    ("GET", "/api/comunicados/recientes"),
-    ("POST", "/api/evidencias/subir"),
-}
+DEFERRED_HITO22_ROUTES: set[tuple[str, str]] = set()
 
 
 def normalize_route_pattern(path: str) -> str:

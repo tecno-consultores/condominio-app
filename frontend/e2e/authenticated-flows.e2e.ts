@@ -60,6 +60,9 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     await residente.attemptsTo(NavigateTo.path('/dashboard'));
     expect(await residente.asks(CurrentPathname.value())).toBe('/espera-aprobacion');
 
+    await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+    await page.waitForURL('**/login');
+
     const presidente = Actor.named('Presidente').whoCan(BrowseTheWeb.using(page));
     await presidente.attemptsTo(
       Authenticate.withCredentials('presidente@condominio.test', 'Presidente123!'),
@@ -130,7 +133,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     await page.locator('#btn-copy-vote-hmac').click();
     await expect(page.locator('#btn-copy-vote-hmac')).toHaveAttribute('data-copied', '');
     await page.locator('#btn-close-vote-receipt').click();
-    await assertNoOcclusionOrOverflow(votante, false);
+    await assertNoOcclusionOrOverflow(votante, true);
   });
 
   test('4. Control de Accesos Anti-Replay, Reservas Estrictas y Cancelación (Hitos 12, 13 y 17.4)', async ({
@@ -142,7 +145,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     await actor.attemptsTo(IssueVisitorQrPass.forVisitor('Elena Tecnica', 'V-18222333'));
     const tokenText = (await page.locator('code.token-value').first().innerText()).trim();
     expect(tokenText).toContain('hmac_');
-    await assertNoOcclusionOrOverflow(actor, false);
+    await assertNoOcclusionOrOverflow(actor, true);
 
     // Primer escaneo válido y segundo escaneo bloqueado (Anti-Replay)
     await installCondominioApiMock(page, { initialProfile: 'CONSERJE' });
@@ -161,7 +164,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     expect(
       await page.locator('#reservation-card-1, .reservation-card').first().innerText(),
     ).toContain('CANCELADA');
-    await assertNoOcclusionOrOverflow(conserje, false);
+    await assertNoOcclusionOrOverflow(conserje, true);
 
     // Bloqueo por morosidad (403) en reserva estricta
     await installCondominioApiMock(page, {
@@ -176,5 +179,43 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
       'solvente',
     );
     expect(await moroso.asks(VisibleHeading.text())).toContain('Reserva');
+  });
+
+  test('5. Hito 22: Cajón móvil < 768px, logout móvil, ruta 404 y resiliencia de Dashboard', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await installCondominioApiMock(page, {
+      initialProfile: 'PROPIETARIO',
+      omitDailyRate: true,
+      omitResumen: true,
+    });
+    const movil = Actor.named('ResidenteMovil').whoCan(BrowseTheWeb.using(page));
+
+    await movil.attemptsTo(NavigateTo.path('/dashboard'));
+    expect(await movil.asks(TextOfElement.matching('#daily-rate-badge'))).toContain(
+      'Tasa BCV pendiente hoy',
+    );
+    expect(await movil.asks(TextOfElement.matching('#deuda-card'))).not.toContain(
+      'Solvente / Al día',
+    );
+    await assertNoOcclusionOrOverflow(movil, true);
+
+    // Drawer móvil en Top Layer y acceso a ruta secundaria
+    await page.locator('#btn-mobile-menu').click();
+    const drawer = page.locator('#mobile-nav-drawer');
+    await expect(drawer).toBeVisible();
+    await drawer.getByRole('button', { name: 'Cartas Consulta' }).click();
+    await page.waitForURL('**/consultas');
+
+    // Ruta desconocida -> #not-found-card
+    await page.goto('/ruta-inexistente-404', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#not-found-card')).toBeVisible();
+    await page.locator('#btn-go-home').click();
+    await page.waitForURL('**/dashboard');
+
+    // Botón móvil de salida visible en barra superior
+    await page.locator('#btn-mobile-logout').click();
+    await page.waitForURL('**/login');
   });
 });

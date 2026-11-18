@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { ComunicadoDTO } from '../../stores/financeStore';
-import { sanitizeUntrustedText } from '../../utils/security';
+import { isSafeMediaUrl } from '../../utils/security';
 
 const props = defineProps<{
   items: ComunicadoDTO[];
@@ -15,6 +15,14 @@ const currentItem = computed<ComunicadoDTO | null>(() => {
   }
   const safeIdx = Math.min(activeIndex.value, props.items.length - 1);
   return props.items[safeIdx]!;
+});
+
+const safeExternalLink = computed<string | null>(() => {
+  const link = currentItem.value?.enlace_externo;
+  if (!link || !isSafeMediaUrl(link)) {
+    return null;
+  }
+  return link.trim();
 });
 
 function prevSlide(): void {
@@ -44,7 +52,9 @@ function nextSlide(): void {
         >
           Anterior
         </button>
-        <span class="carousel-card__counter">{{ activeIndex + 1 }} / {{ items.length }}</span>
+        <span class="carousel-card__counter tabular-nums"
+          >{{ activeIndex + 1 }} / {{ items.length }}</span
+        >
         <button
           id="btn-carousel-next"
           type="button"
@@ -58,8 +68,18 @@ function nextSlide(): void {
     </div>
 
     <article v-if="currentItem" class="carousel-card__body">
-      <h3 class="carousel-card__item-title">{{ sanitizeUntrustedText(currentItem.titulo) }}</h3>
-      <p class="carousel-card__item-text">{{ sanitizeUntrustedText(currentItem.contenido) }}</p>
+      <h3 class="carousel-card__item-title">{{ currentItem.titulo }}</h3>
+      <p class="carousel-card__item-text">{{ currentItem.contenido }}</p>
+      <a
+        v-if="safeExternalLink"
+        id="carousel-external-link"
+        :href="safeExternalLink"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="carousel-card__link"
+      >
+        Ver documento oficial
+      </a>
     </article>
     <p v-else class="carousel-card__empty">No hay comunicados oficiales publicados hoy.</p>
   </section>
@@ -68,15 +88,16 @@ function nextSlide(): void {
 <style scoped>
 .carousel-card {
   padding: 1.125rem;
-  border-radius: var(--radius-md, 0.75rem);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
   margin-bottom: 1.25rem;
   box-shadow: var(--shadow-card);
 }
 
 .carousel-card__header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
@@ -86,7 +107,7 @@ function nextSlide(): void {
 .carousel-card__title {
   margin: 0;
   font-size: 0.95rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .carousel-card__controls {
@@ -96,38 +117,48 @@ function nextSlide(): void {
 }
 
 .carousel-card__btn {
-  min-height: 36px;
-  padding: 0.25rem 0.625rem;
-  border-radius: var(--radius-sm, 0.375rem);
-  border: 1px solid var(--border-control, #cbd5e1);
-  background-color: var(--surface-subtle, #f8fafc);
-  color: var(--text-primary, #0f172a);
-  font-size: 0.75rem;
+  min-block-size: 2.75rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .carousel-card__counter {
   font-size: 0.75rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
 .carousel-card__item-title {
   margin: 0 0 0.25rem;
   font-size: 1rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .carousel-card__item-text {
   margin: 0;
   font-size: 0.875rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
+}
+
+.carousel-card__link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  margin-top: 0.375rem;
+  color: var(--brand-accent);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .carousel-card__empty {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary);
 }
 </style>

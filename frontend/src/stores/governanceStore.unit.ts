@@ -42,7 +42,7 @@ describe('useGovernanceStore (Cartas Consulta Art. 23 LPH y Catch No Destructivo
 
     const res = await store.fetchConsultas();
     expect(res).toHaveLength(1);
-    expect(store.consultas[0].titulo).toContain('&lt;b&gt;#01&lt;/b&gt;');
+    expect(store.consultas[0].titulo).toBe('Carta Consulta <b>#01</b>');
     expect(store.isStale).toBe(false);
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('Fallo de red'));
@@ -163,7 +163,7 @@ describe('useGovernanceStore (Cartas Consulta Art. 23 LPH y Catch No Destructivo
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('err-det');
     await expect(store.fetchConsultaDetalle(99)).rejects.toBe('err-det');
-    expect(store.isStale).toBe(true);
+    expect(store.isStale).toBe(false);
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('err-create-msg'));
     await expect(
@@ -218,5 +218,83 @@ describe('useGovernanceStore (Cartas Consulta Art. 23 LPH y Catch No Destructivo
     await store.fetchConsultas();
     expect(store.isStale).toBe(false);
     expect(authStore.isAuthenticated).toBe(false);
+  });
+
+  it('conserva otras consultas y resiste votar/cerrar cuando consultaActual no coincide o recibo carece jti', async () => {
+    const store = useGovernanceStore();
+    store.consultas = [
+      {
+        id: 4,
+        titulo: 'Consulta 4',
+        descripcion_legal: 'Desc',
+        tipo_consulta: 'CARTA_CONSULTA_1RA',
+        regla_quorum: 'MAYORIA_SIMPLE',
+        quorum_minimo_alicuota: '50.0000',
+        participacion_alicuota: '50.0000',
+        alicuota_aprobatoria: '50.0000',
+        total_votos: 1,
+        fecha_apertura: '2026-10-01T00:00:00Z',
+        fecha_cierre: '2026-10-30T23:59:00Z',
+        estado: 'ABIERTA',
+        creada_por_id: 1,
+        acta_bitacora_id: null,
+        ya_voto_usuario: false,
+      },
+      {
+        id: 99,
+        titulo: 'Otra Consulta',
+        descripcion_legal: 'Desc 99',
+        tipo_consulta: 'CARTA_CONSULTA_1RA',
+        regla_quorum: 'DOS_TERCIOS',
+        quorum_minimo_alicuota: '66.6700',
+        participacion_alicuota: '0.0000',
+        alicuota_aprobatoria: '0.0000',
+        total_votos: 0,
+        fecha_apertura: '2026-10-01T00:00:00Z',
+        fecha_cierre: '2026-10-30T23:59:00Z',
+        estado: 'ABIERTA',
+        creada_por_id: 1,
+        acta_bitacora_id: null,
+        ya_voto_usuario: false,
+      },
+    ];
+    store.consultaActual = { ...store.consultas[1], opciones: [], mi_voto: null };
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+      voto_id: 50,
+      consulta_id: 4,
+      titulo_consulta: 'Consulta 4',
+      unidad_id: 1,
+      identificador_unidad: 'A-1',
+      usuario_id: 2,
+      opcion_id: 1,
+      opcion_etiqueta: 'SI',
+      alicuota_capturada: '10.0000',
+      participacion_total_alicuota: '10.0000',
+      quorum_minimo_alicuota: '50.0000',
+      fecha_voto: '2026-10-02T10:00:00Z',
+      ip_hash: 'a'.repeat(64),
+      firma_hmac: 'b'.repeat(64),
+      mensaje_verificacion: 'OK',
+    });
+    await store.votarConsulta(4, { unidad_id: 1, opcion_id: 1 });
+    expect(store.consultaActual?.id).toBe(99);
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+      consulta_id: 4,
+      titulo: 'Consulta 4',
+      estado: 'CERRADA_APROBADA',
+      regla_quorum: 'MAYORIA_SIMPLE',
+      quorum_minimo_alicuota: '50.0000',
+      participacion_alicuota: '10.0000',
+      alicuota_aprobatoria: '10.0000',
+      total_votos: 1,
+      acta_bitacora_id: 77,
+      hash_global_escrutinio: 'c'.repeat(64),
+    });
+    await store.cerrarConsulta(4);
+    expect(store.consultas[0].estado).toBe('CERRADA_APROBADA');
+    expect(store.consultas[1].estado).toBe('ABIERTA');
+    expect(store.consultaActual?.estado).toBe('ABIERTA');
   });
 });

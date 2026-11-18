@@ -223,4 +223,22 @@ test.describe('Auditoría WCAG 2.1 AA en Vistas Autenticadas Claro/Oscuro (Hito 
     expect(await presidente.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
     await page.locator('#btn-close-vote-receipt').click();
   });
+
+  test('4. Hito 22: Vista 404 y Cajón Móvil cumplen WCAG 2.1 AA en claro y oscuro', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await installCondominioApiMock(page, { initialProfile: 'PROPIETARIO' });
+    const mobileActor = Actor.named('A11yMovil').whoCan(BrowseTheWeb.using(page));
+
+    await assertZeroAxeCriticalOrSerious(mobileActor, '/ruta-inexistente-404');
+
+    await mobileActor.attemptsTo(NavigateTo.path('/dashboard'));
+    await page.locator('#btn-mobile-menu').click();
+    await expect(page.locator('#mobile-nav-drawer')).toBeVisible();
+    await mobileActor.attemptsTo(ToggleColorTheme.to('light'));
+    expect(await mobileActor.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+    await mobileActor.attemptsTo(ToggleColorTheme.to('dark'));
+    expect(await mobileActor.asks(AxeCriticalOrSeriousViolations.detected())).toEqual([]);
+  });
 });

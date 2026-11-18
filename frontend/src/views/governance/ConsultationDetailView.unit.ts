@@ -78,6 +78,7 @@ describe('ConsultationDetailView.vue', () => {
 
     govStore.consultaActual = detalleInicial;
     vi.spyOn(govStore, 'fetchConsultaDetalle').mockResolvedValue(detalleInicial);
+    vi.spyOn(opsStore, 'fetchUnidades').mockResolvedValue(opsStore.data.unidades);
 
     const reciboMock = {
       voto_id: 22,
@@ -156,8 +157,71 @@ describe('ConsultationDetailView.vue', () => {
 
     expect(govStore.cerrarConsulta).toHaveBeenCalledWith(4);
     expect(wrapper.find('#banner-consulta-cerrada').text()).toContain('CERRADA_APROBADA');
-    expect(wrapper.find('#badge-acta-generada').text()).toContain('Bitácora #91');
+    expect(wrapper.find('#badge-acta-generada').text()).toContain('Bitácora oficial');
+    expect(wrapper.find('#btn-dual-refresh').exists()).toBe(true);
 
     setActiveConsultationTransition(null);
+  });
+
+  it('muestra insignia de rechazo ✕ para CERRADA_RECHAZADA', async () => {
+    const govStore = useGovernanceStore();
+    const opsStore = useOperationsStore();
+    vi.spyOn(opsStore, 'fetchUnidades').mockResolvedValue([]);
+    const detalleRechazado = {
+      id: 4,
+      titulo: 'Carta Consulta Rechazada',
+      descripcion_legal: 'Detalle legal',
+      tipo_consulta: 'CARTA_CONSULTA_1RA' as const,
+      regla_quorum: 'DOS_TERCIOS' as const,
+      quorum_minimo_alicuota: '66.6700',
+      participacion_alicuota: '40.0000',
+      alicuota_aprobatoria: '10.0000',
+      total_votos: 2,
+      fecha_apertura: '2026-10-01T00:00:00Z',
+      fecha_cierre: '2026-10-30T23:59:00Z',
+      estado: 'CERRADA_RECHAZADA' as const,
+      creada_por_id: 1,
+      acta_bitacora_id: 5,
+      ya_voto_usuario: false,
+      opciones: [],
+      mi_voto: null,
+    };
+    vi.spyOn(govStore, 'fetchConsultaDetalle').mockImplementation(async () => {
+      govStore.consultaActual = detalleRechazado;
+      return detalleRechazado;
+    });
+
+    const wrapper = mount(ConsultationDetailView);
+    await flushPromises();
+
+    expect(wrapper.find('#badge-estado-consulta').text()).toContain('✕');
+    expect(wrapper.find('#badge-estado-consulta').text()).not.toContain('✓');
+    expect(wrapper.find('#badge-estado-consulta').classes()).toContain(
+      'consultation-detail__badge--cerrada_rechazada',
+    );
+
+    // Refresco manual (éxito -> CERRADA_SIN_QUORUM y luego fallo silencioso) y vista sin detalle
+    const fetchSpy = vi
+      .spyOn(govStore, 'fetchConsultaDetalle')
+      .mockImplementationOnce(async () => {
+        const sinQuorum = { ...detalleRechazado, estado: 'CERRADA_SIN_QUORUM' as const };
+        govStore.consultaActual = sinQuorum;
+        return sinQuorum;
+      })
+      .mockRejectedValueOnce(new Error('offline'));
+    fetchSpy.mockClear();
+
+    await wrapper.find('#btn-dual-refresh').trigger('click');
+    await flushPromises();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(wrapper.find('#badge-estado-consulta').text()).toContain('CERRADA_SIN_QUORUM');
+
+    await wrapper.find('#btn-dual-refresh').trigger('click');
+    await flushPromises();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    govStore.consultaActual = null;
+    await flushPromises();
+    expect(wrapper.find('#badge-estado-consulta').exists()).toBe(false);
   });
 });

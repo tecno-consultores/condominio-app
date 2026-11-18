@@ -28,6 +28,8 @@ export interface CondominioMockOptions {
   initialProfile?: ProfileKey | null;
   closingActive?: boolean;
   strictSolvencyBlock?: boolean;
+  omitDailyRate?: boolean;
+  omitResumen?: boolean;
 }
 
 interface PagoState {
@@ -39,6 +41,7 @@ interface PagoState {
   monto_usd: string;
   metodo_pago: string;
   numero_referencia: string | null;
+  url_comprobante?: string | null;
   estado: string;
 }
 
@@ -62,6 +65,7 @@ interface ReservaState {
   nombre_area: string;
   unidad_id: number;
   identificador_unidad: string;
+  solicitante_id: number;
   fecha_evento: string;
   motivo_evento: string;
   estado: string;
@@ -73,8 +77,17 @@ export interface CondominioMockState {
   currentUser: MockUserProfile | null;
   closingActive: boolean;
   strictSolvencyBlock: boolean;
+  omitDailyRate: boolean;
+  omitResumen: boolean;
   tasaUsdVes: string;
   capturedIdempotencyKeys: string[];
+  comunicados: Array<{
+    id: number;
+    titulo: string;
+    contenido: string;
+    enlace_externo?: string | null;
+    activo?: boolean;
+  }>;
   unidades: Array<{
     id: number;
     identificador: string;
@@ -276,8 +289,19 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
     currentUser: initialUser,
     closingActive: Boolean(options.closingActive),
     strictSolvencyBlock: Boolean(options.strictSolvencyBlock),
+    omitDailyRate: Boolean(options.omitDailyRate),
+    omitResumen: Boolean(options.omitResumen),
     tasaUsdVes: '45.50',
     capturedIdempotencyKeys: [],
+    comunicados: [
+      {
+        id: 1,
+        titulo: 'Mantenimiento Preventivo',
+        contenido: 'Lavado de tanques este sábado.',
+        enlace_externo: '/consultas',
+        activo: true,
+      },
+    ],
     unidades: [
       {
         id: 1,
@@ -315,6 +339,7 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         monto_usd: '40.11',
         metodo_pago: 'PAGO_MOVIL',
         numero_referencia: '99881122',
+        url_comprobante: null,
         estado: 'EN_REVISION',
       },
     ],
@@ -442,6 +467,7 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         nombre_area: 'Salon de Fiestas Principal',
         unidad_id: 1,
         identificador_unidad: 'A-101',
+        solicitante_id: 101,
         fecha_evento: '2026-12-18',
         motivo_evento: 'Reunion Navidena Familiar',
         estado: 'CONFIRMADA',
@@ -519,6 +545,9 @@ function handleFinanceCore(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/finanzas/tasa' && method === 'GET') {
+    if (state.omitDailyRate) {
+      return jsonResp(404, { detail: 'No hay tasa BCV registrada para hoy.' });
+    }
     return jsonResp(200, { id: 1, fecha: '2026-10-30', tasa_usd_ves: state.tasaUsdVes });
   }
   if (path === '/api/finanzas/tasa' && method === 'POST') {
@@ -526,12 +555,29 @@ function handleFinanceCore(
     return jsonResp(201, { id: 2, fecha: '2026-10-30', tasa_usd_ves: state.tasaUsdVes });
   }
   if (path === '/api/finanzas/resumen' && method === 'GET') {
+    if (state.omitResumen) {
+      return jsonResp(503, { detail: 'Resumen financiero temporalmente no disponible.' });
+    }
     return jsonResp(200, {
       deuda_total_usd: state.recibos[0]?.saldo_usd ?? '0.00',
       total_egresos_usd: '450.00',
       gastos_por_categoria: { 'Bombas de Agua': '250.00', Vigilancia: '200.00' },
       estado_cobranza: state.recibos,
     });
+  }
+  if (path === '/api/comunicados/recientes' && method === 'GET') {
+    return jsonResp(200, state.comunicados);
+  }
+  if (path === '/api/comunicados' && method === 'POST') {
+    const created = {
+      id: ++state.nextId,
+      titulo: String(body.titulo ?? 'Comunicado'),
+      contenido: String(body.contenido ?? ''),
+      enlace_externo: (body.enlace_externo as string | null) ?? null,
+      activo: true,
+    };
+    state.comunicados.unshift(created);
+    return jsonResp(201, created);
   }
   if (path === '/api/finanzas/egresos' && method === 'POST') {
     return jsonResp(201, { id: ++state.nextId, monto_usd: String(body.monto ?? '50.00') });
@@ -583,6 +629,7 @@ function reportPayment(
     monto_usd: moneda === 'USD' ? monto : '40.00',
     metodo_pago: String(body.metodo_pago ?? 'PAGO_MOVIL'),
     numero_referencia: (body.numero_referencia as string | null) ?? null,
+    url_comprobante: (body.url_comprobante as string | null) ?? null,
     estado: 'EN_REVISION',
   };
   state.pagos.push(pago);
@@ -831,10 +878,37 @@ function handleIncidenciasRoute(
 function handleTareasRoute(
   method: string,
   path: string,
+  body: Record<string, unknown>,
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/tareas/diarias' && method === 'GET') {
     return jsonResp(200, state.tareas);
+  }
+  if (path === '/api/tareas/plantillas' && method === 'POST') {
+    return jsonResp(201, {
+      id: ++state.nextId,
+      titulo: String(body.titulo ?? 'Rutina de mantenimiento'),
+      area: String(body.area ?? 'General'),
+      frecuencia: String(body.frecuencia ?? 'DIARIA'),
+      activa: true,
+    });
+  }
+  if (path === '/api/tareas/diarias' && method === 'POST') {
+    const created = {
+      id: ++state.nextId,
+      plantilla_id: null,
+      incidencia_id: (body.incidencia_id as number | null) ?? null,
+      titulo: String(body.titulo ?? 'Tarea puntual'),
+      area: String(body.area ?? 'General'),
+      fecha: '2026-10-30',
+      completada: false,
+      url_evidencia: null,
+    };
+    state.tareas.push(created);
+    return jsonResp(201, created);
+  }
+  if (path === '/api/tareas/generar-diarias' && method === 'POST') {
+    return jsonResp(200, { tareas_generadas: 1 });
   }
   const tareaMatch = /^\/api\/tareas\/(\d+)\/completar$/.exec(path);
   if (tareaMatch && method === 'PUT') {
@@ -896,6 +970,19 @@ function handleBitacoraRoute(
   return null;
 }
 
+function handleEvidenciasRoute(method: string, path: string): HttpMockResponse | null {
+  if (path === '/api/evidencias/subir' && method === 'POST') {
+    return jsonResp(202, {
+      url: '/api/evidencias/comprobantes/mock.webp',
+      mime_origen: 'image/png',
+      formato_destino: 'webp',
+      bytes_recibidos: 1024,
+      estado: 'ENCOLADO',
+    });
+  }
+  return null;
+}
+
 function handleTareasVocerosBitacoraRoute(
   method: string,
   path: string,
@@ -903,7 +990,8 @@ function handleTareasVocerosBitacoraRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   return (
-    handleTareasRoute(method, path, state) ??
+    handleEvidenciasRoute(method, path) ??
+    handleTareasRoute(method, path, body, state) ??
     handleVocerosRoute(method, path, body, state) ??
     handleBitacoraRoute(method, path, body, state)
   );
@@ -1109,6 +1197,7 @@ function requestReservation(
     nombre_area: area.nombre,
     unidad_id: Number(body.unidad_id ?? 1),
     identificador_unidad: 'A-101',
+    solicitante_id: state.currentUser?.id ?? 101,
     fecha_evento: String(body.fecha_evento ?? '2026-12-20'),
     motivo_evento: String(body.motivo_evento ?? 'Evento familiar'),
     estado: 'CONFIRMADA',
@@ -1183,7 +1272,12 @@ function dispatchMockRoute(
 }
 
 function parseRequestBody(route: Route): Record<string, unknown> {
-  const raw = route.request().postData();
+  let raw: string | null = null;
+  try {
+    raw = route.request().postData();
+  } catch {
+    return {};
+  }
   if (!raw) return {};
   try {
     return JSON.parse(raw) as Record<string, unknown>;

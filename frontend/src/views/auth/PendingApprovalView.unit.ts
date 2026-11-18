@@ -55,8 +55,17 @@ describe('PendingApprovalView.vue (Pantalla de Contención Fantasma)', () => {
     expect(pushMock).toHaveBeenCalledWith('/dashboard');
 
     // 3. Cerrar sesión -> limpia store y redirige a /login
+    vi.spyOn(store, 'logout').mockResolvedValueOnce(undefined);
     await wrapper.find('#btn-logout').trigger('click');
-    expect(store.isAuthenticated).toBe(false);
+    await flushPromises();
+    expect(pushMock).toHaveBeenCalledWith('/login');
+
+    // 4. Si la sesión expiró mientras esperaba aprobación -> redirige a /login
+    pushMock.mockReset();
+    store.setProfileForTesting(null);
+    vi.spyOn(store, 'fetchProfile').mockResolvedValueOnce(null);
+    await wrapper.find('#btn-refresh-status').trigger('click');
+    await flushPromises();
     expect(pushMock).toHaveBeenCalledWith('/login');
   });
 

@@ -1,7 +1,16 @@
-<script setup lang="ts">
-import { onMounted, ref } from 'vue';
-import { useAccessAmenitiesStore } from '../../stores/accessAmenitiesStore';
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
 
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { useDualRefresh } from '../../composables/useDualRefresh';
+import { useAccessAmenitiesStore, type PaqueteDTO } from '../../stores/accessAmenitiesStore';
+import { useAuthStore } from '../../stores/authStore';
+import { useOperationsStore } from '../../stores/operationsStore';
+import { isSafeMediaUrl } from '../../utils/security';
+
+const authStore = useAuthStore();
+const opsStore = useOperationsStore();
 const store = useAccessAmenitiesStore();
 
 const unidadId = ref<number>(1);
@@ -10,13 +19,41 @@ const descripcion = ref('');
 const urlFotoEvidencia = ref('');
 const feedbackExito = ref<string | null>(null);
 
+const canManageParcels = computed(() => {
+  const rol = authStore.userRole;
+  return rol === 'CONSERJE' || rol === 'PRESIDENTE';
+});
+
+function canConfirmDelivery(paquete: PaqueteDTO): boolean {
+  if (canManageParcels.value) {
+    return true;
+  }
+  return authStore.activeUnitId !== null && authStore.activeUnitId === paquete.unidad_id;
+}
+
+function isProcessingUrl(url: string | null | undefined): boolean {
+  return Boolean(url && url.trim().startsWith('s3://'));
+}
+
+async function refreshParcelsData(): Promise<void> {
+  await Promise.allSettled([store.fetchPaqueteria(), opsStore.fetchUnidades()]);
+  if (
+    opsStore.data.unidades.length > 0 &&
+    !opsStore.data.unidades.some((u) => u.id === unidadId.value)
+  ) {
+    unidadId.value = opsStore.data.unidades[0].id;
+  }
+}
+
+const { isRefreshing, triggerRefresh } = useDualRefresh(refreshParcelsData);
+
 onMounted(async () => {
-  await store.fetchPaqueteria();
+  await refreshParcelsData();
 });
 
 async function handleRegistrarPaquete(): Promise<void> {
   feedbackExito.value = null;
-  if (!descripcion.value.trim()) {
+  if (!canManageParcels.value || !descripcion.value.trim()) {
     return;
   }
   try {
@@ -26,7 +63,7 @@ async function handleRegistrarPaquete(): Promise<void> {
       descripcion: descripcion.value.trim(),
       url_foto_evidencia: urlFotoEvidencia.value.trim() || null,
     });
-    feedbackExito.value = `Encomienda #${creado.id} registrada para Unidad ${creado.identificador_unidad}.`;
+    feedbackExito.value = `Encomienda registrada para Unidad ${creado.identificador_unidad}.`;
     descripcion.value = '';
     urlFotoEvidencia.value = '';
   } catch {
@@ -37,8 +74,8 @@ async function handleRegistrarPaquete(): Promise<void> {
 async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
   feedbackExito.value = null;
   try {
-    const actualizado = await store.confirmarEntregaPaquete(paqueteId);
-    feedbackExito.value = `Paquete #${actualizado.id} marcado como ENTREGADO.`;
+    await store.confirmarEntregaPaquete(paqueteId);
+    feedbackExito.value = 'Paquete marcado como ENTREGADO.';
   } catch {
     // Error expuesto reactivamente en store.error
   }
@@ -48,13 +85,25 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 <template>
   <section class="parcels-view" aria-labelledby="parcels-title">
     <header class="parcels-view__header">
-      <h1 id="parcels-title" class="parcels-view__title">
-        Control de Paquetería y Encomiendas en Garita
-      </h1>
-      <p class="parcels-view__subtitle">
-        Cadena de custodia desde la recepción en conserjería hasta el retiro confirmado por la
-        unidad.
-      </p>
+      <div>
+        <h1 id="parcels-title" class="parcels-view__title">
+          Control de Paquetería y Encomiendas en Garita
+        </h1>
+        <p class="parcels-view__subtitle">
+          Cadena de custodia desde la recepción en conserjería hasta el retiro confirmado por la
+          unidad.
+        </p>
+      </div>
+      <button
+        id="btn-dual-refresh"
+        type="button"
+        class="dual-refresh-btn"
+        :disabled="isRefreshing || store.isLoading"
+        @click="triggerRefresh"
+      >
+        <span aria-hidden="true">🔄</span>
+        <span>{{ isRefreshing ? 'Actualizando...' : 'Refrescar' }}</span>
+      </button>
     </header>
 
     <div v-if="store.error" id="parcels-error-banner" class="alert alert--error" role="alert">
@@ -70,6 +119,7 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
     </div>
 
     <form
+      v-if="canManageParcels"
       id="form-registrar-paquete"
       class="card form-grid"
       aria-label="Registrar recepción de paquete en garita"
@@ -79,14 +129,12 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 
       <div class="field-row">
         <label class="field" for="input-parcel-unidad">
-          <span>ID de Unidad Destinataria</span>
-          <input
-            id="input-parcel-unidad"
-            v-model.number="unidadId"
-            type="number"
-            min="1"
-            required
-          />
+          <span>Unidad Destinataria</span>
+          <select id="input-parcel-unidad" v-model.number="unidadId" required>
+            <option v-for="u in opsStore.data.unidades" :key="u.id" :value="u.id">
+              {{ u.identificador }}
+            </option>
+          </select>
         </label>
 
         <label class="field" for="select-parcel-empresa">
@@ -111,7 +159,7 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
             type="text"
             minlength="3"
             maxlength="200"
-            placeholder="Ej. Caja sellada mediana con guía #99812"
+            placeholder="Ej. Caja sellada mediana con guía"
             required
           />
         </label>
@@ -122,7 +170,7 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
             id="input-parcel-foto"
             v-model="urlFotoEvidencia"
             type="text"
-            placeholder="s3://condominio-media/paquetes/foto.avif"
+            placeholder="https://.../paquete.avif"
           />
         </label>
       </div>
@@ -163,9 +211,26 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
             </span>
           </div>
 
-          <div class="parcel-card__actions">
+          <img
+            v-if="isSafeMediaUrl(paquete.url_foto_evidencia)"
+            :src="paquete.url_foto_evidencia!.trim()"
+            :alt="`Evidencia de encomienda ${paquete.empresa_envio}`"
+            loading="lazy"
+            decoding="async"
+            class="parcel-card__image"
+          />
+          <p
+            v-else-if="isProcessingUrl(paquete.url_foto_evidencia)"
+            class="parcel-card__processing"
+          >
+            Evidencia fotográfica en procesamiento multimedia
+          </p>
+
+          <div
+            v-if="paquete.estado === 'EN_GARITA' && canConfirmDelivery(paquete)"
+            class="parcel-card__actions"
+          >
             <button
-              v-if="paquete.estado === 'EN_GARITA'"
               :id="`btn-confirm-parcel-${paquete.id}`"
               type="button"
               class="btn btn--primary"
@@ -187,23 +252,31 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
   gap: 1.25rem;
 }
 
+.parcels-view__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .parcels-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .parcels-view__subtitle {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
 
 .card {
-  background: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: 0.75rem;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: 1.25rem;
 }
 
@@ -211,7 +284,7 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 .section-heading {
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0 0 0.75rem;
 }
 
@@ -233,17 +306,18 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
 }
 
 .field input,
 .field select {
+  min-block-size: 2.75rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border-control, #94a3b8);
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
   font-size: 0.92rem;
-  color: var(--text-primary, #0f172a);
-  background: var(--surface-card, #ffffff);
+  color: var(--text-primary);
+  background: var(--surface-card);
 }
 
 .cards-grid {
@@ -267,65 +341,84 @@ async function handleConfirmarEntrega(paqueteId: number): Promise<void> {
 
 .parcel-card__courier {
   font-size: 0.98rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .parcel-card__desc {
   margin: 0.25rem 0 0;
   font-size: 0.86rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
+}
+
+.parcel-card__image {
+  inline-size: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.parcel-card__processing {
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--status-info-bg);
+  color: var(--status-info-text);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .badge {
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
 }
 
 .badge--en_garita {
-  background: var(--status-warn-bg, #fef3c7);
-  color: var(--status-warn-text, #78350f);
+  background: var(--status-warn-bg);
+  color: var(--status-warn-text);
 }
 
 .badge--entregado {
-  background: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #14532d);
+  background: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .btn {
+  min-block-size: 2.75rem;
   padding: 0.6rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font-weight: 600;
   cursor: pointer;
   border: none;
 }
 
 .btn--primary {
-  background: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .alert {
   padding: 0.8rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 
 .alert--error {
-  background: var(--status-danger-bg, #fef2f2);
-  border: 1px solid var(--status-danger-border, #ef4444);
-  color: var(--status-danger-text, #991b1b);
+  background: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .alert--success {
-  background: var(--status-ok-bg, #f0fdf4);
-  border: 1px solid var(--status-ok-border, #22c55e);
-  color: var(--status-ok-text, #14532d);
+  background: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .empty-state {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 </style>

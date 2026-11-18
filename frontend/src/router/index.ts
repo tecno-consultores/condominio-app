@@ -11,174 +11,166 @@ import {
   getActiveConsultationTransition,
   setActiveConsultationTransition,
 } from '../composables/useViewTransition';
-import AdminBoardRolesView from '../views/admin/AdminBoardRolesView.vue';
-import AdminGhostUsersView from '../views/admin/AdminGhostUsersView.vue';
-import AdminStructureView from '../views/admin/AdminStructureView.vue';
-import LoginView from '../views/auth/LoginView.vue';
-import PendingApprovalView from '../views/auth/PendingApprovalView.vue';
-import RegisterView from '../views/auth/RegisterView.vue';
-import BillingGeneratorView from '../views/finance/BillingGeneratorView.vue';
-import DashboardView from '../views/finance/DashboardView.vue';
-import PaymentWizardView from '../views/finance/PaymentWizardView.vue';
-import SolvencyCertificateView from '../views/finance/SolvencyCertificateView.vue';
-import TreasuryClosingView from '../views/finance/TreasuryClosingView.vue';
-import TreasuryPaymentsView from '../views/finance/TreasuryPaymentsView.vue';
-import ConsultationDetailView from '../views/governance/ConsultationDetailView.vue';
-import ConsultationsListView from '../views/governance/ConsultationsListView.vue';
-import GatehouseScannerView from '../views/operations/GatehouseScannerView.vue';
-import AmenitiesReservationView from '../views/operations/AmenitiesReservationView.vue';
-import IncidentsFeedView from '../views/operations/IncidentsFeedView.vue';
-import OperationsTasksView from '../views/operations/OperationsTasksView.vue';
-import ParcelsTrackerView from '../views/operations/ParcelsTrackerView.vue';
-import SecretaryLogbookView from '../views/operations/SecretaryLogbookView.vue';
-import SpokespersonGalleryView from '../views/operations/SpokespersonGalleryView.vue';
-import VisitorPassesView from '../views/operations/VisitorPassesView.vue';
+import { isSafeRedirectUrl } from '../utils/security';
+import AppShellLayout from '../components/layout/AppShellLayout.vue';
 
 export const routes: RouteRecordRaw[] = [
   {
-    path: '/',
-    redirect: '/dashboard',
-  },
-  {
     path: '/login',
     name: 'login',
-    component: LoginView,
+    component: () => import('../views/auth/LoginView.vue'),
     meta: { public: true },
   },
   {
     path: '/register',
     name: 'register',
-    component: RegisterView,
+    component: () => import('../views/auth/RegisterView.vue'),
     meta: { public: true },
   },
   {
     path: '/espera-aprobacion',
     name: 'espera-aprobacion',
-    component: PendingApprovalView,
+    component: () => import('../views/auth/PendingApprovalView.vue'),
     meta: { ghostOnly: true },
   },
   {
-    path: '/dashboard',
-    alias: ['/inicio'],
-    name: 'dashboard',
-    component: DashboardView,
-    meta: { requiresActive: true },
+    path: '/',
+    component: AppShellLayout,
+    children: [
+      {
+        path: '',
+        redirect: '/dashboard',
+      },
+      {
+        path: 'dashboard',
+        alias: ['/inicio'],
+        name: 'dashboard',
+        component: () => import('../views/finance/DashboardView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'finanzas/reportar-pago',
+        alias: ['/pagar'],
+        name: 'reportar-pago',
+        component: () => import('../views/finance/PaymentWizardView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'tesoreria/pagos',
+        alias: ['/admin/pagos-revision'],
+        name: 'tesoreria-pagos',
+        component: () => import('../views/finance/TreasuryPaymentsView.vue'),
+        meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
+      },
+      {
+        path: 'tesoreria/cierre',
+        alias: ['/admin/finanzas'],
+        name: 'tesoreria-cierre',
+        component: () => import('../views/finance/TreasuryClosingView.vue'),
+        meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
+      },
+      {
+        path: 'tesoreria/facturacion',
+        name: 'tesoreria-facturacion',
+        component: () => import('../views/finance/BillingGeneratorView.vue'),
+        meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
+      },
+      {
+        path: 'finanzas/solvencia',
+        name: 'finanzas-solvencia',
+        component: () => import('../views/finance/SolvencyCertificateView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'incidencias',
+        name: 'incidencias',
+        component: () => import('../views/operations/IncidentsFeedView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'operaciones/tareas',
+        alias: ['/conserje/tareas'],
+        name: 'operaciones-tareas',
+        component: () => import('../views/operations/OperationsTasksView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'voceros/galeria',
+        name: 'voceros-galeria',
+        component: () => import('../views/operations/SpokespersonGalleryView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'secretaria/bitacora',
+        name: 'secretaria-bitacora',
+        component: () => import('../views/operations/SecretaryLogbookView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'consultas',
+        name: 'consultas-list',
+        component: () => import('../views/governance/ConsultationsListView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'consultas/:id',
+        name: 'consulta-detail',
+        component: () => import('../views/governance/ConsultationDetailView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'accesos/pases',
+        name: 'accesos-pases',
+        component: () => import('../views/operations/VisitorPassesView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'operaciones/garita-qr',
+        name: 'operaciones-garita-qr',
+        component: () => import('../views/operations/GatehouseScannerView.vue'),
+        meta: {
+          requiresActive: true,
+          roles: ['CONSERJE', 'PRESIDENTE', 'VOCERO'] as RolUsuario[],
+        },
+      },
+      {
+        path: 'operaciones/paqueteria',
+        name: 'operaciones-paqueteria',
+        component: () => import('../views/operations/ParcelsTrackerView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'reservas/areas',
+        name: 'reservas-areas',
+        component: () => import('../views/operations/AmenitiesReservationView.vue'),
+        meta: { requiresActive: true },
+      },
+      {
+        path: 'admin/estructura',
+        name: 'admin-estructura',
+        component: () => import('../views/admin/AdminStructureView.vue'),
+        meta: { requiresActive: true, roles: ['PRESIDENTE', 'VICEPRESIDENTE'] as RolUsuario[] },
+      },
+      {
+        path: 'admin/usuarios',
+        alias: ['/admin/usuarios-pendientes'],
+        name: 'admin-usuarios',
+        component: () => import('../views/admin/AdminGhostUsersView.vue'),
+        meta: { requiresActive: true, roles: ['PRESIDENTE', 'VICEPRESIDENTE'] as RolUsuario[] },
+      },
+      {
+        path: 'admin/junta',
+        name: 'admin-junta',
+        component: () => import('../views/admin/AdminBoardRolesView.vue'),
+        meta: { requiresActive: true, roles: ['PRESIDENTE'] as RolUsuario[] },
+      },
+    ],
   },
   {
-    path: '/finanzas/reportar-pago',
-    alias: ['/pagar'],
-    name: 'reportar-pago',
-    component: PaymentWizardView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/tesoreria/pagos',
-    alias: ['/admin/pagos-revision'],
-    name: 'tesoreria-pagos',
-    component: TreasuryPaymentsView,
-    meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
-  },
-  {
-    path: '/tesoreria/cierre',
-    alias: ['/admin/finanzas'],
-    name: 'tesoreria-cierre',
-    component: TreasuryClosingView,
-    meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
-  },
-  {
-    path: '/tesoreria/facturacion',
-    name: 'tesoreria-facturacion',
-    component: BillingGeneratorView,
-    meta: { requiresActive: true, roles: ['TESORERO', 'PRESIDENTE'] as RolUsuario[] },
-  },
-  {
-    path: '/finanzas/solvencia',
-    name: 'finanzas-solvencia',
-    component: SolvencyCertificateView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/incidencias',
-    name: 'incidencias',
-    component: IncidentsFeedView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/operaciones/tareas',
-    alias: ['/conserje/tareas'],
-    name: 'operaciones-tareas',
-    component: OperationsTasksView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/voceros/galeria',
-    name: 'voceros-galeria',
-    component: SpokespersonGalleryView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/secretaria/bitacora',
-    name: 'secretaria-bitacora',
-    component: SecretaryLogbookView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/consultas',
-    name: 'consultas-list',
-    component: ConsultationsListView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/consultas/:id',
-    name: 'consulta-detail',
-    component: ConsultationDetailView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/accesos/pases',
-    name: 'accesos-pases',
-    component: VisitorPassesView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/operaciones/garita-qr',
-    name: 'operaciones-garita-qr',
-    component: GatehouseScannerView,
-    meta: {
-      requiresActive: true,
-      roles: ['CONSERJE', 'PRESIDENTE', 'VOCERO'] as RolUsuario[],
-    },
-  },
-  {
-    path: '/operaciones/paqueteria',
-    name: 'operaciones-paqueteria',
-    component: ParcelsTrackerView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/reservas/areas',
-    name: 'reservas-areas',
-    component: AmenitiesReservationView,
-    meta: { requiresActive: true },
-  },
-  {
-    path: '/admin/estructura',
-    name: 'admin-estructura',
-    component: AdminStructureView,
-    meta: { requiresActive: true, roles: ['PRESIDENTE', 'VICEPRESIDENTE'] as RolUsuario[] },
-  },
-  {
-    path: '/admin/usuarios',
-    alias: ['/admin/usuarios-pendientes'],
-    name: 'admin-usuarios',
-    component: AdminGhostUsersView,
-    meta: { requiresActive: true, roles: ['PRESIDENTE', 'VICEPRESIDENTE'] as RolUsuario[] },
-  },
-  {
-    path: '/admin/junta',
-    name: 'admin-junta',
-    component: AdminBoardRolesView,
-    meta: { requiresActive: true, roles: ['PRESIDENTE'] as RolUsuario[] },
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('../views/auth/NotFoundView.vue'),
+    meta: { publicNotFound: true },
   },
 ];
 
@@ -189,40 +181,69 @@ export interface AuthGuardState {
   userRole: RolUsuario | null;
 }
 
-export function evaluateNavigationGuard(
-  to: Pick<RouteLocationNormalizedLoaded, 'meta'>,
-  auth: AuthGuardState,
-): true | string {
-  const isPublic = Boolean(to.meta?.public);
-  const isGhostOnly = Boolean(to.meta?.ghostOnly);
-  const allowedRoles = to.meta?.roles as RolUsuario[] | undefined;
+export type GuardRouteTarget = Pick<RouteLocationNormalizedLoaded, 'meta'> & {
+  path?: string;
+  fullPath?: string;
+  query?: Record<string, unknown>;
+};
 
-  if (isPublic) {
-    if (auth.isGhostUser) {
-      return '/espera-aprobacion';
-    }
-    if (auth.isActiveUser) {
-      return '/dashboard';
-    }
+function resolvePublicRedirect(to: GuardRouteTarget, auth: AuthGuardState): true | string {
+  if (auth.isGhostUser) {
+    return '/espera-aprobacion';
+  }
+  if (!auth.isActiveUser) {
     return true;
   }
-
-  if (isGhostOnly) {
-    if (!auth.isAuthenticated) {
-      return '/login';
-    }
-    if (auth.isActiveUser) {
-      return '/dashboard';
-    }
-    return true;
+  const rawRedirect = typeof to.query?.redirect === 'string' ? to.query.redirect : null;
+  if (
+    rawRedirect &&
+    isSafeRedirectUrl(rawRedirect) &&
+    !rawRedirect.startsWith('/login') &&
+    !rawRedirect.startsWith('/register') &&
+    !rawRedirect.startsWith('/espera-aprobacion')
+  ) {
+    return rawRedirect;
   }
+  return '/dashboard';
+}
 
+function resolveGhostRedirect(auth: AuthGuardState): true | string {
   if (!auth.isAuthenticated) {
     return '/login';
+  }
+  return auth.isActiveUser ? '/dashboard' : true;
+}
+
+function buildLoginRedirectTarget(to: GuardRouteTarget): string {
+  const fullPath = to.fullPath;
+  if (
+    fullPath &&
+    to.path !== '/dashboard' &&
+    isSafeRedirectUrl(fullPath) &&
+    !fullPath.startsWith('/login')
+  ) {
+    return `/login?redirect=${encodeURIComponent(fullPath)}`;
+  }
+  return '/login';
+}
+
+export function evaluateNavigationGuard(to: GuardRouteTarget, auth: AuthGuardState): true | string {
+  if (to.meta?.publicNotFound) {
+    return true;
+  }
+  if (to.meta?.public) {
+    return resolvePublicRedirect(to, auth);
+  }
+  if (to.meta?.ghostOnly) {
+    return resolveGhostRedirect(auth);
+  }
+  if (!auth.isAuthenticated) {
+    return buildLoginRedirectTarget(to);
   }
   if (auth.isGhostUser) {
     return '/espera-aprobacion';
   }
+  const allowedRoles = to.meta?.roles as RolUsuario[] | undefined;
   if (allowedRoles && (!auth.userRole || !allowedRoles.includes(auth.userRole))) {
     return '/dashboard';
   }
@@ -239,7 +260,7 @@ export function buildAppRouter(useMemory = false): Router {
 
   router.beforeEach(async (to) => {
     const authStore = useAuthStore();
-    if (!authStore.sessionHydrated && !to.meta?.public) {
+    if (!authStore.sessionHydrated && !to.meta?.publicNotFound) {
       await authStore.fetchProfile();
     }
 

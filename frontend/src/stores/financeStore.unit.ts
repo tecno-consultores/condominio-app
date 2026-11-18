@@ -16,6 +16,7 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
 
   it('convierte montos entre USD y VES y determina cobertura total vs abono parcial', () => {
     expect(convertUsdToVes('50.00', '36.50')).toBe('1825.00');
+    expect(convertUsdToVes('1.005', '1')).toBe('1.01');
     expect(convertUsdToVes(50, 36.5)).toBe('1825.00');
     expect(convertUsdToVes('invalid', '36.50')).toBe('0.00');
     expect(convertVesToUsd('365.00', '36.50')).toBe('10.00');
@@ -28,26 +29,68 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
     expect(determinePaymentCoverage(0, 50)).toBe('ABONO_PARCIAL');
   });
 
-  it('carga datos del dashboard y preserva estado previo marcando isStale=true ante fallo de red', async () => {
+  it('desacopla 404 matutino en /finanzas/tasa con Promise.allSettled, carga comunicados y separa isStale en fallo de red', async () => {
     const store = useFinanceStore();
-    vi.spyOn(apiClient, 'get')
-      .mockResolvedValueOnce({ id: 2, fecha: '2026-10-30', tasa_usd_ves: '40.00' })
-      .mockResolvedValueOnce({
-        deuda_total_usd: '120.00',
-        total_egresos_usd: '450.00',
-        gastos_por_categoria: { 'Bombas de Agua': '300.00', Vigilancia: '150.00' },
-        estado_cobranza: [
-          { unidad_id: 1, periodo: '2026-10', estado: 'PENDIENTE', saldo_usd: '120.00' },
-        ],
-      });
+    expect(store.data.tasaActiva).toBeNull();
+    expect(store.data.resumen).toBeNull();
+    expect(store.activeRateValue).toBeNull();
+
+    // Tasa ausente (HTTP 404) NO tumba el dashboard ni marca isStale
+    vi.spyOn(apiClient, 'get').mockImplementation(async (url) => {
+      if (url === '/api/finanzas/tasa') {
+        throw new ApiError(404, 'Tasa BCV aún no cargada hoy');
+      }
+      if (url === '/api/finanzas/resumen') {
+        return {
+          deuda_total_usd: '120.00',
+          total_egresos_usd: '450.00',
+          gastos_por_categoria: { 'Bombas de Agua': '300.00', Vigilancia: '150.00' },
+          estado_cobranza: [
+            {
+              recibo_id: 1,
+              unidad_id: 1,
+              periodo: '2026-10',
+              estado: 'PENDIENTE',
+              saldo_usd: '120.00',
+            },
+          ],
+        };
+      }
+      return [
+        {
+          id: 3,
+          titulo: 'Mantenimiento bomba',
+          contenido: 'Corte programado viernes.',
+          enlace_externo: 'https://condominio.example/aviso',
+          activo: true,
+        },
+      ];
+    });
 
     await store.fetchDashboardData();
-    expect(store.activeRateValue).toBe('40.00');
+    expect(store.data.tasaActiva).toBeNull();
+    expect(store.activeRateValue).toBeNull();
     expect(store.data.resumen?.deuda_total_usd).toBe('120.00');
+    expect(store.data.comunicados).toHaveLength(1);
     expect(store.isStale).toBe(false);
 
-    // Simular caída de red posterior: NO debe destruir tasaActiva ni resumen
-    vi.spyOn(apiClient, 'get').mockRejectedValueOnce(new Error('Network down'));
+    // Con tasa presente actualiza tasaActiva normalmente
+    vi.spyOn(apiClient, 'get').mockImplementation(async (url) => {
+      if (url === '/api/finanzas/tasa') {
+        return { fecha: '2026-10-30', tasa_usd_ves: '40.00' };
+      }
+      if (url === '/api/finanzas/resumen') {
+        return store.data.resumen;
+      }
+      return store.data.comunicados;
+    });
+    await store.fetchDashboardData();
+    expect(store.activeRateValue).toBe('40.00');
+
+    // Caída de red posterior en resumen: NO destruye tasaActiva ni resumen y marca isStale=true
+    vi.spyOn(apiClient, 'get').mockImplementation(async () => {
+      throw new Error('Network down');
+    });
     await store.fetchDashboardData();
 
     expect(store.isStale).toBe(true);
@@ -55,9 +98,62 @@ describe('financeStore — Patrón No Destructivo, Conversiones BCV y Candado Co
     expect(store.data.resumen?.deuda_total_usd).toBe('120.00');
     expect(store.errorMessage).toContain('Mostrando últimos datos conocidos');
 
-    vi.spyOn(apiClient, 'get').mockRejectedValueOnce(new ApiError(502, 'Bad Gateway'));
+    vi.spyOn(apiClient, 'get').mockRejectedValue(new ApiError(502, 'Bad Gateway'));
     await store.fetchDashboardData();
     expect(store.errorMessage).toBe('Bad Gateway');
+    expect(store.isStale).toBe(true);
+  });
+
+  it('carga comunicados recientes, publica comunicado, sube evidencia FormData y resetea estado completo', async () => {
+    const store = useFinanceStore();
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+      { id: 10, titulo: 'Asamblea', contenido: 'Convocatoria', enlace_externo: null, activo: true },
+    ]);
+    const list = await store.fetchComunicadosRecientes();
+    expect(list).toHaveLength(1);
+
+    vi.spyOn(apiClient, 'post')
+      .mockResolvedValueOnce({
+        id: 11,
+        titulo: 'Fumigación',
+        contenido: 'Sábado 8am',
+        enlace_externo: null,
+        activo: true,
+      })
+      .mockResolvedValueOnce({
+        url: 's3://condominio/comprobantes/1.png',
+        mime_origen: 'image/png',
+        formato_destino: 'avif',
+        bytes_recibidos: 1200,
+        estado: 'ENCOLADO',
+      });
+
+    const pub = await store.publicarComunicado({ titulo: 'Fumigación', contenido: 'Sábado 8am' });
+    expect(pub.id).toBe(11);
+    expect(store.data.comunicados).toHaveLength(2);
+
+    const file = new File(['png'], 'pago.png', { type: 'image/png' });
+    const up = await store.subirEvidencia(file, 'comprobantes', 'idemp-ev-1');
+    expect(up.estado).toBe('ENCOLADO');
+
+    vi.spyOn(apiClient, 'post').mockRejectedValueOnce(new ApiError(403, 'Solo secretaría'));
+    await expect(store.publicarComunicado({ titulo: 'X', contenido: 'Y' })).rejects.toThrow(
+      'Solo secretaría',
+    );
+    expect(store.isStale).toBe(false);
+
+    vi.spyOn(apiClient, 'post').mockRejectedValueOnce(new ApiError(415, 'Formato inválido'));
+    await expect(store.subirEvidencia(file, 'comprobantes')).rejects.toThrow('Formato inválido');
+    expect(store.isStale).toBe(false);
+
+    vi.spyOn(apiClient, 'get').mockRejectedValueOnce(new Error('Net'));
+    await store.fetchComunicadosRecientes();
+    expect(store.isStale).toBe(true);
+
+    store.resetState();
+    expect(store.data.comunicados).toEqual([]);
+    expect(store.data.tasaActiva).toBeNull();
+    expect(store.isStale).toBe(false);
   });
 
   it('preserva pagosEnRevision ante error ApiError en fetchPagosEnRevision', async () => {

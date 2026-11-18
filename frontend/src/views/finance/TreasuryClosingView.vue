@@ -1,12 +1,15 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
-import AppShellLayout from '../../components/layout/AppShellLayout.vue';
-import { closeTopLayerDialog } from '../../composables/useViewTransition';
+import { ref } from 'vue';
+import { useTopLayerDialog } from '../../composables/useTopLayerDialog';
 import { useFinanceStore, type MonedaPago } from '../../stores/financeStore';
+import { compareDecimal, roundDecimalHalfUp } from '../../utils/decimal';
 
 const financeStore = useFinanceStore();
 
-const tasaInput = ref(financeStore.activeRateValue);
+const tasaInput = ref(financeStore.activeRateValue ?? '');
 const egresoPeriodo = ref('2026-10');
 const egresoCategoria = ref('Bombas de Agua');
 const egresoDescripcion = ref('');
@@ -17,11 +20,29 @@ const cierrePeriodo = ref('2026-10');
 const confirmModalOpen = ref(false);
 const dialogRef = ref<HTMLDialogElement | null>(null);
 const statusBanner = ref<string | null>(null);
+const validationError = ref<string | null>(null);
+
+function closeClosingModal(): void {
+  confirmModalOpen.value = false;
+}
+
+const { dialogProps, onPointerDown, onPointerUp, onBackdropClick } = useTopLayerDialog({
+  dialogRef,
+  isOpen: () => confirmModalOpen.value,
+  onClose: closeClosingModal,
+  unmountsWhenClosed: false,
+});
 
 async function saveTasa(): Promise<void> {
   statusBanner.value = null;
+  validationError.value = null;
+  const rawTasa = String(tasaInput.value ?? '').trim();
+  if (!rawTasa || compareDecimal(rawTasa, '0') <= 0) {
+    validationError.value = 'La tasa BCV debe ser mayor a cero.';
+    return;
+  }
   try {
-    const saved = await financeStore.registrarTasa(String(tasaInput.value));
+    const saved = await financeStore.registrarTasa(roundDecimalHalfUp(rawTasa, 2));
     statusBanner.value = `Tasa BCV actualizada a ${saved.tasa_usd_ves} VES/USD.`;
   } catch {
     // Error gestionado en financeStore.errorMessage
@@ -30,15 +51,21 @@ async function saveTasa(): Promise<void> {
 
 async function saveEgreso(): Promise<void> {
   statusBanner.value = null;
+  validationError.value = null;
+  const rawMonto = String(egresoMonto.value ?? '').trim();
+  if (!rawMonto || compareDecimal(rawMonto, '0') <= 0) {
+    validationError.value = 'El monto del egreso debe ser mayor a cero.';
+    return;
+  }
   try {
     const created = await financeStore.registrarEgreso({
-      periodo: egresoPeriodo.value,
+      periodo: egresoPeriodo.value.trim(),
       categoria: egresoCategoria.value,
       descripcion: egresoDescripcion.value.trim(),
-      monto: String(egresoMonto.value),
+      monto: roundDecimalHalfUp(rawMonto, 2),
       moneda: egresoMoneda.value,
     });
-    statusBanner.value = `Egreso #${created.id} registrado (${created.monto_usd} USD).`;
+    statusBanner.value = `Egreso registrado (${created.monto_usd} USD).`;
     egresoDescripcion.value = '';
     egresoMonto.value = '';
   } catch {
@@ -46,39 +73,15 @@ async function saveEgreso(): Promise<void> {
   }
 }
 
-watch(confirmModalOpen, async (isOpen) => {
-  if (isOpen) {
-    await nextTick();
-    const el = dialogRef.value;
-    if (el && typeof el.showModal === 'function' && !el.open) {
-      el.showModal();
-    }
-    return;
-  }
-  const el = dialogRef.value;
-  if (el?.open) {
-    await closeTopLayerDialog(el);
-  }
-});
-
 function openClosingModal(): void {
   confirmModalOpen.value = true;
 }
 
-function closeClosingModal(): void {
-  confirmModalOpen.value = false;
-}
-
-function handleNativeClose(): void {
-  if (confirmModalOpen.value) {
-    confirmModalOpen.value = false;
-  }
-}
-
 async function confirmMonthlyClosing(): Promise<void> {
   statusBanner.value = null;
+  validationError.value = null;
   try {
-    const cierre = await financeStore.ejecutarCierreMensual(cierrePeriodo.value);
+    const cierre = await financeStore.ejecutarCierreMensual(cierrePeriodo.value.trim());
     closeClosingModal();
     statusBanner.value = `Candado Contable activado para el periodo ${cierre.periodo} (${cierre.estado}).`;
   } catch {
@@ -88,9 +91,11 @@ async function confirmMonthlyClosing(): Promise<void> {
 </script>
 
 <template>
-  <AppShellLayout>
+  <section aria-labelledby="closing-page-title">
     <header class="page-header">
-      <h1 class="page-header__title">Tesorería: Tasa BCV, Egresos y Candado Contable</h1>
+      <h1 id="closing-page-title" class="page-header__title">
+        Tesorería: Tasa BCV, Egresos y Candado Contable
+      </h1>
       <p class="page-header__subtitle">
         Administra la tasa oficial del día, registra gastos comunes y ejecuta el cierre mensual
         inmutable.
@@ -104,6 +109,9 @@ async function confirmMonthlyClosing(): Promise<void> {
       role="alert"
     >
       {{ financeStore.errorMessage }}
+    </div>
+    <div v-if="validationError" class="banner banner--error" role="alert">
+      {{ validationError }}
     </div>
     <div v-if="statusBanner" class="banner banner--success" role="status">
       {{ statusBanner }}
@@ -191,7 +199,7 @@ async function confirmMonthlyClosing(): Promise<void> {
         </h2>
         <p class="panel-card__desc">
           Al cerrar el periodo, todos los recibos y egresos del mes quedan bloqueados
-          permanentemente (`bloqueado = true`) contra ediciones o nuevos abonos.
+          permanentemente (<code>bloqueado = true</code>) contra ediciones o nuevos abonos.
         </p>
         <div class="panel-form">
           <label for="input-cierre-periodo" class="field-label">Periodo a cerrar</label>
@@ -217,10 +225,14 @@ async function confirmMonthlyClosing(): Promise<void> {
     <dialog
       id="modal-confirm-closing"
       ref="dialogRef"
+      v-bind="dialogProps"
       aria-labelledby="closing-modal-title"
       class="closing-dialog top-layer-dialog"
       @cancel.prevent="closeClosingModal"
-      @close="handleNativeClose"
+      @close="closeClosingModal"
+      @pointerdown="onPointerDown"
+      @pointerup="onPointerUp"
+      @click="onBackdropClick"
     >
       <h2 id="closing-modal-title" class="closing-dialog__title">
         ¿Confirmar Candado Contable para {{ cierrePeriodo }}?
@@ -249,21 +261,10 @@ async function confirmMonthlyClosing(): Promise<void> {
         </button>
       </div>
     </dialog>
-  </AppShellLayout>
+  </section>
 </template>
 
 <style scoped>
-/* MANDATORY (both rules): without them, scrolling over the backdrop or inside the dialog scrolls the page behind it */
-dialog:modal {
-  overscroll-behavior: contain;
-}
-
-dialog::backdrop {
-  overflow: hidden;
-  overscroll-behavior: contain;
-  background-color: rgba(15, 23, 42, 0.55);
-}
-
 .page-header {
   margin-bottom: 1.25rem;
 }
@@ -271,32 +272,32 @@ dialog::backdrop {
 .page-header__title {
   margin: 0;
   font-size: 1.3rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .page-header__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .banner {
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   margin-bottom: 1rem;
   font-size: 0.875rem;
 }
 
 .banner--error {
-  background-color: var(--status-danger-bg, #fef2f2);
-  border: 1px solid var(--status-danger-border, #f87171);
-  color: var(--status-danger-text, #991b1b);
+  background-color: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .banner--success {
-  background-color: var(--status-ok-bg, #f0fdf4);
-  border: 1px solid var(--status-ok-border, #4ade80);
-  color: var(--status-ok-text, #166534);
+  background-color: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .treasury-grid {
@@ -308,27 +309,28 @@ dialog::backdrop {
 
 .panel-card {
   padding: clamp(1rem, 2.5cqi, 1.5rem);
-  border-radius: var(--radius-md, 0.75rem);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-card);
 }
 
 .panel-card--warning {
-  border-color: var(--status-warn-border, #f59e0b);
-  background-color: var(--status-warn-bg, #fffbeb);
-  color: var(--status-warn-text, #78350f);
+  border-color: var(--status-warn-border);
+  background-color: var(--status-warn-bg);
+  color: var(--status-warn-text);
 }
 
 .panel-card__title {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;
   text-wrap: balance;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
-.panel-card--warning .panel-card__title {
-  color: var(--status-warn-text, #78350f);
+.panel-card--warning .panel-card__title,
+.panel-card--warning .panel-card__desc {
+  color: var(--status-warn-text);
 }
 
 .panel-card__desc {
@@ -336,7 +338,6 @@ dialog::backdrop {
   max-inline-size: 65ch;
   text-wrap: pretty;
   font-size: 0.85rem;
-  color: var(--status-warn-text, #78350f);
 }
 
 .panel-form {
@@ -348,23 +349,18 @@ dialog::backdrop {
 .field-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
 }
 
 .field-input {
+  min-block-size: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #cbd5e1);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
   font-size: 0.95rem;
   font-variant-numeric: tabular-nums;
-}
-
-@media (pointer: coarse) {
-  .field-input {
-    min-block-size: 2.75rem;
-  }
 }
 
 .inline-row {
@@ -380,44 +376,35 @@ dialog::backdrop {
   gap: 0.25rem;
 }
 
-.btn-primary {
-  margin-top: 0.5rem;
+.btn-primary,
+.btn-danger,
+.btn-secondary {
+  min-block-size: 2.75rem;
   padding: 0.625rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  border-radius: var(--radius-sm);
   font-weight: 700;
   cursor: pointer;
+}
+
+.btn-primary {
+  margin-top: 0.5rem;
+  border: none;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .btn-danger {
   margin-top: 0.5rem;
-  padding: 0.625rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: none;
-  background-color: #dc2626;
-  color: #ffffff;
-  font-weight: 700;
-  cursor: pointer;
+  border: 1px solid var(--status-danger-border);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .btn-secondary {
-  padding: 0.5rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #cbd5e1);
-  background-color: var(--surface-subtle, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
   font-weight: 600;
-  cursor: pointer;
-}
-
-@media (pointer: coarse) {
-  .btn-primary,
-  .btn-danger,
-  .btn-secondary {
-    min-block-size: 2.75rem;
-  }
 }
 
 .closing-dialog[open] {
@@ -425,11 +412,11 @@ dialog::backdrop {
   inline-size: min(100% - 1.5rem, 28.75rem);
   max-block-size: min(85dvh, 38rem);
   overflow-y: auto;
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: var(--radius-md, 0.75rem);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: clamp(1rem, 3vw, 1.5rem);
-  background-color: var(--surface-elevated, #ffffff);
-  color: var(--text-primary, #0f172a);
+  background-color: var(--surface-elevated);
+  color: var(--text-primary);
   box-shadow: var(--shadow-modal);
 }
 
@@ -444,7 +431,7 @@ dialog::backdrop {
   max-inline-size: 65ch;
   text-wrap: pretty;
   font-size: 0.9rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
 }
 
 .closing-dialog__actions {

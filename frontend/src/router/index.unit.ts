@@ -11,6 +11,7 @@ import { useAuthStore } from '../stores/authStore';
 describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    vi.restoreAllMocks();
   });
 
   it('evalúa rutas públicas, de contención fantasma (/espera-aprobacion) y protegidas por RBAC', () => {
@@ -23,6 +24,13 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     expect(evaluateNavigationGuard({ meta: { public: true } }, unauth)).toBe(true);
     expect(evaluateNavigationGuard({ meta: { ghostOnly: true } }, unauth)).toBe('/login');
     expect(evaluateNavigationGuard({ meta: { requiresActive: true } }, unauth)).toBe('/login');
+    expect(
+      evaluateNavigationGuard(
+        { meta: { requiresActive: true }, path: '/consultas', fullPath: '/consultas?page=2' },
+        unauth,
+      ),
+    ).toBe('/login?redirect=%2Fconsultas%3Fpage%3D2');
+    expect(evaluateNavigationGuard({ meta: { publicNotFound: true } }, unauth)).toBe(true);
 
     const ghost = {
       isAuthenticated: true,
@@ -43,6 +51,18 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
       userRole: 'PROPIETARIO' as const,
     };
     expect(evaluateNavigationGuard({ meta: { public: true } }, activeProp)).toBe('/dashboard');
+    expect(
+      evaluateNavigationGuard(
+        { meta: { public: true }, query: { redirect: '/consultas/5' } },
+        activeProp,
+      ),
+    ).toBe('/consultas/5');
+    expect(
+      evaluateNavigationGuard(
+        { meta: { public: true }, query: { redirect: '/\t/evil.com' } },
+        activeProp,
+      ),
+    ).toBe('/dashboard');
     expect(evaluateNavigationGuard({ meta: { ghostOnly: true } }, activeProp)).toBe('/dashboard');
     expect(evaluateNavigationGuard({ meta: { requiresActive: true } }, activeProp)).toBe(true);
     expect(
@@ -169,5 +189,57 @@ describe('Guardias de Navegación Vue Router (router/index.ts)', () => {
     expect(mainEl.getAttribute('tabindex')).toBe('-1');
     expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
     mainEl.remove();
+
+    // Ruta inexistente cae en NotFoundView (404)
+    await router.push('/no-existe-esta-vista-404');
+    expect(router.currentRoute.value.name).toBe('not-found');
+  });
+
+  it('hidrata sesión en recarga fría de /login y honra ?redirect= seguro (Hito 22.2)', async () => {
+    const fetchSpy = vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce({
+      id: 22,
+      nombre: 'Laura Hidratada',
+      cedula: 'V-22',
+      correo: 'laura@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PROPIETARIO',
+      unidad_activa_id: 3,
+    });
+
+    const router = buildAppRouter(true);
+    await router.push('/login?redirect=%2Faccesos%2Fpases');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(router.currentRoute.value.path).toBe('/accesos/pases');
+  });
+
+  it('carga los módulos lazy de todas las rutas y rechaza redirects inseguros', async () => {
+    vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce({
+      id: 1,
+      nombre: 'Admin Lazy',
+      cedula: 'V-1',
+      correo: 'admin@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PRESIDENTE',
+      unidad_activa_id: 1,
+    });
+
+    const router = buildAppRouter(true);
+    await router.push('/login?redirect=https%3A%2F%2Fevil.example.com');
+    expect(router.currentRoute.value.path).toBe('/dashboard');
+
+    // Resolver todos los loaders lazy () => import(...) para cobertura de funciones
+    const lazyLoaders = router
+      .getRoutes()
+      .map((record) => record.components?.default)
+      .filter((comp): comp is () => Promise<unknown> => typeof comp === 'function');
+
+    await Promise.all(lazyLoaders.map((loader) => loader()));
+    expect(lazyLoaders.length).toBeGreaterThanOrEqual(20);
+
+    // Usuario ya activo navegando a /espera-aprobacion redirige al panel
+    await router.push('/espera-aprobacion');
+    expect(router.currentRoute.value.path).toBe('/dashboard');
   });
 });

@@ -120,10 +120,10 @@ const ICON_PATHS: Record<NonNullable<typeof props.icon>, readonly string[]> = {
   margin-top: 1rem;
   min-block-size: 2.75rem;
   padding: 0.5rem 1.25rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;

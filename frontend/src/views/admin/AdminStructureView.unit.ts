@@ -92,12 +92,19 @@ describe('AdminStructureView.vue — Generador de Estructura Física', () => {
     const wrapper = mount(AdminStructureView);
     await flushPromises();
 
+    expect(wrapper.find('#unidades-list').text()).toContain('Apto 1-A');
+    expect(wrapper.find('#unidades-list').text()).not.toContain('#1 —');
+
     await wrapper.find('#select-alicuota-unidad').setValue('1');
     await wrapper.find('#input-alicuota-valor').setValue('150');
     await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
     expect(wrapper.find('#estructura-validation-error').text()).toContain('alícuota');
 
     await wrapper.find('#input-alicuota-valor').setValue('25.0000');
+    await wrapper.find('#input-cuota-fija-unidad').setValue('-5');
+    await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
+    expect(wrapper.find('#estructura-validation-error').text()).toContain('cuota fija');
+
     await wrapper.find('#input-cuota-fija-unidad').setValue('30.00');
     await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
     await flushPromises();
@@ -114,8 +121,13 @@ describe('AdminStructureView.vue — Generador de Estructura Física', () => {
     await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
     await flushPromises();
 
-    alicuotaSpy.mockRejectedValueOnce(new Error('Fallo red'));
+    alicuotaSpy.mockImplementationOnce(async () => {
+      store.isStale = false;
+      store.errorMessage = 'Error de validación en backend';
+      throw new Error('400');
+    });
     await wrapper.find('#form-actualizar-alicuota').trigger('submit.prevent');
     await flushPromises();
+    expect(wrapper.find('#estructura-error-banner').text()).toContain('Error de validación');
   });
 });

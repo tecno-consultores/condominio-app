@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ContextualHelpModal from '../../components/layout/ContextualHelpModal.vue';
 import ThemeToggleButton from '../../components/layout/ThemeToggleButton.vue';
@@ -15,6 +15,14 @@ const password = ref('');
 const showPassword = ref(false);
 const errorBanner = ref<string | null>(null);
 const isHelpOpen = ref(false);
+
+const registerLinkTarget = computed(() => {
+  const redirectParam = typeof route.query?.redirect === 'string' ? route.query.redirect : null;
+  if (redirectParam && isSafeRedirectUrl(redirectParam)) {
+    return { path: '/register', query: { redirect: redirectParam } };
+  }
+  return '/register';
+});
 
 function syncAriaInvalid(event: Event): void {
   const el = event.target as HTMLInputElement;
@@ -135,7 +143,7 @@ async function onSubmit(): Promise<void> {
 
       <p class="auth-card__footer">
         ¿Nuevo residente en el condominio?
-        <router-link id="link-go-register" to="/register" class="auth-card__link">
+        <router-link id="link-go-register" :to="registerLinkTarget" class="auth-card__link">
           Solicitar registro de unidad
         </router-link>
       </p>
@@ -152,17 +160,17 @@ async function onSubmit(): Promise<void> {
   align-items: center;
   justify-content: center;
   padding: 1.5rem 1rem;
-  background-color: var(--surface-canvas, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  background-color: var(--surface-canvas);
+  color: var(--text-primary);
 }
 
 .auth-card {
   width: 100%;
   max-width: 420px;
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #e2e8f0);
-  border-block-start: 4px solid var(--brand-accent, #0369a1);
-  border-radius: var(--radius-lg, 1rem);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-block-start: 4px solid var(--brand-accent);
+  border-radius: var(--radius-lg);
   box-shadow: var(--surface-hairline), var(--shadow-elevated);
   padding: 1.75rem 1.5rem;
 }
@@ -170,13 +178,13 @@ async function onSubmit(): Promise<void> {
 .auth-card__title {
   font-size: 1.35rem;
   margin: 0 0 0.5rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
 .auth-card__subtitle {
   font-size: 0.875rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   margin: 0 0 1.25rem;
   text-wrap: pretty;
 }
@@ -184,10 +192,10 @@ async function onSubmit(): Promise<void> {
 .banner--error {
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  background-color: var(--status-danger-bg, #fef2f2);
-  border: 1px solid var(--status-danger-border, #f87171);
-  color: var(--status-danger-text, #991b1b);
+  border-radius: var(--radius-sm);
+  background-color: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
   font-size: 0.875rem;
   font-weight: 600;
 }
@@ -212,53 +220,55 @@ async function onSubmit(): Promise<void> {
 .field__label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin-bottom: 0.25rem;
 }
 
 .field__hint {
   font-size: 0.75rem;
-  color: var(--text-tertiary, #475569);
+  color: var(--text-tertiary);
   margin-bottom: 0.35rem;
 }
 
 .field__toggle {
   background: transparent;
   border: none;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
-  min-block-size: 2.25rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
   padding: 0.25rem 0.5rem;
 }
 
 .field__input {
+  min-block-size: 2.75rem;
   padding: 0.65rem 0.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #64748b);
-  background-color: var(--surface-subtle, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
   font-size: 0.95rem;
 }
 
 .field__input:user-invalid {
-  border-color: var(--status-danger-border, #dc2626);
-  background-color: var(--status-danger-tint, #fef2f2);
+  border-color: var(--status-danger-border);
+  background-color: var(--status-danger-tint);
 }
 
 .field__input:user-valid {
-  border-color: var(--status-ok-border, #16a34a);
+  border-color: var(--status-ok-border);
 }
 
 .btn-primary {
   margin-top: 0.5rem;
   min-height: 48px;
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-size: 1rem;
   font-weight: 700;
   box-shadow: var(--btn-raised-shadow);
@@ -281,12 +291,15 @@ async function onSubmit(): Promise<void> {
 .auth-card__footer {
   margin-top: 1.25rem;
   font-size: 0.85rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   text-align: center;
 }
 
 .auth-card__link {
-  color: var(--brand-accent, #0369a1);
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  color: var(--brand-accent);
   font-weight: 600;
 }
 
@@ -311,9 +324,9 @@ async function onSubmit(): Promise<void> {
   inline-size: 2.75rem;
   block-size: 2.75rem;
   border-radius: 50%;
-  border: 1px solid var(--border-control, #64748b);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--brand-accent, #0369a1);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--brand-accent);
   font-size: 0.9375rem;
   font-weight: 700;
   cursor: pointer;
@@ -325,8 +338,8 @@ async function onSubmit(): Promise<void> {
 }
 
 .auth-card__help-btn:hover {
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
-  border-color: var(--brand-600, #0369a1);
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
+  border-color: var(--brand-600);
 }
 </style>

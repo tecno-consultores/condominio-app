@@ -1,12 +1,22 @@
-<script setup lang="ts">
-import { ref } from 'vue';
-import { useAccessAmenitiesStore } from '../../stores/accessAmenitiesStore';
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
 
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { useAccessAmenitiesStore } from '../../stores/accessAmenitiesStore';
+import { useAuthStore } from '../../stores/authStore';
+
+const authStore = useAuthStore();
 const store = useAccessAmenitiesStore();
 const qrTokenInput = ref('');
 
+const canVerifyQr = computed(() => {
+  const rol = authStore.userRole;
+  return rol === 'CONSERJE' || rol === 'PRESIDENTE' || rol === 'VOCERO';
+});
+
 async function handleVerificarQR(): Promise<void> {
-  if (!qrTokenInput.value.trim()) {
+  if (!canVerifyQr.value || !qrTokenInput.value.trim()) {
     return;
   }
   try {
@@ -28,7 +38,12 @@ async function handleVerificarQR(): Promise<void> {
       </p>
     </header>
 
+    <div v-if="!canVerifyQr" id="scanner-rbac-warning" class="alert alert--error" role="alert">
+      Acceso exclusivo para Conserjería o Junta Directiva.
+    </div>
+
     <form
+      v-else
       id="form-verificar-qr-garita"
       class="card scanner-form"
       aria-label="Formulario de verificación de pase QR en garita"
@@ -62,7 +77,9 @@ async function handleVerificarQR(): Promise<void> {
     >
       <div class="result-card__header">
         <span class="badge badge--authorized">ACCESO AUTORIZADO</span>
-        <span class="result-card__jti">JTI: {{ store.ultimoEscaneo.jti }}</span>
+        <span class="result-card__modality">
+          {{ store.ultimoEscaneo.estado }} · {{ store.ultimoEscaneo.modalidad }}
+        </span>
       </div>
 
       <h2 class="result-card__visitor">{{ store.ultimoEscaneo.nombre_visitante }}</h2>
@@ -88,20 +105,20 @@ async function handleVerificarQR(): Promise<void> {
 .scanner-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .scanner-view__subtitle {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
 
 .card {
-  background: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: 0.75rem;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: 1.25rem;
 }
 
@@ -117,45 +134,48 @@ async function handleVerificarQR(): Promise<void> {
   gap: 0.35rem;
   font-size: 0.88rem;
   font-weight: 600;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
 }
 
 .field input {
+  min-block-size: 2.75rem;
   padding: 0.65rem 0.8rem;
-  border: 1px solid var(--border-control, #94a3b8);
-  background: var(--surface-card, #ffffff);
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-control);
+  background: var(--surface-card);
+  border-radius: var(--radius-sm);
   font-size: 0.95rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .btn {
+  min-block-size: 2.75rem;
   padding: 0.65rem 1.1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font-weight: 700;
   cursor: pointer;
   border: none;
 }
 
 .btn--primary {
-  background: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .alert--error {
   padding: 0.9rem 1rem;
-  border-radius: 0.6rem;
-  background: var(--status-danger-bg, #fef2f2);
-  border: 1px solid var(--status-danger-border, #ef4444);
-  color: var(--status-danger-text, #991b1b);
+  border-radius: var(--radius-sm);
+  background: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .result-card {
-  border-left: 4px solid var(--status-ok-border, #16a34a);
+  border-left: 4px solid var(--status-ok-border);
 }
 
 .result-card__header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
@@ -163,35 +183,35 @@ async function handleVerificarQR(): Promise<void> {
 }
 
 .badge--authorized {
-  background: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #14532d);
+  background: var(--status-ok-bg);
+  color: var(--status-ok-text);
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0.2rem 0.6rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
 }
 
-.result-card__jti {
-  font-size: 0.75rem;
-  color: var(--text-secondary, #475569);
-  font-family: monospace;
+.result-card__modality {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .result-card__visitor {
   margin: 0 0 0.35rem;
   font-size: 1.15rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .result-card__detail {
   margin: 0.2rem 0;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
   font-size: 0.9rem;
 }
 
 .result-card__message {
   margin: 0.5rem 0 0;
   font-weight: 600;
-  color: var(--status-ok-text, #14532d);
+  color: var(--status-ok-text);
 }
 </style>

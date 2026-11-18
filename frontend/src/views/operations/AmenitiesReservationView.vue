@@ -1,14 +1,24 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { useDualRefresh } from '../../composables/useDualRefresh';
 import {
   useAccessAmenitiesStore,
+  type ReservaAreaDTO,
   type ResultadoInspeccionReserva,
 } from '../../stores/accessAmenitiesStore';
+import { useAuthStore } from '../../stores/authStore';
+import { useOperationsStore } from '../../stores/operationsStore';
+import { compareDecimal, parseDecimal, roundDecimalHalfUp } from '../../utils/decimal';
 
+const authStore = useAuthStore();
+const opsStore = useOperationsStore();
 const store = useAccessAmenitiesStore();
 
 const areaNombre = ref('');
-const areaAforo = ref<number>(50);
+const areaAforo = ref('50');
 const areaCostoUsd = ref('25.00');
 const areaDepositoUsd = ref('100.00');
 const areaRequiereSolvencia = ref(true);
@@ -19,27 +29,88 @@ const reservaFecha = ref('2026-12-20');
 const reservaMotivo = ref('');
 
 const feedbackExito = ref<string | null>(null);
+const validationError = ref<string | null>(null);
+
+const canManageAreas = computed(() => {
+  const rol = authStore.userRole;
+  return rol === 'PRESIDENTE' || rol === 'TESORERO';
+});
+
+const canInspectReservations = computed(() => {
+  const rol = authStore.userRole;
+  return rol === 'CONSERJE' || rol === 'PRESIDENTE' || rol === 'TESORERO';
+});
+
+function canCancelReservation(reserva: ReservaAreaDTO): boolean {
+  const rol = authStore.userRole;
+  const isBoardCanceller =
+    rol === 'PRESIDENTE' || rol === 'VICEPRESIDENTE' || rol === 'TESORERO' || rol === 'SECRETARIO';
+  return (
+    isBoardCanceller ||
+    (authStore.data?.id !== undefined && reserva.solicitante_id === authStore.data.id)
+  );
+}
+
+async function refreshAmenitiesData(): Promise<void> {
+  const [areasRes] = await Promise.allSettled([
+    store.fetchAreasSociales(),
+    store.fetchReservas(),
+    opsStore.fetchUnidades(),
+  ]);
+  if (areasRes.status === 'fulfilled') {
+    const primera = areasRes.value[0];
+    if (primera) {
+      reservaAreaId.value = primera.id;
+    }
+  }
+  if (authStore.activeUnitId !== null) {
+    reservaUnidadId.value = authStore.activeUnitId;
+  } else if (
+    opsStore.data.unidades.length > 0 &&
+    !opsStore.data.unidades.some((u) => u.id === reservaUnidadId.value)
+  ) {
+    reservaUnidadId.value = opsStore.data.unidades[0].id;
+  }
+}
+
+const { isRefreshing, triggerRefresh } = useDualRefresh(refreshAmenitiesData);
 
 onMounted(async () => {
-  const areas = await store.fetchAreasSociales();
-  const primera = areas[0];
-  if (primera) {
-    reservaAreaId.value = primera.id;
-  }
-  await store.fetchReservas();
+  await refreshAmenitiesData();
 });
 
 async function handleCrearArea(): Promise<void> {
   feedbackExito.value = null;
-  if (!areaNombre.value.trim()) {
+  validationError.value = null;
+  if (!canManageAreas.value || !areaNombre.value.trim()) {
     return;
   }
+
+  const rawAforo = String(areaAforo.value ?? '').trim();
+  const parsedAforo = Number.parseInt(rawAforo, 10);
+  if (!/^\d+$/.test(rawAforo) || parsedAforo < 1 || parsedAforo > 500) {
+    validationError.value = 'El aforo máximo debe ser un entero entre 1 y 500 personas.';
+    return;
+  }
+
+  const rawCosto = String(areaCostoUsd.value ?? '').trim();
+  const rawDeposito = String(areaDepositoUsd.value ?? '').trim();
+  if (
+    !parseDecimal(rawCosto) ||
+    compareDecimal(rawCosto, '0') < 0 ||
+    !parseDecimal(rawDeposito) ||
+    compareDecimal(rawDeposito, '0') < 0
+  ) {
+    validationError.value = 'El costo y depósito deben ser montos USD válidos.';
+    return;
+  }
+
   try {
     const creada = await store.crearAreaSocial({
       nombre: areaNombre.value.trim(),
-      aforo_maximo: Number(areaAforo.value),
-      costo_uso_usd: areaCostoUsd.value.trim(),
-      deposito_garantia_usd: areaDepositoUsd.value.trim(),
+      aforo_maximo: parsedAforo,
+      costo_uso_usd: roundDecimalHalfUp(rawCosto, 2),
+      deposito_garantia_usd: roundDecimalHalfUp(rawDeposito, 2),
       requiere_solvencia_estricta: areaRequiereSolvencia.value,
     });
     reservaAreaId.value = creada.id;
@@ -52,6 +123,7 @@ async function handleCrearArea(): Promise<void> {
 
 async function handleSolicitarReserva(): Promise<void> {
   feedbackExito.value = null;
+  validationError.value = null;
   if (!reservaMotivo.value.trim()) {
     return;
   }
@@ -62,7 +134,7 @@ async function handleSolicitarReserva(): Promise<void> {
       fecha_evento: reservaFecha.value,
       motivo_evento: reservaMotivo.value.trim(),
     });
-    feedbackExito.value = `Reserva #${creada.id} confirmada para ${creada.nombre_area} (${creada.fecha_evento}). Tarea de inspección post-evento #${creada.tarea_inspeccion_id ?? 'N/A'} asignada a conserjería.`;
+    feedbackExito.value = `Reserva confirmada para ${creada.nombre_area} (${creada.fecha_evento}). Tarea de inspección post-evento asignada a conserjería.`;
     reservaMotivo.value = '';
   } catch {
     // Error expuesto reactivamente en store.error
@@ -74,6 +146,9 @@ async function handleInspeccionar(
   estado: ResultadoInspeccionReserva,
 ): Promise<void> {
   feedbackExito.value = null;
+  if (!canInspectReservations.value) {
+    return;
+  }
   const observacion =
     estado === 'FINALIZADA_SIN_DANOS'
       ? 'Instalaciones entregadas limpias y sin daños materiales.'
@@ -83,7 +158,7 @@ async function handleInspeccionar(
       estado,
       observaciones_inspeccion: observacion,
     });
-    feedbackExito.value = `Inspección post-evento registrada para Reserva #${actualizada.id} (${actualizada.estado}).`;
+    feedbackExito.value = `Inspección post-evento registrada (${actualizada.estado}).`;
   } catch {
     // Error expuesto reactivamente en store.error
   }
@@ -92,8 +167,8 @@ async function handleInspeccionar(
 async function handleCancelarReserva(reservaId: number): Promise<void> {
   feedbackExito.value = null;
   try {
-    const cancelada = await store.cancelarReserva(reservaId);
-    feedbackExito.value = `Reserva #${cancelada.id} cancelada exitosamente. La fecha quedó liberada.`;
+    await store.cancelarReserva(reservaId);
+    feedbackExito.value = 'Reserva cancelada exitosamente. La fecha quedó liberada.';
   } catch {
     // Error expuesto reactivamente en store.error
   }
@@ -103,13 +178,25 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
 <template>
   <section class="amenities-view" aria-labelledby="amenities-title">
     <header class="amenities-view__header">
-      <h1 id="amenities-title" class="amenities-view__title">
-        Reserva de Áreas Sociales y Amenidades
-      </h1>
-      <p class="amenities-view__subtitle">
-        Gestión de Salón de Fiestas, Parrilleras y Áreas Recreativas vinculada a Solvencia Estricta
-        e inspección automática de conserjería.
-      </p>
+      <div>
+        <h1 id="amenities-title" class="amenities-view__title">
+          Reserva de Áreas Sociales y Amenidades
+        </h1>
+        <p class="amenities-view__subtitle">
+          Gestión de Salón de Fiestas, Parrilleras y Áreas Recreativas vinculada a Solvencia
+          Estricta e inspección automática de conserjería.
+        </p>
+      </div>
+      <button
+        id="btn-dual-refresh"
+        type="button"
+        class="dual-refresh-btn"
+        :disabled="isRefreshing || store.isLoading"
+        @click="triggerRefresh"
+      >
+        <span aria-hidden="true">🔄</span>
+        <span>{{ isRefreshing ? 'Actualizando...' : 'Refrescar' }}</span>
+      </button>
     </header>
 
     <div
@@ -128,6 +215,9 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
 
     <div v-if="store.error" id="amenities-error-banner" class="alert alert--error" role="alert">
       {{ store.error }}
+    </div>
+    <div v-if="validationError" class="alert alert--error" role="alert">
+      {{ validationError }}
     </div>
     <div
       v-if="feedbackExito"
@@ -185,19 +275,17 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
               <option v-for="area in store.areasSociales" :key="area.id" :value="area.id">
                 {{ area.nombre }} (Aforo {{ area.aforo_maximo }})
               </option>
-              <option v-if="store.areasSociales.length === 0" :value="1">Área #1</option>
+              <option v-if="store.areasSociales.length === 0" :value="1">Salón social</option>
             </select>
           </label>
 
           <label class="field" for="input-reserva-unidad">
-            <span>ID de Unidad Solicitante</span>
-            <input
-              id="input-reserva-unidad"
-              v-model.number="reservaUnidadId"
-              type="number"
-              min="1"
-              required
-            />
+            <span>Unidad Solicitante</span>
+            <select id="input-reserva-unidad" v-model.number="reservaUnidadId" required>
+              <option v-for="u in opsStore.data.unidades" :key="u.id" :value="u.id">
+                {{ u.identificador }}
+              </option>
+            </select>
           </label>
         </div>
 
@@ -234,6 +322,7 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
       </form>
 
       <form
+        v-if="canManageAreas"
         id="form-crear-area"
         class="card form-grid"
         aria-label="Configurar nueva área social"
@@ -259,10 +348,11 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
             <span>Aforo Máximo (Personas)</span>
             <input
               id="input-area-aforo"
-              v-model.number="areaAforo"
+              v-model="areaAforo"
               type="number"
               min="1"
               max="500"
+              step="1"
               required
             />
           </label>
@@ -326,23 +416,26 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
           </p>
 
           <div v-if="reserva.estado === 'CONFIRMADA'" class="reservation-card__actions">
+            <template v-if="canInspectReservations">
+              <button
+                :id="`btn-inspect-ok-${reserva.id}`"
+                type="button"
+                class="btn btn--primary"
+                @click="handleInspeccionar(reserva.id, 'FINALIZADA_SIN_DANOS')"
+              >
+                Inspección OK (Sin Daños)
+              </button>
+              <button
+                :id="`btn-inspect-damage-${reserva.id}`"
+                type="button"
+                class="btn btn--danger"
+                @click="handleInspeccionar(reserva.id, 'FINALIZADA_CON_DANOS')"
+              >
+                Reportar Daños Post-Evento
+              </button>
+            </template>
             <button
-              :id="`btn-inspect-ok-${reserva.id}`"
-              type="button"
-              class="btn btn--primary"
-              @click="handleInspeccionar(reserva.id, 'FINALIZADA_SIN_DANOS')"
-            >
-              Inspección OK (Sin Daños)
-            </button>
-            <button
-              :id="`btn-inspect-damage-${reserva.id}`"
-              type="button"
-              class="btn btn--danger"
-              @click="handleInspeccionar(reserva.id, 'FINALIZADA_CON_DANOS')"
-            >
-              Reportar Daños Post-Evento
-            </button>
-            <button
+              v-if="canCancelReservation(reserva)"
               :id="`btn-cancelar-reserva-${reserva.id}`"
               type="button"
               class="btn btn--secondary"
@@ -364,15 +457,23 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
   gap: 1.25rem;
 }
 
+.amenities-view__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .amenities-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .amenities-view__subtitle {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
@@ -381,18 +482,18 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  background: var(--status-info-bg, #f0f9ff);
-  border: 1px solid var(--status-info-border, #0369a1);
-  color: var(--status-info-text, #0c4a6e);
-  border-radius: var(--radius-md, 0.75rem);
+  background: var(--status-info-bg);
+  border: 1px solid var(--status-info-border);
+  color: var(--status-info-text);
+  border-radius: var(--radius-md);
   padding: 0.9rem 1.1rem;
   font-size: 0.88rem;
 }
 
 .card {
-  background: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: var(--radius-md, 0.75rem);
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: 1.25rem;
   box-shadow: var(--shadow-card);
 }
@@ -401,7 +502,7 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
 .section-heading {
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0 0 0.75rem;
 }
 
@@ -429,17 +530,18 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
 }
 
 .field input,
 .field select {
+  min-block-size: 2.75rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border-control, #94a3b8);
-  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
   font-size: 0.92rem;
-  color: var(--text-primary, #0f172a);
-  background: var(--surface-card, #ffffff);
+  color: var(--text-primary);
+  background: var(--surface-card);
 }
 
 .cards-grid {
@@ -464,22 +566,22 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
 
 .amenity-card__name {
   font-size: 0.98rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .amenity-card__meta {
   margin: 0.2rem 0 0;
   font-size: 0.85rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .reservation-card__notes {
   margin: 0;
   font-size: 0.84rem;
-  color: var(--text-secondary, #334155);
-  background: var(--surface-subtle, #f8fafc);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
   padding: 0.45rem 0.65rem;
-  border-radius: 0.4rem;
+  border-radius: var(--radius-sm);
 }
 
 .reservation-card__actions {
@@ -492,73 +594,71 @@ async function handleCancelarReserva(reservaId: number): Promise<void> {
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.2rem 0.55rem;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
 }
 
 .badge--solvencia,
 .badge--confirmada {
-  background: var(--brand-tint, #e0f2fe);
-  color: var(--brand-accent, #075985);
+  background: var(--brand-tint);
+  color: var(--brand-accent);
 }
 
 .badge--finalizada_sin_danos {
-  background: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #14532d);
+  background: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .badge--finalizada_con_danos {
-  background: var(--status-danger-bg, #fee2e2);
-  color: var(--status-danger-text, #991b1b);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .badge--cancelada {
-  background: var(--surface-subtle, #e2e8f0);
-  color: var(--text-secondary, #334155);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
 }
 
 .btn {
+  min-block-size: 2.75rem;
   padding: 0.6rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   font-weight: 600;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
 }
 
-.btn--primary {
-  background: var(--brand-600, #0369a1);
-  color: #ffffff;
-}
-
+.btn--primary,
 .btn--secondary {
-  background: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .btn--danger {
-  background: #b91c1c;
-  color: #ffffff;
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .alert {
   padding: 0.8rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 
 .alert--error {
-  background: var(--status-danger-bg, #fef2f2);
-  border: 1px solid var(--status-danger-border, #ef4444);
-  color: var(--status-danger-text, #991b1b);
+  background: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .alert--success {
-  background: var(--status-ok-bg, #f0fdf4);
-  border: 1px solid var(--status-ok-border, #22c55e);
-  color: var(--status-ok-text, #14532d);
+  background: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .empty-state {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 </style>

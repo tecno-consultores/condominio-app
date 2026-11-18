@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
-import { closeTopLayerDialog } from '../../composables/useViewTransition';
+import { computed, ref, watch } from 'vue';
+import { useTopLayerDialog } from '../../composables/useTopLayerDialog';
 
 const props = defineProps<{
   open: boolean;
@@ -20,24 +20,21 @@ const isMotivoValid = computed(() => motivo.value.trim().length >= 5);
 
 watch(
   () => props.open,
-  async (isOpen) => {
+  (isOpen) => {
     if (isOpen) {
       motivo.value = '';
       touched.value = false;
-      await nextTick();
-      const el = dialogRef.value;
-      if (el && typeof el.showModal === 'function' && !el.open) {
-        el.showModal();
-      }
-      return;
-    }
-    const el = dialogRef.value;
-    if (el?.open) {
-      await closeTopLayerDialog(el);
     }
   },
   { immediate: true },
 );
+
+const { dialogProps, onPointerDown, onPointerUp, onBackdropClick } = useTopLayerDialog({
+  dialogRef,
+  isOpen: () => props.open,
+  onClose: () => emit('close'),
+  unmountsWhenClosed: false,
+});
 
 function handleCancel(): void {
   emit('close');
@@ -66,13 +63,17 @@ function handleConfirm(): void {
   <dialog
     id="modal-reject-reason"
     ref="dialogRef"
+    v-bind="dialogProps"
     aria-labelledby="reject-modal-title"
     class="reject-dialog top-layer-dialog"
     @cancel.prevent="handleCancel"
     @close="handleNativeClose"
+    @pointerdown="onPointerDown"
+    @pointerup="onPointerUp"
+    @click="onBackdropClick"
   >
     <h2 id="reject-modal-title" class="reject-dialog__title">
-      Rechazar Pago #{{ pagoId ?? '' }} (Auditoría Forense)
+      Rechazar Pago en Revisión (Auditoría Forense)
     </h2>
 
     <form class="reject-dialog__form" novalidate @submit.prevent="handleConfirm">
@@ -114,27 +115,16 @@ function handleConfirm(): void {
 </template>
 
 <style scoped>
-/* MANDATORY (both rules): without them, scrolling over the backdrop or inside the dialog scrolls the page behind it */
-dialog:modal {
-  overscroll-behavior: contain;
-}
-
-dialog::backdrop {
-  overflow: hidden;
-  overscroll-behavior: contain;
-  background-color: rgba(15, 23, 42, 0.55);
-}
-
 .reject-dialog[open] {
   display: block;
   inline-size: min(100% - 1.5rem, 28.75rem);
   max-block-size: min(85dvh, 38rem);
   overflow-y: auto;
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: var(--radius-md, 0.75rem);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: clamp(1rem, 3vw, 1.5rem);
-  background-color: var(--surface-elevated, #ffffff);
-  color: var(--text-primary, #0f172a);
+  background-color: var(--surface-elevated);
+  color: var(--text-primary);
   box-shadow: var(--shadow-modal);
 }
 
@@ -142,7 +132,7 @@ dialog::backdrop {
   margin: 0 0 0.875rem;
   font-size: clamp(1rem, 2.5vw, 1.15rem);
   text-wrap: balance;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .field-group {
@@ -162,25 +152,25 @@ dialog::backdrop {
   max-inline-size: 65ch;
   text-wrap: pretty;
   font-size: 0.775rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .field-textarea {
   padding: 0.625rem 0.75rem;
-  border: 1px solid var(--border-control, #cbd5e1);
-  border-radius: var(--radius-sm, 0.5rem);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--text-primary, #0f172a);
-  font-size: 0.9rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
+  font-size: 1rem;
 }
 
 .field-textarea:user-invalid {
-  border-color: var(--status-danger-border, #dc2626);
-  background-color: var(--status-danger-bg, #fef2f2);
+  border-color: var(--status-danger-border);
+  background-color: var(--status-danger-bg);
 }
 
 .field-textarea:user-valid {
-  border-color: var(--status-ok-border, #16a34a);
+  border-color: var(--status-ok-border);
 }
 
 .reject-dialog__actions {
@@ -190,23 +180,23 @@ dialog::backdrop {
 }
 
 .btn-secondary {
-  min-height: 44px;
+  min-block-size: 2.75rem;
   padding: 0.5rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #cbd5e1);
-  background-color: var(--surface-subtle, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
   font-weight: 600;
   cursor: pointer;
 }
 
 .btn-danger {
-  min-height: 44px;
+  min-block-size: 2.75rem;
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  border: none;
-  background-color: #dc2626;
-  color: #ffffff;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-danger-border);
+  background-color: var(--status-danger-border);
+  color: var(--text-on-accent);
   font-weight: 700;
   cursor: pointer;
 }

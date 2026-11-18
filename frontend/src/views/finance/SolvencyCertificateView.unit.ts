@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SolvencyCertificateView from './SolvencyCertificateView.vue';
+import { useAuthStore } from '../../stores/authStore';
 import { useFinanceStore } from '../../stores/financeStore';
 import { useOperationsStore } from '../../stores/operationsStore';
 
@@ -16,12 +17,27 @@ describe('SolvencyCertificateView.vue', () => {
   });
 
   it('emite certificado de solvencia (#qr-solvencia-badge) y verifica su firma HMAC-SHA256', async () => {
+    const authStore = useAuthStore();
+    authStore.data = {
+      id: 1,
+      nombre: 'Ana Pérez',
+      cedula: 'V-12345678',
+      correo: 'ana@condominio.local',
+      telefono: '04141234567',
+      rol: 'PROPIETARIO',
+      es_activo: true,
+      unidad_activa_id: 1,
+    };
+
     const financeStore = useFinanceStore();
     const operationsStore = useOperationsStore();
-    operationsStore.data.unidades = [
+    const unidadesList = [
       { id: 1, identificador: 'Apto 1-A', estructura_id: 1, alicuota: '25.0000' },
     ];
-    vi.spyOn(operationsStore, 'fetchAdminData').mockResolvedValue();
+    operationsStore.data.unidades = unidadesList;
+    const fetchUnidadesSpy = vi
+      .spyOn(operationsStore, 'fetchUnidades')
+      .mockResolvedValue(unidadesList);
 
     const emitirSpy = vi
       .spyOn(financeStore, 'emitirCertificadoSolvencia')
@@ -60,6 +76,10 @@ describe('SolvencyCertificateView.vue', () => {
     const wrapper = mount(SolvencyCertificateView);
     await flushPromises();
 
+    expect(fetchUnidadesSpy).toHaveBeenCalledOnce();
+    expect(wrapper.find('#input-solvencia-unidad-id').text()).toContain('Apto 1-A');
+    expect(wrapper.find('#input-solvencia-unidad-id').text()).not.toContain('#1 —');
+
     // Emitir certificado seleccionando unidad
     await wrapper.find('#input-solvencia-unidad-id').setValue('1');
     await wrapper.find('#btn-emitir-solvencia').trigger('click');
@@ -88,6 +108,25 @@ describe('SolvencyCertificateView.vue', () => {
     expect(wrapper.find('#solvencia-verificacion-result').text()).toContain(
       'CERTIFICADO AUTÉNTICO',
     );
+    expect(wrapper.find('#solvencia-verificacion-result').classes()).toContain(
+      'solvency-view__certificate--ok',
+    );
+
+    // Estado válido pero vencido -> warn
+    financeStore.data.verificacionSolvencia = {
+      valido: true,
+      folio: 'SOLV-202610-0001-ABCD',
+      unidad_id: 1,
+      identificador_unidad: 'Apto 1-A',
+      fecha_vencimiento: '2026-09-30',
+      vigente: false,
+      deuda_verificada_usd: '0.00',
+      firma_hmac: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+    };
+    await flushPromises();
+    expect(wrapper.find('#solvencia-verificacion-result').classes()).toContain(
+      'solvency-view__certificate--warn',
+    );
 
     // Estado inválido, banner de error y fallos de red en emisión/verificación
     financeStore.errorMessage = 'Fallo de red simulado';
@@ -108,5 +147,8 @@ describe('SolvencyCertificateView.vue', () => {
     await flushPromises();
     expect(wrapper.find('#solvencia-error-banner').exists()).toBe(true);
     expect(wrapper.find('#solvencia-verificacion-result').text()).toContain('INVÁLIDO');
+    expect(wrapper.find('#solvencia-verificacion-result').classes()).toContain(
+      'solvency-view__certificate--danger',
+    );
   });
 });

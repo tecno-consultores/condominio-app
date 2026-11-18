@@ -1,6 +1,6 @@
 # 🚀 Especificación 13: Remediación Integral Post-Auditoría, Completitud Funcional PropTech y Distribución Docker Hub (`v1.1.0` – `v1.2.0`)
 
-**Estado:** En Ejecución Activa — **Hitos 19, 20 y 21 ✅ Completados** (Hitos 22 al 26 pendientes de ejecución)  
+**Estado:** En Ejecución Activa — **Hitos 19, 20, 21 y 22 ✅ Completados** (Hitos 23 al 26 pendientes de ejecución)  
 **Ecosistema:** FastAPI + SQLAlchemy 2.0 Async + PostgreSQL 17 (RLS) + KeyDB Multi-Hilo + Vue 3 / Pinia + Docker Hub Multi-Arch + `@sinfallas/mcp-qa-11x` `v3.1.0`  
 **Origen de Auditoría:** Auditoría integral de solo lectura sobre los 306 archivos del repositorio (`2026-11-17`) y definiciones de alcance productivas aprobadas  
 
@@ -67,7 +67,7 @@
    - Añadir paginación acotada (`limit`/`offset`) en los 14 listados `GET`, `response_model` en los 7 endpoints faltantes, cierres `with_for_update()` en adhesiones, cuota de 30 fotos/mes, escaneo QR y entrega de paquetes, y validaciones temporales en cierre de consultas y vigencia de pases QR.
    - Conectar subida segura de comprobantes/evidencias (`read_uploaded_file_safely` + `validate_file_magic_bytes`) con la cola media del worker (`convertir_y_subir_avif`), acotar `Image.MAX_IMAGE_PIXELS`, aplicar RFC 3986 en `_build_sigv4_headers`, capturar `RedisError` y JSON no-objeto, migrar `BLPOP` a `BLMOVE` con backoff/DLQ acotado, respetar `PlantillaTarea.frecuencia`, corregir `find_worker.py` y desacoplar el `HEALTHCHECK` por `CONTAINER_ROLE` en `backend/Dockerfile`.
 
-### 2.4. Hito 22: Rescate Frontend Vue 3 Mobile-First, Shell Unificado y Accesibilidad WCAG 2.2 AA
+### 2.4. Hito 22: Rescate Frontend Vue 3 Mobile-First, Shell Unificado y Accesibilidad WCAG 2.2 AA ✅ (Completado)
 1. **Aislamiento de Sesión SPA, Cliente HTTP y Contratos Tipados:**
    - Limpiar `financeStore`, `governanceStore`, `operationsStore`, `accessAmenitiesStore` y `activeCsrfToken` al ejecutar `clearSession`/`logout`/`401`, corregir ruta `/register` en `authStore.ts:175` y `await authStore.logout()` en `PendingApprovalView.vue`.
    - Endurecer `isSafeRedirectUrl` frente a caracteres de control (`\t`, `\r`, `\n`), sustituir `Math.random()` por `crypto.getRandomValues()` en `generateIdempotencyKey`, soportar `FormData` + `.delete()`/`.patch()` + `try/catch` en `apiClient.ts`, conservar la misma `Idempotency-Key` entre reintentos de una misma acción y eliminar el doble escapado HTML de `sanitizeUntrustedText()` en interpolaciones `{{ ... }}`.

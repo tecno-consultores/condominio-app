@@ -206,6 +206,18 @@ async function onSubmit(): Promise<void> {
           {{ isSubmitting ? 'Enviando solicitud...' : 'Crear cuenta de residente' }}
         </button>
       </form>
+
+      <p class="auth-card__footer">
+        ¿Ya posee una cuenta registrada?
+        <a
+          id="link-go-login"
+          href="/login"
+          class="auth-card__link"
+          @click.prevent="router.push('/login')"
+        >
+          Iniciar sesión
+        </a>
+      </p>
     </section>
 
     <ContextualHelpModal :open="isHelpOpen" path="/register" @close="isHelpOpen = false" />
@@ -288,30 +300,31 @@ async function onSubmit(): Promise<void> {
 }
 
 .field__input {
+  min-block-size: 2.75rem;
   padding: 0.65rem 0.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #64748b);
-  background-color: var(--surface-subtle, #f8fafc);
-  color: var(--text-primary, #0f172a);
-  font-size: 0.95rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
+  font-size: 1rem;
 }
 
 .field__input:user-invalid {
-  border-color: var(--status-danger-border, #dc2626);
+  border-color: var(--status-danger-border);
 }
 
 .field__input:user-valid {
-  border-color: var(--status-ok-border, #16a34a);
+  border-color: var(--status-ok-border);
 }
 
 .btn-primary {
   margin-top: 0.5rem;
   min-height: 48px;
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-size: 1rem;
   font-weight: 700;
   box-shadow: var(--btn-raised-shadow);
@@ -324,6 +337,22 @@ async function onSubmit(): Promise<void> {
 .btn-primary:active:not(:disabled) {
   transform: translateY(1px);
   box-shadow: none;
+}
+
+.auth-card__footer {
+  margin: 1.25rem 0 0;
+  font-size: 0.875rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.auth-card__link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  padding: 0.25rem 0.375rem;
+  color: var(--brand-accent);
+  font-weight: 600;
 }
 
 .auth-card__header-row {
@@ -347,9 +376,9 @@ async function onSubmit(): Promise<void> {
   inline-size: 2.75rem;
   block-size: 2.75rem;
   border-radius: 50%;
-  border: 1px solid var(--border-control, #64748b);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--brand-accent, #0369a1);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--brand-accent);
   font-size: 0.9375rem;
   font-weight: 700;
   cursor: pointer;
@@ -361,8 +390,8 @@ async function onSubmit(): Promise<void> {
 }
 
 .auth-card__help-btn:hover {
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
-  border-color: var(--brand-600, #0369a1);
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
+  border-color: var(--brand-600);
 }
 </style>

@@ -15,8 +15,8 @@ describe('TreasuryPaymentsView.vue', () => {
     vi.restoreAllMocks();
   });
 
-  it('lista pagos en revisión y permite aprobar en un toque o rechazar con motivo forense', async () => {
-    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+  it('lista pagos en revisión con comprobantes y permite aprobar, rechazar o refrescar', async () => {
+    const getSpy = vi.spyOn(apiClient, 'get').mockResolvedValue([
       {
         id: 21,
         recibo_id: 1,
@@ -27,7 +27,7 @@ describe('TreasuryPaymentsView.vue', () => {
         tasa_cambio: '36.50',
         metodo_pago: 'PAGO_MOVIL',
         numero_referencia: 'REF-21',
-        url_comprobante: null,
+        url_comprobante: 'https://cdn.condominio.local/comprobante-21.webp',
         estado: 'EN_REVISION',
       },
       {
@@ -40,7 +40,7 @@ describe('TreasuryPaymentsView.vue', () => {
         tasa_cambio: '36.50',
         metodo_pago: 'ZELLE',
         numero_referencia: null,
-        url_comprobante: null,
+        url_comprobante: 's3://condominio/comprobantes/22.webp',
         estado: 'EN_REVISION',
       },
     ]);
@@ -56,6 +56,12 @@ describe('TreasuryPaymentsView.vue', () => {
 
     expect(wrapper.findAll('.payment-card')).toHaveLength(2);
     expect(wrapper.text()).toContain('Efectivo en taquilla');
+    expect(wrapper.find('.payment-card__proof-link').attributes('href')).toBe(
+      'https://cdn.condominio.local/comprobante-21.webp',
+    );
+    expect(wrapper.text()).toContain('Comprobante en procesamiento multimedia');
+    expect(wrapper.text()).not.toContain('Pago #21');
+    expect(wrapper.text()).not.toContain('Recibo #1');
 
     // Aprobar primer pago
     await wrapper.find('.btn-approve-payment').trigger('click');
@@ -65,7 +71,7 @@ describe('TreasuryPaymentsView.vue', () => {
       {},
       expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
-    expect(wrapper.text()).toContain('Pago #21 aprobado');
+    expect(wrapper.text()).toContain('Pago aprobado e imputado');
 
     // Fallo al aprobar segundo pago -> mantiene tarjeta
     await wrapper.find('.btn-approve-payment').trigger('click');
@@ -80,10 +86,17 @@ describe('TreasuryPaymentsView.vue', () => {
     await wrapper.find('#modal-reject-reason form').trigger('submit.prevent');
     await flushPromises();
 
-    expect(putSpy).toHaveBeenCalledWith('/api/pagos/22/rechazar', {
-      motivo: 'Comprobante duplicado de mes anterior',
-    });
-    expect(wrapper.text()).toContain('Pago #22 rechazado');
+    expect(putSpy).toHaveBeenCalledWith(
+      '/api/pagos/22/rechazar',
+      { motivo: 'Comprobante duplicado de mes anterior' },
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
+    expect(wrapper.text()).toContain('Pago rechazado con auditoría forense');
     expect(wrapper.find('.empty-state').exists()).toBe(true);
+
+    // Refresco manual
+    await wrapper.find('#btn-dual-refresh').trigger('click');
+    await flushPromises();
+    expect(getSpy).toHaveBeenCalledTimes(2);
   });
 });

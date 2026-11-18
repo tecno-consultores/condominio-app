@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { ApiError, apiRequest } from '../services/apiClient';
+import { apiRequest } from '../services/apiClient';
 import { generateIdempotencyKey, sanitizeUntrustedText } from '../utils/security';
-import { useAuthStore } from './authStore';
+import { registerSessionResetter } from './authStore';
+import { resolveStoreError } from './storeErrors';
 
 export type TipoConsulta =
   'CARTA_CONSULTA_1RA' | 'CARTA_CONSULTA_2DA' | 'ASAMBLEA_ORDINARIA' | 'ASAMBLEA_EXTRAORDINARIA';
@@ -36,6 +37,7 @@ export interface OpcionConsultaResultadoDTO {
 
 export interface VotoReciboResumenDTO {
   voto_id: number;
+  jti?: string;
   unidad_id: number;
   identificador_unidad: string;
   opcion_id: number;
@@ -75,6 +77,7 @@ export interface VotarConsultaDTO {
 
 export interface ReciboVotoDTO {
   voto_id: number;
+  jti?: string;
   consulta_id: number;
   titulo_consulta: string;
   unidad_id: number;
@@ -138,15 +141,31 @@ export const useGovernanceStore = defineStore('governance', () => {
   const isStale = ref(false);
   const error = ref<string | null>(null);
 
-  async function handleStoreError(err: unknown, fallbackMessage: string): Promise<void> {
-    if (err instanceof ApiError && err.status === 401) {
-      isStale.value = false;
-      error.value = err.detail;
-      await useAuthStore().handleUnauthorizedError(err);
-      return;
-    }
-    isStale.value = true;
-    error.value = err instanceof Error ? err.message : fallbackMessage;
+  function resetState(): void {
+    consultas.value = [];
+    consultaActual.value = null;
+    ultimoReciboVoto.value = null;
+    ultimoCierre.value = null;
+    isLoading.value = false;
+    isStale.value = false;
+    error.value = null;
+  }
+
+  registerSessionResetter(resetState);
+
+  async function handleStoreError(
+    err: unknown,
+    fallbackMessage: string,
+    isGetOperation = false,
+    hasCachedData = false,
+  ): Promise<void> {
+    const res = await resolveStoreError(err, fallbackMessage, {
+      isGetOperation,
+      hasCachedData,
+      useNativeErrorMessage: true,
+    });
+    isStale.value = res.isStale;
+    error.value = res.message;
   }
 
   async function fetchConsultas(): Promise<ConsultaResumenDTO[]> {
@@ -159,7 +178,12 @@ export const useGovernanceStore = defineStore('governance', () => {
       isStale.value = false;
       return limpias;
     } catch (err) {
-      await handleStoreError(err, 'Error al cargar las Cartas Consulta');
+      await handleStoreError(
+        err,
+        'Error al cargar las Cartas Consulta',
+        true,
+        consultas.value.length > 0,
+      );
       return consultas.value;
     } finally {
       isLoading.value = false;
@@ -176,21 +200,29 @@ export const useGovernanceStore = defineStore('governance', () => {
       isStale.value = false;
       return limpia;
     } catch (err) {
-      await handleStoreError(err, 'Error al cargar el detalle de la consulta');
+      await handleStoreError(
+        err,
+        'Error al cargar el detalle de la consulta',
+        true,
+        consultaActual.value !== null,
+      );
       throw err;
     } finally {
       isLoading.value = false;
     }
   }
 
-  async function crearConsulta(payload: ConsultaCreateDTO): Promise<ConsultaDetalleDTO> {
+  async function crearConsulta(
+    payload: ConsultaCreateDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<ConsultaDetalleDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const data = await apiRequest<ConsultaDetalleDTO>('/api/consultas', {
         method: 'POST',
         body: payload,
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       const limpia = sanitizeDetalle(data);
       consultaActual.value = limpia;
@@ -208,6 +240,7 @@ export const useGovernanceStore = defineStore('governance', () => {
   async function votarConsulta(
     consultaId: number,
     payload: VotarConsultaDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
   ): Promise<ReciboVotoDTO> {
     isLoading.value = true;
     error.value = null;
@@ -215,7 +248,7 @@ export const useGovernanceStore = defineStore('governance', () => {
       const recibo = await apiRequest<ReciboVotoDTO>(`/api/consultas/${consultaId}/votar`, {
         method: 'POST',
         body: payload,
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       ultimoReciboVoto.value = recibo;
       if (consultaActual.value && consultaActual.value.id === consultaId) {
@@ -226,6 +259,7 @@ export const useGovernanceStore = defineStore('governance', () => {
           ya_voto_usuario: true,
           mi_voto: {
             voto_id: recibo.voto_id,
+            jti: recibo.jti ?? '',
             unidad_id: recibo.unidad_id,
             identificador_unidad: recibo.identificador_unidad,
             opcion_id: recibo.opcion_id,
@@ -246,13 +280,16 @@ export const useGovernanceStore = defineStore('governance', () => {
     }
   }
 
-  async function cerrarConsulta(consultaId: number): Promise<CerrarConsultaDTO> {
+  async function cerrarConsulta(
+    consultaId: number,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<CerrarConsultaDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const cierre = await apiRequest<CerrarConsultaDTO>(`/api/consultas/${consultaId}/cerrar`, {
         method: 'POST',
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       ultimoCierre.value = cierre;
       if (consultaActual.value && consultaActual.value.id === consultaId) {
@@ -295,6 +332,7 @@ export const useGovernanceStore = defineStore('governance', () => {
     isLoading,
     isStale,
     error,
+    resetState,
     fetchConsultas,
     fetchConsultaDetalle,
     crearConsulta,

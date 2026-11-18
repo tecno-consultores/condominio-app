@@ -30,7 +30,11 @@ describe('TreasuryClosingView.vue', () => {
     await wrapper.find('#input-tasa-bcv').setValue('39.90');
     await wrapper.findAll('form')[0]?.trigger('submit.prevent');
     await flushPromises();
-    expect(postSpy).toHaveBeenCalledWith('/api/finanzas/tasa', { tasa_usd_ves: '39.9' });
+    expect(postSpy).toHaveBeenCalledWith(
+      '/api/finanzas/tasa',
+      { tasa_usd_ves: '39.90' },
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
     expect(wrapper.text()).toContain('39.90 VES/USD');
 
     // 2. Registrar egreso
@@ -42,25 +46,30 @@ describe('TreasuryClosingView.vue', () => {
       '/api/finanzas/egresos',
       expect.objectContaining({
         descripcion: 'Reparación sello mecánico',
-        monto: '120',
+        monto: '120.00',
       }),
       expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
-    expect(wrapper.text()).toContain('Egreso #15 registrado');
+    expect(wrapper.text()).toContain('Egreso registrado (120.00 USD)');
+    expect(wrapper.text()).not.toContain('#15');
 
     // 3. Candado Contable
     await wrapper.find('#btn-open-closing-modal').trigger('click');
     await flushPromises();
-    expect(wrapper.find('#modal-confirm-closing').attributes('open')).toBeUndefined();
+    expect(wrapper.find('#modal-confirm-closing').attributes('closedby')).toBe('any');
     expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
 
     await wrapper.find('#btn-confirm-closing').trigger('click');
     await flushPromises();
-    expect(postSpy).toHaveBeenCalledWith('/api/finanzas/cierre-mensual', { periodo: '2026-10' });
+    expect(postSpy).toHaveBeenCalledWith(
+      '/api/finanzas/cierre-mensual',
+      { periodo: '2026-10' },
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
     expect(wrapper.text()).toContain('Candado Contable activado para el periodo 2026-10');
   });
 
-  it('muestra #closing-conflict-banner cuando el mes ya fue cerrado (HTTP 409)', async () => {
+  it('muestra #closing-conflict-banner cuando el mes ya fue cerrado (HTTP 409) y valida tasa/egreso', async () => {
     vi.spyOn(apiClient, 'post').mockRejectedValueOnce(
       new ApiError(409, 'El mes ya fue cerrado (acción inmutable)'),
     );
@@ -74,6 +83,14 @@ describe('TreasuryClosingView.vue', () => {
     expect(wrapper.find('#closing-conflict-banner').text()).toContain(
       'El mes ya fue cerrado (acción inmutable)',
     );
+
+    // Validación de montos inválidos antes de mutar
+    await wrapper.findAll('form')[0]?.trigger('submit.prevent');
+    expect(wrapper.text()).toContain('tasa BCV');
+    await wrapper.find('#input-egreso-descripcion').setValue('Test');
+    await wrapper.find('#input-egreso-monto').setValue('0');
+    await wrapper.findAll('form')[1]?.trigger('submit.prevent');
+    expect(wrapper.text()).toContain('monto del egreso');
 
     // Probar cierre nativo (@close cuando está abierto y cerrado) y botón Cancelar
     const dialogEl = wrapper.find('#modal-confirm-closing').element as HTMLDialogElement;
@@ -93,8 +110,21 @@ describe('TreasuryClosingView.vue', () => {
     await flushPromises();
     expect(HTMLDialogElement.prototype.close).toHaveBeenCalledTimes(2);
 
+    // Ejercitar input cierrePeriodo, @cancel nativo y backdrop click en dialog
+    await wrapper.find('#input-cierre-periodo').setValue('2026-11');
+    await wrapper.find('#btn-open-closing-modal').trigger('click');
+    await flushPromises();
+    const closingDialog = wrapper.find('#modal-confirm-closing');
+    await closingDialog.trigger('cancel');
+    await closingDialog.trigger('pointerdown');
+    await closingDialog.trigger('pointerup');
+    await closingDialog.trigger('click');
+    expect(wrapper.text()).toContain('2026-11');
+
+    await wrapper.find('#input-tasa-bcv').setValue('39.90');
     await wrapper.find('#input-egreso-periodo').setValue('2026-11');
     await wrapper.find('#select-egreso-categoria').setValue('Vigilancia');
+    await wrapper.find('#input-egreso-monto').setValue('45.00');
     await wrapper.find('#select-egreso-moneda').setValue('VES');
 
     vi.spyOn(apiClient, 'post')

@@ -107,12 +107,20 @@ describe('LoginView.vue', () => {
     expect(wrapper.find('.banner--error').text()).toContain('Credenciales inválidas');
   });
 
-  it('abre y cierra el diálogo de ayuda contextual mediante #btn-contextual-help', async () => {
+  it('abre y cierra el diálogo de ayuda contextual y preserva redirect seguro en #link-go-register', async () => {
+    currentQuery = { redirect: '/consultas' };
     const wrapper = mount(LoginView, {
       global: {
-        stubs: { 'router-link': { template: '<a><slot /></a>' } },
+        stubs: {
+          'router-link': {
+            props: ['to'],
+            template: '<a :data-to="JSON.stringify(to)"><slot /></a>',
+          },
+        },
       },
     });
+
+    expect(wrapper.find('#link-go-register').attributes('data-to')).toContain('/consultas');
 
     const btnHelp = wrapper.find('#btn-contextual-help');
     expect(btnHelp.exists()).toBe(true);

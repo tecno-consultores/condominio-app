@@ -64,6 +64,23 @@ describe('ConsultationsListView.vue', () => {
         acta_bitacora_id: 12,
         ya_voto_usuario: true,
       },
+      {
+        id: 7,
+        titulo: 'Asamblea #07: Rechazada',
+        descripcion_legal: 'No obtuvo mayoría',
+        tipo_consulta: 'CARTA_CONSULTA_1RA',
+        regla_quorum: 'DOS_TERCIOS',
+        quorum_minimo_alicuota: '66.6700',
+        participacion_alicuota: '40.0000',
+        alicuota_aprobatoria: '10.0000',
+        total_votos: 2,
+        fecha_apertura: '2026-08-01T00:00:00Z',
+        fecha_cierre: '2026-08-30T23:59:00Z',
+        estado: 'CERRADA_RECHAZADA',
+        creada_por_id: 1,
+        acta_bitacora_id: 11,
+        ya_voto_usuario: true,
+      },
     ]);
     govStore.consultas = [
       {
@@ -100,6 +117,23 @@ describe('ConsultationsListView.vue', () => {
         acta_bitacora_id: 12,
         ya_voto_usuario: true,
       },
+      {
+        id: 7,
+        titulo: 'Asamblea #07: Rechazada',
+        descripcion_legal: 'No obtuvo mayoría',
+        tipo_consulta: 'CARTA_CONSULTA_1RA',
+        regla_quorum: 'DOS_TERCIOS',
+        quorum_minimo_alicuota: '66.6700',
+        participacion_alicuota: '40.0000',
+        alicuota_aprobatoria: '10.0000',
+        total_votos: 2,
+        fecha_apertura: '2026-08-01T00:00:00Z',
+        fecha_cierre: '2026-08-30T23:59:00Z',
+        estado: 'CERRADA_RECHAZADA',
+        creada_por_id: 1,
+        acta_bitacora_id: 11,
+        ya_voto_usuario: true,
+      },
     ];
 
     vi.spyOn(govStore, 'crearConsulta').mockResolvedValue({
@@ -116,8 +150,18 @@ describe('ConsultationsListView.vue', () => {
     expect(wrapper.find('#form-crear-consulta').exists()).toBe(true);
     expect(wrapper.find('#quorum-progress-bar').exists()).toBe(true);
     expect(wrapper.find('#quorum-progress-bar-6').exists()).toBe(true);
-    expect(wrapper.findAll('.consultation-card')).toHaveLength(2);
+    expect(wrapper.findAll('.consultation-card')).toHaveLength(3);
+    const rejectedCard = wrapper.find('[data-testid="consultation-card-7"]');
+    expect(rejectedCard.find('.consultation-card__badge').text()).toContain('✕');
+    expect(rejectedCard.find('.consultation-card__badge').text()).not.toContain('✓');
+    expect(rejectedCard.find('.consultation-card__badge').classes()).toContain(
+      'consultation-card__badge--cerrada_rechazada',
+    );
     expect(wrapper.text()).toContain('✔ Voto de su unidad registrado');
+
+    await wrapper.find('#btn-dual-refresh').trigger('click');
+    await flushPromises();
+    expect(govStore.fetchConsultas).toHaveBeenCalledTimes(2);
 
     await wrapper.find('#input-consulta-titulo').setValue('Carta Consulta #05: Bombas');
     await wrapper.find('#select-tipo-consulta').setValue('CARTA_CONSULTA_2DA');

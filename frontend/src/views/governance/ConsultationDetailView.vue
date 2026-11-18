@@ -1,10 +1,14 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import VoteReceiptModal from '../../components/governance/VoteReceiptModal.vue';
+import { useDualRefresh } from '../../composables/useDualRefresh';
 import { getActiveConsultationTransition } from '../../composables/useViewTransition';
 import { useAuthStore } from '../../stores/authStore';
-import { useGovernanceStore } from '../../stores/governanceStore';
+import { useGovernanceStore, type EstadoConsulta } from '../../stores/governanceStore';
 import { useOperationsStore } from '../../stores/operationsStore';
 
 const route = useRoute();
@@ -20,6 +24,21 @@ const closeSuccessMessage = ref<string | null>(null);
 const consultaId = computed(() => Number(route.params.id || 1));
 const consulta = computed(() => govStore.consultaActual);
 
+const STATUS_BADGE_MAP: Record<EstadoConsulta, { symbol: string; modifier: string }> = {
+  ABIERTA: { symbol: '●', modifier: 'abierta' },
+  CERRADA_APROBADA: { symbol: '✓', modifier: 'cerrada_aprobada' },
+  CERRADA_RECHAZADA: { symbol: '✕', modifier: 'cerrada_rechazada' },
+  CERRADA_SIN_QUORUM: { symbol: '!', modifier: 'cerrada_sin_quorum' },
+};
+
+const badgeMeta = computed(() => {
+  const estado = consulta.value?.estado;
+  if (!estado) {
+    return { symbol: '!', modifier: 'cerrada_sin_quorum' };
+  }
+  return STATUS_BADGE_MAP[estado] ?? { symbol: '!', modifier: 'cerrada_sin_quorum' };
+});
+
 const canCloseConsultation = computed(() => {
   const rol = authStore.userRole;
   return (rol === 'PRESIDENTE' || rol === 'SECRETARIO') && consulta.value?.estado === 'ABIERTA';
@@ -31,18 +50,28 @@ const isTransitionTarget = computed(
 
 const activeReceipt = computed(() => govStore.ultimoReciboVoto || consulta.value?.mi_voto || null);
 
-onMounted(async () => {
-  try {
-    const detalle = await govStore.fetchConsultaDetalle(consultaId.value);
+async function refreshConsultationData(): Promise<void> {
+  const [detailRes] = await Promise.allSettled([
+    govStore.fetchConsultaDetalle(consultaId.value),
+    opsStore.fetchUnidades(),
+  ]);
+  if (detailRes.status === 'fulfilled') {
+    const detalle = detailRes.value;
     if (detalle.opciones.length > 0 && selectedOpcionId.value === null) {
       selectedOpcionId.value = detalle.opciones[0].id;
     }
-    if (opsStore.data.unidades.length > 0) {
-      selectedUnidadId.value = opsStore.data.unidades[0].id;
-    }
-  } catch {
-    // Error gestionado de forma no destructiva por governanceStore
   }
+  if (authStore.activeUnitId !== null) {
+    selectedUnidadId.value = authStore.activeUnitId;
+  } else if (opsStore.data.unidades.length > 0) {
+    selectedUnidadId.value = opsStore.data.unidades[0].id;
+  }
+}
+
+const { isRefreshing, triggerRefresh } = useDualRefresh(refreshConsultationData);
+
+onMounted(async () => {
+  await refreshConsultationData();
 });
 
 async function handleCastVote(): Promise<void> {
@@ -63,7 +92,7 @@ async function handleCloseConsultation(): Promise<void> {
   closeSuccessMessage.value = null;
   try {
     const res = await govStore.cerrarConsulta(consulta.value.id);
-    closeSuccessMessage.value = `Consulta cerrada con estado ${res.estado}. Acta #${res.acta_bitacora_id} asentada en Bitácora.`;
+    closeSuccessMessage.value = `Consulta cerrada con estado ${res.estado}. Acta asentada en Bitácora oficial.`;
   } catch {
     // Error gestionado de forma no destructiva por governanceStore
   }
@@ -96,10 +125,26 @@ async function handleCloseConsultation(): Promise<void> {
             <span class="consultation-detail__type">{{ consulta.tipo_consulta }}</span>
             <h1 id="detail-heading" class="consultation-detail__title">{{ consulta.titulo }}</h1>
           </div>
-          <span id="badge-estado-consulta" class="consultation-detail__badge">
-            <span aria-hidden="true">{{ consulta.estado === 'ABIERTA' ? '● ' : '✓ ' }}</span>
-            {{ consulta.estado }}
-          </span>
+          <div class="consultation-detail__top-actions">
+            <button
+              id="btn-dual-refresh"
+              type="button"
+              class="dual-refresh-btn"
+              :disabled="isRefreshing || govStore.isLoading"
+              @click="triggerRefresh"
+            >
+              <span aria-hidden="true">🔄</span>
+              <span>{{ isRefreshing ? 'Actualizando...' : 'Refrescar' }}</span>
+            </button>
+            <span
+              id="badge-estado-consulta"
+              class="consultation-detail__badge"
+              :class="`consultation-detail__badge--${badgeMeta.modifier}`"
+            >
+              <span aria-hidden="true">{{ badgeMeta.symbol }} </span>
+              {{ consulta.estado }}
+            </span>
+          </div>
         </div>
 
         <p class="consultation-detail__desc">{{ consulta.descripcion_legal }}</p>
@@ -130,7 +175,7 @@ async function handleCloseConsultation(): Promise<void> {
           id="badge-acta-generada"
           class="consultation-detail__acta-banner"
         >
-          📘 Acuerdo asentado en el Libro de Actas (Bitácora #{{ consulta.acta_bitacora_id }}).
+          📘 Acuerdo asentado en el Libro de Actas (Bitácora oficial).
         </div>
       </header>
 
@@ -178,14 +223,12 @@ async function handleCloseConsultation(): Promise<void> {
           @submit.prevent="handleCastVote"
         >
           <div class="field">
-            <label for="select-vote-unidad">ID de Unidad Inmobiliaria Representada</label>
-            <input
-              id="select-vote-unidad"
-              v-model.number="selectedUnidadId"
-              type="number"
-              min="1"
-              required
-            />
+            <label for="select-vote-unidad">Unidad Inmobiliaria Representada</label>
+            <select id="select-vote-unidad" v-model.number="selectedUnidadId" required>
+              <option v-for="u in opsStore.data.unidades" :key="u.id" :value="u.id">
+                {{ u.identificador }}
+              </option>
+            </select>
           </div>
 
           <button
@@ -245,13 +288,11 @@ async function handleCloseConsultation(): Promise<void> {
 }
 
 .consultation-detail__card {
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: 1rem;
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
   padding: clamp(1rem, 2.5cqi, 1.5rem);
-  box-shadow:
-    0 4px 6px -1px rgba(15, 23, 42, 0.06),
-    0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -259,22 +300,30 @@ async function handleCloseConsultation(): Promise<void> {
 
 .consultation-detail__top {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
 }
 
+.consultation-detail__top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+}
+
 .consultation-detail__type {
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
 }
 
 .consultation-detail__title {
   margin: 0.2rem 0 0;
   font-size: clamp(1.25rem, 3cqi, 1.6rem);
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
@@ -282,15 +331,31 @@ async function handleCloseConsultation(): Promise<void> {
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0.25rem 0.65rem;
-  border-radius: 9999px;
-  background-color: var(--status-info-bg, #e0f2fe);
-  color: var(--status-info-text, #0369a1);
+  border-radius: var(--radius-pill);
+  background-color: var(--status-info-bg);
+  color: var(--status-info-text);
+}
+
+.consultation-detail__badge--abierta {
+  background-color: var(--status-info-bg);
+  color: var(--status-info-text);
+}
+
+.consultation-detail__badge--cerrada_aprobada {
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
+}
+
+.consultation-detail__badge--cerrada_rechazada,
+.consultation-detail__badge--cerrada_sin_quorum {
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .consultation-detail__desc {
   margin: 0;
   font-size: 0.925rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
@@ -307,7 +372,7 @@ async function handleCloseConsultation(): Promise<void> {
   flex-wrap: wrap;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 progress.quorum-progress {
@@ -318,13 +383,13 @@ progress.quorum-progress {
   inline-size: 100%;
   block-size: 0.75rem;
   --progress-bar-radius: 1e5px;
-  --progress-bar-track: var(--border-subtle, #e2e8f0);
-  --progress-bar-fill: var(--brand-600, #0369a1);
+  --progress-bar-track: var(--border-subtle);
+  --progress-bar-fill: var(--brand-600);
   --progress-bar-indeterminate-size: 30%;
   --progress-bar-indeterminate-animation-duration: 1.5s;
   border-radius: var(--progress-bar-radius);
   background: var(--progress-bar-track);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.1);
+  box-shadow: var(--shadow-card);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -379,10 +444,10 @@ progress.quorum-progress::-moz-progress-bar {
 
 .consultation-detail__acta-banner {
   padding: 0.65rem 0.85rem;
-  border-radius: 0.5rem;
-  background-color: var(--status-info-bg, #f0f9ff);
-  border: 1px solid var(--status-info-border, #bae6fd);
-  color: var(--status-info-text, #0369a1);
+  border-radius: var(--radius-sm);
+  background-color: var(--status-info-bg);
+  border: 1px solid var(--status-info-border);
+  color: var(--status-info-text);
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -391,7 +456,7 @@ progress.quorum-progress::-moz-progress-bar {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .consultation-detail__options {
@@ -401,19 +466,20 @@ progress.quorum-progress::-moz-progress-bar {
 }
 
 .option-radio-card {
+  min-block-size: 2.75rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  background-color: var(--surface-subtle, #f8fafc);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--surface-subtle);
   cursor: pointer;
 }
 
 .option-radio-card--selected {
-  border-color: var(--brand-600, #0369a1);
-  background-color: var(--brand-tint, #f0f9ff);
+  border-color: var(--brand-600);
+  background-color: var(--brand-tint);
 }
 
 .option-radio-card__body {
@@ -434,14 +500,14 @@ progress.quorum-progress::-moz-progress-bar {
   font-size: 0.7rem;
   font-weight: 700;
   padding: 0.15rem 0.5rem;
-  border-radius: 9999px;
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #166534);
+  border-radius: var(--radius-pill);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .option-radio-card__stats {
   font-size: 0.8rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .consultation-detail__vote-form {
@@ -461,17 +527,18 @@ progress.quorum-progress::-moz-progress-bar {
 .field label {
   font-size: 0.825rem;
   font-weight: 600;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
 }
 
-.field input {
+.field select {
+  min-block-size: 2.75rem;
   padding: 0.55rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-control, #cbd5e1);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
   font-size: 0.9rem;
-  inline-size: 9rem;
+  min-inline-size: 12rem;
 }
 
 .consultation-detail__receipt-bar {
@@ -481,15 +548,15 @@ progress.quorum-progress::-moz-progress-bar {
   flex-wrap: wrap;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
-  background-color: var(--status-ok-bg, #ecfdf5);
-  border: 1px solid var(--status-ok-border, #a7f3d0);
-  color: var(--status-ok-text, #065f46);
+  border-radius: var(--radius-md);
+  background-color: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
   font-size: 0.875rem;
 }
 
 .consultation-detail__admin-footer {
-  border-top: 1px solid var(--border-subtle, #e2e8f0);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 0.85rem;
   display: flex;
   justify-content: flex-end;
@@ -498,56 +565,46 @@ progress.quorum-progress::-moz-progress-bar {
 .btn-primary,
 .btn-secondary,
 .btn-danger {
+  min-block-size: 2.75rem;
   padding: 0.55rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font-weight: 700;
   cursor: pointer;
   border: 1px solid transparent;
 }
 
-.btn-primary {
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
-}
-
+.btn-primary,
 .btn-secondary {
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .btn-danger {
-  background-color: #b91c1c;
-  color: #ffffff;
+  background-color: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .banner {
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .banner--error {
-  background-color: var(--status-danger-bg, #fee2e2);
-  color: var(--status-danger-text, #991b1b);
-  border: 1px solid var(--status-danger-border, #fca5a5);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  border: 1px solid var(--status-danger-border);
 }
 
 .banner--success {
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #166534);
-  border: 1px solid var(--status-ok-border, #86efac);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
+  border: 1px solid var(--status-ok-border);
 }
 
 .tabular-num {
   font-variant-numeric: tabular-nums;
-}
-
-@media (pointer: coarse) {
-  .btn-primary,
-  .btn-secondary,
-  .btn-danger {
-    min-block-size: 2.75rem;
-  }
 }
 </style>

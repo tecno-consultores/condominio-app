@@ -1,7 +1,15 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { useDualRefresh } from '../../composables/useDualRefresh';
 import { useAccessAmenitiesStore, type ModalidadPaseQR } from '../../stores/accessAmenitiesStore';
+import { useAuthStore } from '../../stores/authStore';
+import { useOperationsStore } from '../../stores/operationsStore';
 
+const authStore = useAuthStore();
+const opsStore = useOperationsStore();
 const store = useAccessAmenitiesStore();
 
 const unidadId = ref<number>(1);
@@ -9,17 +17,39 @@ const nombreVisitante = ref('');
 const cedulaVisitante = ref('');
 const placaVehiculo = ref('');
 const modalidad = ref<ModalidadPaseQR>('UNICO_USO');
-const horasValidez = ref<number>(24);
+const horasValidez = ref('24');
 const feedbackExito = ref<string | null>(null);
+const validationError = ref<string | null>(null);
 const tokenCopiadoId = ref<number | null>(null);
 
+async function refreshPassesData(): Promise<void> {
+  await Promise.allSettled([store.fetchMisPases(), opsStore.fetchUnidades()]);
+  if (authStore.activeUnitId !== null) {
+    unidadId.value = authStore.activeUnitId;
+  } else if (
+    opsStore.data.unidades.length > 0 &&
+    !opsStore.data.unidades.some((u) => u.id === unidadId.value)
+  ) {
+    unidadId.value = opsStore.data.unidades[0].id;
+  }
+}
+
+const { isRefreshing, triggerRefresh } = useDualRefresh(refreshPassesData);
+
 onMounted(async () => {
-  await store.fetchMisPases();
+  await refreshPassesData();
 });
 
 async function handleCrearPase(): Promise<void> {
   feedbackExito.value = null;
+  validationError.value = null;
   if (!nombreVisitante.value.trim() || !cedulaVisitante.value.trim()) {
+    return;
+  }
+  const rawHoras = String(horasValidez.value ?? '').trim();
+  const parsedHoras = Number.parseInt(rawHoras, 10);
+  if (!/^\d+$/.test(rawHoras) || parsedHoras < 1 || parsedHoras > 72) {
+    validationError.value = 'La vigencia debe ser un número entero entre 1 y 72 horas.';
     return;
   }
   try {
@@ -29,9 +59,9 @@ async function handleCrearPase(): Promise<void> {
       cedula_visitante: cedulaVisitante.value.trim(),
       placa_vehiculo: placaVehiculo.value.trim() || null,
       modalidad: modalidad.value,
-      horas_validez: Number(horasValidez.value),
+      horas_validez: parsedHoras,
     });
-    feedbackExito.value = `Pase QR emitido para ${creado.nombre_visitante} (JTI: ${creado.jti.slice(0, 8)}…).`;
+    feedbackExito.value = `Pase QR emitido para ${creado.nombre_visitante}.`;
     nombreVisitante.value = '';
     cedulaVisitante.value = '';
     placaVehiculo.value = '';
@@ -55,7 +85,7 @@ async function handleRevocarPase(paseId: number): Promise<void> {
   feedbackExito.value = null;
   try {
     await store.revocarPaseVisita(paseId);
-    feedbackExito.value = `Pase #${paseId} revocado e invalidado en garita.`;
+    feedbackExito.value = 'Pase de visita revocado e invalidado en garita.';
   } catch {
     // Error gestionado reactivamente en el store
   }
@@ -73,10 +103,23 @@ async function handleRevocarPase(paseId: number): Promise<void> {
           Emita autorizaciones peatonales o vehiculares con protección Anti-Replay en garita.
         </p>
       </div>
+      <button
+        id="btn-dual-refresh"
+        type="button"
+        class="dual-refresh-btn"
+        :disabled="isRefreshing || store.isLoading"
+        @click="triggerRefresh"
+      >
+        <span aria-hidden="true">🔄</span>
+        <span>{{ isRefreshing ? 'Actualizando...' : 'Refrescar' }}</span>
+      </button>
     </header>
 
     <div v-if="store.error" id="passes-error-banner" class="alert alert--error" role="alert">
       {{ store.error }}
+    </div>
+    <div v-if="validationError" class="alert alert--error" role="alert">
+      {{ validationError }}
     </div>
     <div v-if="feedbackExito" id="passes-success-banner" class="alert alert--success" role="status">
       {{ feedbackExito }}
@@ -92,8 +135,12 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 
       <div class="field-row">
         <label class="field" for="input-pase-unidad">
-          <span>ID de Unidad Anfitriona</span>
-          <input id="input-pase-unidad" v-model.number="unidadId" type="number" min="1" required />
+          <span>Unidad Anfitriona</span>
+          <select id="input-pase-unidad" v-model.number="unidadId" required>
+            <option v-for="u in opsStore.data.unidades" :key="u.id" :value="u.id">
+              {{ u.identificador }}
+            </option>
+          </select>
         </label>
 
         <label class="field" for="select-pase-modalidad">
@@ -108,10 +155,11 @@ async function handleRevocarPase(paseId: number): Promise<void> {
           <span>Vigencia (Horas, máx. 72h)</span>
           <input
             id="input-pase-horas"
-            v-model.number="horasValidez"
+            v-model="horasValidez"
             type="number"
             min="1"
             max="72"
+            step="1"
             required
           />
         </label>
@@ -231,23 +279,31 @@ async function handleRevocarPase(paseId: number): Promise<void> {
   gap: 1.25rem;
 }
 
+.passes-view__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .passes-view__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .passes-view__subtitle {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.92rem;
   margin: 0.25rem 0 0;
 }
 
 .card {
-  background: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: var(--radius-md, 0.75rem);
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: 1.25rem;
   box-shadow: var(--shadow-card);
 }
@@ -256,7 +312,7 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 .section-heading {
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0 0 0.75rem;
 }
 
@@ -278,17 +334,18 @@ async function handleRevocarPase(paseId: number): Promise<void> {
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
 }
 
 .field input,
 .field select {
+  min-block-size: 2.75rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border-control, #94a3b8);
-  border-radius: var(--radius-sm, 0.5rem);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
   font-size: 0.92rem;
-  color: var(--text-primary, #0f172a);
-  background: var(--surface-card, #ffffff);
+  color: var(--text-primary);
+  background: var(--surface-card);
 }
 
 .cards-grid {
@@ -312,19 +369,19 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 
 .pass-card__visitor {
   font-size: 1rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .pass-card__meta {
   margin: 0.2rem 0 0;
   font-size: 0.83rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .pass-card__token-box {
-  background: var(--surface-subtle, #f8fafc);
-  border: 1px dashed var(--border-control, #94a3b8);
-  border-radius: var(--radius-sm, 0.5rem);
+  background: var(--surface-subtle);
+  border: 1px dashed var(--border-control);
+  border-radius: var(--radius-sm);
   padding: 0.6rem;
   display: flex;
   flex-direction: column;
@@ -334,12 +391,12 @@ async function handleRevocarPase(paseId: number): Promise<void> {
 .token-label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .token-value {
   font-size: 0.78rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   word-break: break-all;
 }
 
@@ -353,69 +410,71 @@ async function handleRevocarPase(paseId: number): Promise<void> {
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.2rem 0.55rem;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
 }
 
 .badge--activo {
-  background: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #14532d);
+  background: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .badge--usado {
-  background: var(--brand-tint, #e0f2fe);
-  color: var(--brand-accent, #0c4a6e);
+  background: var(--brand-tint);
+  color: var(--brand-accent);
 }
 
 .badge--revocado,
 .badge--expirado {
-  background: var(--status-danger-bg, #fee2e2);
-  color: var(--status-danger-text, #7f1d1d);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .btn {
+  min-block-size: 2.75rem;
   padding: 0.6rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   font-weight: 600;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
 }
 
 .btn--primary {
-  background: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .btn--secondary {
-  background: var(--surface-subtle, #e2e8f0);
-  border: 1px solid var(--border-control, #cbd5e1);
-  color: var(--text-primary, #0f172a);
+  background: var(--surface-subtle);
+  border-color: var(--border-control);
+  color: var(--text-primary);
 }
 
 .btn--danger {
-  background: #b91c1c;
-  color: #ffffff;
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .alert {
   padding: 0.8rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 
 .alert--error {
-  background: var(--status-danger-bg, #fef2f2);
-  border: 1px solid var(--status-danger-border, #ef4444);
-  color: var(--status-danger-text, #991b1b);
+  background: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .alert--success {
-  background: var(--status-ok-bg, #f0fdf4);
-  border: 1px solid var(--status-ok-border, #22c55e);
-  color: var(--status-ok-text, #14532d);
+  background: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .empty-state {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 </style>

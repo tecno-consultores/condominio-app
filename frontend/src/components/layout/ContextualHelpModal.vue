@@ -2,8 +2,9 @@
 <!-- Copyright (C) 2026 Condominio App Contributors -->
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
+import { useTopLayerDialog } from '../../composables/useTopLayerDialog';
 import { useAuthStore } from '../../stores/authStore';
 import { getScreenHelp, type ScreenHelpData } from '../../utils/screenHelpCatalog';
 
@@ -31,82 +32,14 @@ const dialogRef = ref<HTMLDialogElement | null>(null);
 
 const activePath = computed(() => props.path ?? route?.path ?? '/dashboard');
 const activeRole = computed(() => props.role ?? authStore?.userRole ?? 'PROPIETARIO');
-
 const helpData = computed<ScreenHelpData>(() => getScreenHelp(activePath.value, activeRole.value));
 
-function openModalElement(): void {
-  const el = dialogRef.value;
-  if (el && typeof el.showModal === 'function' && !el.open) {
-    el.showModal();
-  }
-}
-
-onMounted(() => {
-  if (props.open) {
-    openModalElement();
-  }
+const { dialogProps, onPointerDown, onPointerUp, onBackdropClick } = useTopLayerDialog({
+  dialogRef,
+  isOpen: () => props.open,
+  onClose: () => emit('close'),
+  unmountsWhenClosed: true,
 });
-
-watch(
-  () => props.open,
-  async (isOpen) => {
-    if (!isOpen) {
-      if (dialogRef.value?.open) {
-        dialogRef.value.close();
-      }
-      return;
-    }
-    await nextTick();
-    openModalElement();
-  },
-);
-
-let pressedOutside: boolean | null = null;
-
-function hasNativeClosedBy(): boolean {
-  return typeof HTMLDialogElement !== 'undefined' && 'closedBy' in HTMLDialogElement.prototype;
-}
-
-function isOutsideDialog(
-  event: { clientX: number; clientY: number },
-  dialog: HTMLDialogElement,
-): boolean {
-  const rect = dialog.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return false;
-  return (
-    event.clientX < rect.left ||
-    event.clientX > rect.right ||
-    event.clientY < rect.top ||
-    event.clientY > rect.bottom
-  );
-}
-
-function handlePointerDown(event: PointerEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  pressedOutside = isOutsideDialog(event, dialog);
-}
-
-function handlePointerUp(event: PointerEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  if (pressedOutside === true && isOutsideDialog(event, dialog)) {
-    pressedOutside = null;
-    emit('close');
-  }
-}
-
-function handleBackdropClick(event: MouseEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  if (pressedOutside !== null) {
-    pressedOutside = null;
-    return;
-  }
-  if (event.target === dialog && isOutsideDialog(event, dialog)) {
-    emit('close');
-  }
-}
 
 function handleClose(): void {
   emit('close');
@@ -118,14 +51,14 @@ function handleClose(): void {
     v-if="open"
     id="dialog-contextual-help"
     ref="dialogRef"
-    v-bind="{ closedby: 'any' }"
+    v-bind="dialogProps"
     class="help-dialog top-layer-dialog"
     aria-labelledby="help-screen-title"
     aria-describedby="help-screen-purpose"
     @close="handleClose"
-    @pointerdown="handlePointerDown"
-    @pointerup="handlePointerUp"
-    @click="handleBackdropClick"
+    @pointerdown="onPointerDown"
+    @pointerup="onPointerUp"
+    @click="onBackdropClick"
   >
     <div class="help-dialog__card">
       <header class="help-dialog__header">
@@ -203,16 +136,12 @@ function handleClose(): void {
 </template>
 
 <style scoped>
-dialog:modal {
-  overscroll-behavior: contain;
-}
-
 .help-dialog[open] {
   border: none;
-  border-radius: var(--radius-lg, 1rem);
+  border-radius: var(--radius-lg);
   padding: 0;
-  background: var(--surface-elevated, #ffffff);
-  color: var(--text-primary, #0f172a);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
   box-shadow: var(--shadow-modal);
   inline-size: min(100% - 1.5rem, 38rem);
   max-block-size: min(85dvh, 44rem);
@@ -228,11 +157,11 @@ dialog:modal {
 .help-dialog__card {
   display: flex;
   flex-direction: column;
-  background-color: var(--surface-elevated, #ffffff);
-  border-radius: var(--radius-lg, 1rem);
+  background-color: var(--surface-elevated);
+  border-radius: var(--radius-lg);
   max-block-size: min(85dvh, 44rem);
   overflow: hidden;
-  border: 1px solid var(--border-subtle, #e2e8f0);
+  border: 1px solid var(--border-subtle);
 }
 
 .help-dialog__header {
@@ -240,12 +169,8 @@ dialog:modal {
   justify-content: space-between;
   align-items: flex-start;
   padding: clamp(1rem, 2.5cqi, 1.5rem);
-  background: linear-gradient(
-    180deg,
-    var(--surface-subtle, #f8fafc) 0%,
-    var(--surface-elevated, #ffffff) 100%
-  );
-  border-bottom: 1px solid var(--border-subtle, #e2e8f0);
+  background: linear-gradient(180deg, var(--surface-subtle) 0%, var(--surface-elevated) 100%);
+  border-bottom: 1px solid var(--border-subtle);
   gap: 1rem;
 }
 
@@ -259,8 +184,8 @@ dialog:modal {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--brand-accent, #0369a1);
-  background-color: var(--brand-tint, #e0f2fe);
+  color: var(--brand-accent);
+  background-color: var(--brand-tint);
   padding: 0.2rem 0.5rem;
   border-radius: 0.375rem;
   margin-bottom: 0.35rem;
@@ -270,7 +195,7 @@ dialog:modal {
   font-size: clamp(1.125rem, 3cqi, 1.375rem);
   font-weight: 700;
   line-height: 1.3;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin: 0;
   text-wrap: balance;
 }
@@ -281,10 +206,10 @@ dialog:modal {
   justify-content: center;
   inline-size: 2.75rem;
   block-size: 2.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #cbd5e1);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--text-secondary, #64748b);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-secondary);
   font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
@@ -293,9 +218,9 @@ dialog:modal {
 }
 
 .help-dialog__close-btn:hover {
-  background-color: var(--surface-subtle, #f1f5f9);
-  color: var(--text-primary, #0f172a);
-  border-color: var(--brand-accent, #94a3b8);
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
+  border-color: var(--brand-accent);
 }
 
 .help-dialog__body {
@@ -309,8 +234,8 @@ dialog:modal {
 }
 
 .help-dialog__purpose-card {
-  background-color: var(--surface-subtle, #f8fafc);
-  border-left: 4px solid var(--brand-accent, #0369a1);
+  background-color: var(--surface-subtle);
+  border-left: 4px solid var(--brand-accent);
   padding: 0.875rem 1rem;
   border-radius: 0 0.5rem 0.5rem 0;
 }
@@ -319,7 +244,7 @@ dialog:modal {
   margin: 0;
   font-size: 0.9375rem;
   line-height: 1.5;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
@@ -336,11 +261,11 @@ dialog:modal {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-tertiary, #475569);
+  color: var(--text-tertiary);
 }
 
 .help-dialog__section-title--tips {
-  color: var(--status-warn-text, #b45309);
+  color: var(--status-warn-text);
 }
 
 .help-steps-list {
@@ -357,14 +282,14 @@ dialog:modal {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.625rem 0.75rem;
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #f1f5f9);
-  border-radius: var(--radius-sm, 0.5rem);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
   transition: border-color 0.15s ease;
 }
 
 .help-steps-item:hover {
-  border-color: var(--border-control, #cbd5e1);
+  border-color: var(--border-control);
 }
 
 .help-steps-item__num {
@@ -374,8 +299,8 @@ dialog:modal {
   inline-size: 1.625rem;
   block-size: 1.625rem;
   border-radius: 50%;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-size: 0.8125rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -384,14 +309,14 @@ dialog:modal {
 .help-steps-item__text {
   font-size: 0.9rem;
   line-height: 1.45;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
 
 .help-dialog__section--tips {
-  background-color: var(--status-warn-bg, #fffbeb);
-  border: 1px solid var(--status-warn-border, #fef3c7);
+  background-color: var(--status-warn-bg);
+  border: 1px solid var(--status-warn-border);
   border-radius: 0.625rem;
   padding: 0.875rem 1rem;
 }
@@ -420,7 +345,7 @@ dialog:modal {
 .help-tips-item__text {
   font-size: 0.875rem;
   line-height: 1.4;
-  color: var(--status-warn-text, #92400e);
+  color: var(--status-warn-text);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
@@ -429,8 +354,8 @@ dialog:modal {
   display: flex;
   justify-content: flex-end;
   padding: clamp(0.75rem, 2cqi, 1rem) clamp(1rem, 2.5cqi, 1.5rem);
-  background-color: var(--surface-subtle, #f8fafc);
-  border-top: 1px solid var(--border-subtle, #e2e8f0);
+  background-color: var(--surface-subtle);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .help-dialog__action-btn {
@@ -441,16 +366,16 @@ dialog:modal {
   padding: 0.5rem 1.25rem;
   font-size: 0.875rem;
   font-weight: 600;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .help-dialog__action-btn:hover {
-  background-color: var(--brand-700, #075985);
+  background-color: var(--brand-700);
 }
 
 @media (max-width: 639px) {
@@ -459,11 +384,11 @@ dialog:modal {
     inline-size: 100%;
     max-inline-size: 100%;
     max-block-size: 88dvh;
-    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 
   .help-dialog__card {
-    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     max-block-size: 88dvh;
   }
 }

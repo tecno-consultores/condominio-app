@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { convertUsdToVes, type EstadoCobranzaItemDTO } from '../../stores/financeStore';
+import { compareDecimal } from '../../utils/decimal';
 
 const props = withDefaults(
   defineProps<{
     items: EstadoCobranzaItemDTO[];
-    rateUsdVes: string;
+    rateUsdVes: string | null;
     ownUnitId?: number | null;
+    unitLabels?: Record<number, string>;
   }>(),
   {
     ownUnitId: null,
+    unitLabels: () => ({}),
   },
+);
+
+const hasOfficialRate = computed(
+  () => props.rateUsdVes !== null && compareDecimal(props.rateUsdVes, '0') > 0,
 );
 
 const sortedItems = computed<EstadoCobranzaItemDTO[]>(() => {
@@ -24,12 +31,24 @@ const sortedItems = computed<EstadoCobranzaItemDTO[]>(() => {
 });
 
 function formatVes(saldoUsd: string): string {
-  return convertUsdToVes(saldoUsd, props.rateUsdVes);
+  if (!hasOfficialRate.value || !props.rateUsdVes) {
+    return 'Pendiente tasa BCV';
+  }
+  return `${convertUsdToVes(saldoUsd, props.rateUsdVes)} VES`;
+}
+
+function labelForUnit(unidadId: number): string {
+  const custom = props.unitLabels[unidadId];
+  if (custom) {
+    return custom;
+  }
+  return props.ownUnitId === unidadId ? 'Tu inmueble asignado' : 'Inmueble registrado';
 }
 
 const STATUS_GLYPHS: Record<string, string> = {
   SOLVENTE: '✓',
   PAGADO: '✓',
+  PAGADO_PARCIAL: '◐',
   ABONO_PARCIAL: '◐',
   PARCIAL: '◐',
   PENDIENTE: '!',
@@ -76,7 +95,7 @@ function glyphFor(estado: string): string {
           :class="{ 'collection-row--own': ownUnitId === item.unidad_id }"
         >
           <th scope="row">
-            Unidad #{{ item.unidad_id }}
+            {{ labelForUnit(item.unidad_id) }}
             <span v-if="ownUnitId === item.unidad_id" class="own-badge">(Tu unidad)</span>
           </th>
           <td>{{ item.periodo }}</td>
@@ -88,7 +107,7 @@ function glyphFor(estado: string): string {
           </td>
           <td>
             <strong class="tabular-nums">{{ item.saldo_usd }} USD</strong>
-            <span class="ves-subtext tabular-nums">({{ formatVes(item.saldo_usd) }} VES)</span>
+            <span class="ves-subtext tabular-nums">({{ formatVes(item.saldo_usd) }})</span>
           </td>
         </tr>
       </tbody>
@@ -102,9 +121,9 @@ function glyphFor(estado: string): string {
   max-inline-size: 100%;
   max-block-size: min(32rem, 75dvh);
   container-type: inline-size;
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: var(--radius-md, 0.75rem);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-card);
 }
 
@@ -123,22 +142,22 @@ function glyphFor(estado: string): string {
   padding: 0.875rem 1rem;
   font-weight: 700;
   font-size: 0.95rem;
-  color: var(--text-primary, #0f172a);
-  border-bottom: 1px solid var(--border-subtle, #e2e8f0);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 thead {
   position: sticky;
   inset-block-start: 0;
   z-index: 2;
-  background-color: var(--surface-subtle, #f8fafc);
+  background-color: var(--surface-subtle);
 }
 
 thead th:first-child {
   position: sticky;
   inset-inline-start: 0;
   z-index: 3;
-  background-color: var(--surface-subtle, #f8fafc);
+  background-color: var(--surface-subtle);
 }
 
 th,
@@ -146,22 +165,22 @@ td {
   padding: 0.75rem 1rem;
   text-align: left;
   font-size: 0.85rem;
-  color: var(--text-primary, #0f172a);
-  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 tbody th {
   position: sticky;
   inset-inline-start: 0;
   z-index: 1;
-  background-color: var(--surface-card, #ffffff);
+  background-color: var(--surface-card);
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 tbody tr.collection-row--own th,
 tbody tr.collection-row--own td {
-  background-color: var(--brand-tint, #f0f9ff);
+  background-color: var(--brand-tint);
 }
 
 @container (min-width: 600px) {
@@ -174,7 +193,7 @@ tbody tr.collection-row--own td {
 .own-badge {
   margin-left: 0.375rem;
   font-size: 0.75rem;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
 }
 
 .status-pill {
@@ -182,35 +201,36 @@ tbody tr.collection-row--own td {
   align-items: center;
   gap: 0.25rem;
   padding: 0.2rem 0.55rem;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
 .status-pill--solvente,
 .status-pill--pagado {
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #166534);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .status-pill--abono_parcial,
+.status-pill--pagado_parcial,
 .status-pill--parcial {
-  background-color: var(--status-warn-bg, #fef3c7);
-  color: var(--status-warn-text, #92400e);
+  background-color: var(--status-warn-bg);
+  color: var(--status-warn-text);
 }
 
 .status-pill--pendiente,
 .status-pill--moroso,
 .status-pill--vencido,
 .status-pill--rechazado {
-  background-color: var(--status-danger-bg, #fee2e2);
-  color: var(--status-danger-text, #991b1b);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .ves-subtext {
   display: inline-block;
   margin-left: 0.375rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   font-size: 0.8rem;
 }
 
@@ -225,36 +245,47 @@ tbody tr.collection-row--own td {
   }
 
   thead {
-    /* MANDATORY: Hide column header from layout and screen readers. */
     display: none;
   }
 
-  tr {
-    margin-block-end: 0.75rem;
-    border: 1px solid var(--border-subtle, #cbd5e1);
-    border-radius: var(--radius-sm, 0.5rem);
+  tbody tr {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
-  tbody th {
-    position: sticky;
-    inset-block-start: 0;
-    z-index: 2;
-    background-color: var(--surface-subtle, #f1f5f9);
+  tbody th,
+  tbody td {
+    position: static;
+    padding: 0.25rem 0;
+    border-bottom: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
   }
 
-  td:nth-child(2)::before {
-    content: var(--label-2) ': ';
+  tbody td:nth-of-type(1)::before {
+    content: var(--label-2);
     font-weight: 600;
+    color: var(--text-secondary);
   }
 
-  td:nth-child(3)::before {
-    content: var(--label-3) ': ';
+  tbody td:nth-of-type(2)::before {
+    content: var(--label-3);
     font-weight: 600;
+    color: var(--text-secondary);
   }
 
-  td:nth-child(4)::before {
-    content: var(--label-4) ': ';
+  tbody td:nth-of-type(3)::before {
+    content: var(--label-4);
     font-weight: 600;
+    color: var(--text-secondary);
   }
+}
+
+.collection-table__empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 1.5rem 1rem;
 }
 </style>

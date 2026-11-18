@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import TaskChecklistItem from './TaskChecklistItem.vue';
 
 describe('TaskChecklistItem.vue', () => {
-  it('renderiza tarea pendiente con incidencia vinculada y emite complete al marcar casilla', async () => {
+  it('renderiza tarea pendiente con incidencia vinculada sin PK cruda y emite complete al marcar casilla', async () => {
     const wrapper = mount(TaskChecklistItem, {
       props: {
         task: {
@@ -20,15 +20,15 @@ describe('TaskChecklistItem.vue', () => {
     });
 
     expect(wrapper.text()).toContain('Limpiar filtro de piscina');
-    expect(wrapper.text()).toContain('Cierra Incidencia #14');
+    expect(wrapper.text()).toContain('Vinculada a incidencia vecinal');
     expect(wrapper.text()).toContain('PENDIENTE');
 
     await wrapper.find('#chk-task-31').trigger('change');
     expect(wrapper.emitted('complete')?.[0]).toEqual([31]);
   });
 
-  it('muestra estado COMPLETADA y deshabilita el checkbox cuando ya fue ejecutada', () => {
-    const wrapper = mount(TaskChecklistItem, {
+  it('deshabilita el checkbox cuando ya fue completada o canComplete es false', () => {
+    const completedWrapper = mount(TaskChecklistItem, {
       props: {
         task: {
           id: 32,
@@ -42,8 +42,24 @@ describe('TaskChecklistItem.vue', () => {
         },
       },
     });
+    expect(completedWrapper.text()).toContain('COMPLETADA');
+    expect((completedWrapper.find('#chk-task-32').element as HTMLInputElement).disabled).toBe(true);
 
-    expect(wrapper.text()).toContain('COMPLETADA');
-    expect((wrapper.find('#chk-task-32').element as HTMLInputElement).disabled).toBe(true);
+    const rbacDisabled = mount(TaskChecklistItem, {
+      props: {
+        canComplete: false,
+        task: {
+          id: 33,
+          plantilla_id: 1,
+          incidencia_id: null,
+          titulo: 'Revisar bomba',
+          area: 'Sótano',
+          fecha: '2026-10-30',
+          completada: false,
+          url_evidencia: null,
+        },
+      },
+    });
+    expect((rbacDisabled.find('#chk-task-33').element as HTMLInputElement).disabled).toBe(true);
   });
 });

@@ -1,8 +1,12 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import EmptyStateCard from '../../components/common/EmptyStateCard.vue';
 import SkeletonCard from '../../components/common/SkeletonCard.vue';
+import { useDualRefresh } from '../../composables/useDualRefresh';
 import {
   runWithViewTransition,
   setActiveConsultationTransition,
@@ -10,6 +14,7 @@ import {
 import { useAuthStore } from '../../stores/authStore';
 import {
   useGovernanceStore,
+  type EstadoConsulta,
   type ReglaQuorum,
   type TipoConsulta,
 } from '../../stores/governanceStore';
@@ -28,10 +33,23 @@ const opcionAfirmativa = ref('APROBAR PROPUESTA');
 const opcionNegativa = ref('RECHAZAR PROPUESTA');
 const createSuccessMessage = ref<string | null>(null);
 
+const STATUS_BADGE_MAP: Record<EstadoConsulta, { symbol: string; modifier: string }> = {
+  ABIERTA: { symbol: '●', modifier: 'abierta' },
+  CERRADA_APROBADA: { symbol: '✓', modifier: 'cerrada_aprobada' },
+  CERRADA_RECHAZADA: { symbol: '✕', modifier: 'cerrada_rechazada' },
+  CERRADA_SIN_QUORUM: { symbol: '!', modifier: 'cerrada_sin_quorum' },
+};
+
+function getBadgeMeta(estado: EstadoConsulta): { symbol: string; modifier: string } {
+  return STATUS_BADGE_MAP[estado] ?? { symbol: '!', modifier: 'cerrada_sin_quorum' };
+}
+
 const canCreateConsultation = computed(() => {
   const rol = authStore.userRole;
   return rol === 'PRESIDENTE' || rol === 'SECRETARIO';
 });
+
+const { isRefreshing, triggerRefresh } = useDualRefresh(() => govStore.fetchConsultas());
 
 onMounted(async () => {
   await govStore.fetchConsultas();
@@ -71,11 +89,23 @@ async function openConsultationDetail(id: number): Promise<void> {
 <template>
   <section class="consultations-view" aria-labelledby="consultations-heading">
     <header class="consultations-view__header">
-      <div>
-        <span class="consultations-view__eyebrow">Gobernanza Digital — Art. 22, 23 y 24 LPH</span>
-        <h1 id="consultations-heading" class="consultations-view__title">
-          Cartas Consulta y Asambleas
-        </h1>
+      <div class="consultations-view__header-row">
+        <div>
+          <span class="consultations-view__eyebrow">Gobernanza Digital — Art. 22, 23 y 24 LPH</span>
+          <h1 id="consultations-heading" class="consultations-view__title">
+            Cartas Consulta y Asambleas
+          </h1>
+        </div>
+        <button
+          id="btn-dual-refresh"
+          type="button"
+          class="dual-refresh-btn"
+          :disabled="isRefreshing || govStore.isLoading"
+          @click="triggerRefresh"
+        >
+          <span aria-hidden="true">🔄</span>
+          <span>{{ isRefreshing ? 'Actualizando...' : 'Refrescar' }}</span>
+        </button>
       </div>
       <p class="consultations-view__subtitle">
         Cada unidad inmobiliaria ejerce un voto único ponderado por su porcentaje de alícuota con
@@ -199,9 +229,9 @@ async function openConsultationDetail(id: number): Promise<void> {
           </div>
           <span
             class="consultation-card__badge"
-            :class="`consultation-card__badge--${consulta.estado.toLowerCase()}`"
+            :class="`consultation-card__badge--${getBadgeMeta(consulta.estado).modifier}`"
           >
-            <span aria-hidden="true">{{ consulta.estado === 'ABIERTA' ? '● ' : '✓ ' }}</span>
+            <span aria-hidden="true">{{ getBadgeMeta(consulta.estado).symbol }} </span>
             {{ consulta.estado }}
           </span>
         </div>
@@ -270,10 +300,18 @@ async function openConsultationDetail(id: number): Promise<void> {
   gap: 0.35rem;
 }
 
+.consultations-view__header-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .consultations-view__eyebrow {
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -282,27 +320,25 @@ async function openConsultationDetail(id: number): Promise<void> {
   margin: 0;
   font-size: clamp(1.35rem, 3cqi, 1.75rem);
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
 .consultations-view__subtitle {
   margin: 0;
   font-size: 0.925rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
 
 .consultations-view__form-card,
 .consultation-card {
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: 1rem;
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
   padding: clamp(1rem, 2.5cqi, 1.5rem);
-  box-shadow:
-    0 4px 6px -1px rgba(15, 23, 42, 0.06),
-    0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -312,7 +348,7 @@ async function openConsultationDetail(id: number): Promise<void> {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .consultations-view__grid {
@@ -330,18 +366,19 @@ async function openConsultationDetail(id: number): Promise<void> {
 .field label {
   font-size: 0.825rem;
   font-weight: 600;
-  color: var(--text-primary, #334155);
+  color: var(--text-primary);
 }
 
 .field input,
 .field select,
 .field textarea {
+  min-block-size: 2.75rem;
   padding: 0.55rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-control, #cbd5e1);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
   font-size: 0.9rem;
-  color: var(--text-primary, #0f172a);
-  background-color: var(--surface-card, #ffffff);
+  color: var(--text-primary);
+  background-color: var(--surface-card);
 }
 
 .consultations-view__list {
@@ -360,14 +397,14 @@ async function openConsultationDetail(id: number): Promise<void> {
 .consultation-card__type {
   font-size: 0.725rem;
   font-weight: 700;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
 }
 
 .consultation-card__title {
   margin: 0.15rem 0 0;
   font-size: 1.1rem;
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
@@ -375,26 +412,31 @@ async function openConsultationDetail(id: number): Promise<void> {
   font-size: 0.725rem;
   font-weight: 700;
   padding: 0.25rem 0.65rem;
-  border-radius: 9999px;
-  background-color: var(--status-info-bg, #e0f2fe);
-  color: var(--status-info-text, #0369a1);
+  border-radius: var(--radius-pill);
+  background-color: var(--status-info-bg);
+  color: var(--status-info-text);
+}
+
+.consultation-card__badge--abierta {
+  background-color: var(--status-info-bg);
+  color: var(--status-info-text);
 }
 
 .consultation-card__badge--cerrada_aprobada {
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #15803d);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .consultation-card__badge--cerrada_rechazada,
 .consultation-card__badge--cerrada_sin_quorum {
-  background-color: var(--status-danger-bg, #fee2e2);
-  color: var(--status-danger-text, #b91c1c);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .consultation-card__desc {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--text-primary, #334155);
+  color: var(--text-primary);
   max-inline-size: 65ch;
   text-wrap: pretty;
 }
@@ -411,7 +453,7 @@ async function openConsultationDetail(id: number): Promise<void> {
   flex-wrap: wrap;
   gap: 0.5rem;
   font-size: 0.825rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 progress.quorum-progress {
@@ -422,13 +464,13 @@ progress.quorum-progress {
   inline-size: 100%;
   block-size: 0.75rem;
   --progress-bar-radius: 1e5px;
-  --progress-bar-track: var(--border-subtle, #e2e8f0);
-  --progress-bar-fill: var(--brand-600, #0369a1);
+  --progress-bar-track: var(--border-subtle);
+  --progress-bar-fill: var(--brand-600);
   --progress-bar-indeterminate-size: 30%;
   --progress-bar-indeterminate-animation-duration: 1.5s;
   border-radius: var(--progress-bar-radius);
   background: var(--progress-bar-track);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.1);
+  box-shadow: var(--shadow-card);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -487,20 +529,21 @@ progress.quorum-progress::-moz-progress-bar {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.75rem;
-  border-top: 1px solid var(--border-subtle, #e2e8f0);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 0.75rem;
 }
 
 .consultation-card__status-tag {
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .btn-primary,
 .btn-secondary {
+  min-block-size: 2.75rem;
   padding: 0.55rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font-weight: 700;
   cursor: pointer;
   border: 1px solid transparent;
@@ -508,52 +551,45 @@ progress.quorum-progress::-moz-progress-bar {
 
 .btn-primary {
   align-self: flex-start;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .btn-secondary {
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
 }
 
 .banner {
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .banner--error {
-  background-color: var(--status-danger-bg, #fee2e2);
-  color: var(--status-danger-text, #991b1b);
-  border: 1px solid var(--status-danger-border, #fca5a5);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  border: 1px solid var(--status-danger-border);
 }
 
 .banner--success {
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #166534);
-  border: 1px solid var(--status-ok-border, #86efac);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
+  border: 1px solid var(--status-ok-border);
 }
 
 .consultations-view__empty {
   margin: 0;
   padding: 1.5rem;
   text-align: center;
-  color: var(--text-secondary, #64748b);
-  background-color: var(--surface-subtle, #f8fafc);
-  border-radius: 0.75rem;
-  border: 1px dashed var(--border-subtle, #cbd5e1);
+  color: var(--text-secondary);
+  background-color: var(--surface-subtle);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-subtle);
 }
 
 .tabular-num {
   font-variant-numeric: tabular-nums;
-}
-
-@media (pointer: coarse) {
-  .btn-primary,
-  .btn-secondary {
-    min-block-size: 2.75rem;
-  }
 }
 </style>

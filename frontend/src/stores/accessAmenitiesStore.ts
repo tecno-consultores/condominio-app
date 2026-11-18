@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { ApiError, apiRequest } from '../services/apiClient';
+import { apiClient, apiRequest } from '../services/apiClient';
 import { generateIdempotencyKey, sanitizeUntrustedText } from '../utils/security';
-import { useAuthStore } from './authStore';
+import { registerSessionResetter } from './authStore';
+import { resolveStoreError } from './storeErrors';
 
 export type ModalidadPaseQR = 'UNICO_USO' | 'VENTANA_TEMPORAL';
 export type EstadoPaseQR = 'ACTIVO' | 'USADO' | 'REVOCADO' | 'EXPIRADO';
@@ -17,7 +18,9 @@ export interface PaseVisitaCreateDTO {
   cedula_visitante: string;
   placa_vehiculo?: string | null;
   modalidad: ModalidadPaseQR;
-  horas_validez: number;
+  horas_validez?: number;
+  valido_desde?: string | null;
+  valido_hasta?: string | null;
 }
 
 export interface PaseVisitaDTO {
@@ -170,15 +173,33 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
   const isStale = ref(false);
   const error = ref<string | null>(null);
 
-  async function handleStoreError(err: unknown, fallbackMessage: string): Promise<void> {
-    if (err instanceof ApiError && err.status === 401) {
-      isStale.value = false;
-      error.value = err.detail;
-      await useAuthStore().handleUnauthorizedError(err);
-      return;
-    }
-    isStale.value = true;
-    error.value = err instanceof Error ? err.message : fallbackMessage;
+  function resetState(): void {
+    pases.value = [];
+    ultimoPaseCreado.value = null;
+    ultimoEscaneo.value = null;
+    paquetes.value = [];
+    areasSociales.value = [];
+    reservas.value = [];
+    isLoading.value = false;
+    isStale.value = false;
+    error.value = null;
+  }
+
+  registerSessionResetter(resetState);
+
+  async function handleStoreError(
+    err: unknown,
+    fallbackMessage: string,
+    isGetOperation = false,
+    hasCachedData = false,
+  ): Promise<void> {
+    const res = await resolveStoreError(err, fallbackMessage, {
+      isGetOperation,
+      hasCachedData,
+      useNativeErrorMessage: true,
+    });
+    isStale.value = res.isStale;
+    error.value = res.message;
   }
 
   async function fetchMisPases(): Promise<PaseVisitaDTO[]> {
@@ -191,21 +212,29 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpios;
     } catch (err) {
-      await handleStoreError(err, 'Error al cargar los pases de visita QR');
+      await handleStoreError(
+        err,
+        'Error al cargar los pases de visita QR',
+        true,
+        pases.value.length > 0,
+      );
       return pases.value;
     } finally {
       isLoading.value = false;
     }
   }
 
-  async function crearPaseVisita(payload: PaseVisitaCreateDTO): Promise<PaseVisitaDTO> {
+  async function crearPaseVisita(
+    payload: PaseVisitaCreateDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<PaseVisitaDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const data = await apiRequest<PaseVisitaDTO>('/api/accesos/pases', {
         method: 'POST',
         body: payload,
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       const limpio = sanitizePase(data);
       ultimoPaseCreado.value = limpio;
@@ -220,12 +249,15 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     }
   }
 
-  async function revocarPaseVisita(paseId: number): Promise<PaseVisitaDTO> {
+  async function revocarPaseVisita(
+    paseId: number,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<PaseVisitaDTO> {
     isLoading.value = true;
     error.value = null;
     try {
-      const data = await apiRequest<PaseVisitaDTO>(`/api/accesos/pases/${paseId}`, {
-        method: 'DELETE',
+      const data = await apiClient.delete<PaseVisitaDTO>(`/api/accesos/pases/${paseId}`, {
+        idempotencyKey,
       });
       const limpio = sanitizePase(data);
       pases.value = pases.value.map((p) => (p.id === paseId ? limpio : p));
@@ -242,14 +274,17 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     }
   }
 
-  async function verificarPaseQR(qrToken: string): Promise<VerificarPaseQRResponseDTO> {
+  async function verificarPaseQR(
+    qrToken: string,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<VerificarPaseQRResponseDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const data = await apiRequest<VerificarPaseQRResponseDTO>('/api/accesos/verificar-qr', {
         method: 'POST',
         body: { qr_token: qrToken.trim() },
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       const limpio: VerificarPaseQRResponseDTO = {
         ...data,
@@ -280,21 +315,29 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpios;
     } catch (err) {
-      await handleStoreError(err, 'Error al cargar la paquetería en garita');
+      await handleStoreError(
+        err,
+        'Error al cargar la paquetería en garita',
+        true,
+        paquetes.value.length > 0,
+      );
       return paquetes.value;
     } finally {
       isLoading.value = false;
     }
   }
 
-  async function registrarPaquete(payload: PaqueteCreateDTO): Promise<PaqueteDTO> {
+  async function registrarPaquete(
+    payload: PaqueteCreateDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<PaqueteDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const data = await apiRequest<PaqueteDTO>('/api/paqueteria/registrar', {
         method: 'POST',
         body: payload,
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       const limpio = sanitizePaquete(data);
       paquetes.value = [limpio, ...paquetes.value.filter((p) => p.id !== limpio.id)];
@@ -308,12 +351,16 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     }
   }
 
-  async function confirmarEntregaPaquete(paqueteId: number): Promise<PaqueteDTO> {
+  async function confirmarEntregaPaquete(
+    paqueteId: number,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<PaqueteDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const data = await apiRequest<PaqueteDTO>(`/api/paqueteria/${paqueteId}/entregar`, {
         method: 'PUT',
+        idempotencyKey,
       });
       const limpio = sanitizePaquete(data);
       paquetes.value = paquetes.value.map((p) => (p.id === paqueteId ? limpio : p));
@@ -337,21 +384,29 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpias;
     } catch (err) {
-      await handleStoreError(err, 'Error al cargar las áreas sociales');
+      await handleStoreError(
+        err,
+        'Error al cargar las áreas sociales',
+        true,
+        areasSociales.value.length > 0,
+      );
       return areasSociales.value;
     } finally {
       isLoading.value = false;
     }
   }
 
-  async function crearAreaSocial(payload: AreaSocialCreateDTO): Promise<AreaSocialDTO> {
+  async function crearAreaSocial(
+    payload: AreaSocialCreateDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<AreaSocialDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const data = await apiRequest<AreaSocialDTO>('/api/reservas/areas', {
         method: 'POST',
         body: payload,
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       const limpia = sanitizeAreaSocial(data);
       areasSociales.value = [...areasSociales.value.filter((a) => a.id !== limpia.id), limpia];
@@ -375,21 +430,29 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       isStale.value = false;
       return limpias;
     } catch (err) {
-      await handleStoreError(err, 'Error al cargar el calendario de reservas');
+      await handleStoreError(
+        err,
+        'Error al cargar el calendario de reservas',
+        true,
+        reservas.value.length > 0,
+      );
       return reservas.value;
     } finally {
       isLoading.value = false;
     }
   }
 
-  async function solicitarReservaArea(payload: ReservaAreaCreateDTO): Promise<ReservaAreaDTO> {
+  async function solicitarReservaArea(
+    payload: ReservaAreaCreateDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<ReservaAreaDTO> {
     isLoading.value = true;
     error.value = null;
     try {
       const data = await apiRequest<ReservaAreaDTO>('/api/reservas/solicitar', {
         method: 'POST',
         body: payload,
-        idempotencyKey: generateIdempotencyKey(),
+        idempotencyKey,
       });
       const limpia = sanitizeReserva(data);
       reservas.value = [limpia, ...reservas.value.filter((r) => r.id !== limpia.id)];
@@ -406,6 +469,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
   async function inspeccionarReserva(
     reservaId: number,
     payload: ReservaInspeccionarDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
   ): Promise<ReservaAreaDTO> {
     isLoading.value = true;
     error.value = null;
@@ -413,6 +477,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       const data = await apiRequest<ReservaAreaDTO>(`/api/reservas/${reservaId}/inspeccionar`, {
         method: 'PUT',
         body: payload,
+        idempotencyKey,
       });
       const limpia = sanitizeReserva(data);
       reservas.value = reservas.value.map((r) => (r.id === reservaId ? limpia : r));
@@ -428,7 +493,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
 
   async function cancelarReserva(
     reservaId: number,
-    idempotencyKey?: string,
+    idempotencyKey: string = generateIdempotencyKey(),
   ): Promise<ReservaAreaDTO> {
     isLoading.value = true;
     error.value = null;
@@ -436,7 +501,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
       const data = await apiRequest<ReservaAreaDTO>(`/api/reservas/${reservaId}/cancelar`, {
         method: 'PUT',
         body: {},
-        idempotencyKey: idempotencyKey || generateIdempotencyKey(),
+        idempotencyKey,
       });
       const limpia = sanitizeReserva(data);
       reservas.value = reservas.value.map((r) => (r.id === reservaId ? limpia : r));
@@ -460,6 +525,7 @@ export const useAccessAmenitiesStore = defineStore('accessAmenities', () => {
     isLoading,
     isStale,
     error,
+    resetState,
     fetchMisPases,
     crearPaseVisita,
     revocarPaseVisita,

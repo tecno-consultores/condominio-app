@@ -1,15 +1,21 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import ReceiptBreakdownModal from '../../components/finance/ReceiptBreakdownModal.vue';
-import AppShellLayout from '../../components/layout/AppShellLayout.vue';
+import { useDualRefresh } from '../../composables/useDualRefresh';
 import { useIdempotency } from '../../composables/useIdempotency';
 import {
   useFinanceStore,
   type ModalidadFacturacion,
   type TipoFondoCondominio,
 } from '../../stores/financeStore';
+import { useOperationsStore } from '../../stores/operationsStore';
+import { compareDecimal, roundDecimalHalfUp } from '../../utils/decimal';
 
 const financeStore = useFinanceStore();
+const operationsStore = useOperationsStore();
 const { currentKey: billingKey, rotateKey: rotateBillingKey } = useIdempotency();
 const { currentKey: fundKey, rotateKey: rotateFundKey } = useIdempotency();
 
@@ -28,9 +34,26 @@ const validationError = ref<string | null>(null);
 const successBanner = ref<string | null>(null);
 const showBreakdownModal = ref(false);
 
+const unitLabels = computed<Record<number, string>>(() => {
+  const labels: Record<number, string> = {};
+  for (const unidad of operationsStore.data.unidades) {
+    labels[unidad.id] = unidad.identificador;
+  }
+  return labels;
+});
+
+async function refreshBillingData(): Promise<void> {
+  await Promise.allSettled([
+    financeStore.fetchDashboardData(),
+    financeStore.fetchFondos(),
+    operationsStore.fetchUnidades(),
+  ]);
+}
+
+const { isRefreshing, triggerRefresh } = useDualRefresh(refreshBillingData);
+
 onMounted(() => {
-  void financeStore.fetchDashboardData();
-  void financeStore.fetchFondos();
+  void refreshBillingData();
 });
 
 async function handleEmitBilling(): Promise<void> {
@@ -41,19 +64,28 @@ async function handleEmitBilling(): Promise<void> {
     validationError.value = 'El periodo debe tener el formato YYYY-MM (ej. 2026-10).';
     return;
   }
-  if (modalidad.value === 'CUOTA_FIJA' && Number.parseFloat(montoCuotaFijaUsd.value) <= 0) {
+
+  const rawCuotaFija = String(montoCuotaFijaUsd.value ?? '').trim();
+  if (modalidad.value === 'CUOTA_FIJA' && compareDecimal(rawCuotaFija, '0') <= 0) {
     validationError.value = 'Debe indicar un monto de cuota fija mensual mayor que cero.';
     return;
   }
+
+  const rawCuotaExtra = String(cuotaExtraUsd.value ?? '').trim();
+  const cuotaExtraNormalized =
+    rawCuotaExtra && compareDecimal(rawCuotaExtra, '0') > 0
+      ? roundDecimalHalfUp(rawCuotaExtra, 2)
+      : '0.00';
 
   try {
     const res = await financeStore.facturarPeriodo(
       {
         periodo: periodo.value.trim(),
         modalidad: modalidad.value,
-        monto_cuota_fija_usd: modalidad.value === 'CUOTA_FIJA' ? montoCuotaFijaUsd.value : null,
+        monto_cuota_fija_usd:
+          modalidad.value === 'CUOTA_FIJA' ? roundDecimalHalfUp(rawCuotaFija, 2) : null,
         incluir_fondo_reserva: incluirFondoReserva.value,
-        cuota_extraordinaria_total_usd: cuotaExtraUsd.value || '0.00',
+        cuota_extraordinaria_total_usd: cuotaExtraNormalized,
         descripcion_cuota_extraordinaria: descCuotaExtra.value.trim() || null,
       },
       billingKey.value,
@@ -74,12 +106,18 @@ async function handleCreateFund(): Promise<void> {
     return;
   }
 
+  const rawPorcentaje = String(porcentajeRecargo.value ?? '').trim();
+  if (!rawPorcentaje || compareDecimal(rawPorcentaje, '0') < 0) {
+    validationError.value = 'El porcentaje de recargo debe ser mayor o igual a cero.';
+    return;
+  }
+
   try {
     const created = await financeStore.crearFondo(
       {
         nombre: nombreFondo.value.trim(),
         tipo: tipoFondo.value,
-        porcentaje_recargo: porcentajeRecargo.value,
+        porcentaje_recargo: roundDecimalHalfUp(rawPorcentaje, 2),
       },
       fundKey.value,
     );
@@ -102,9 +140,9 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
 </script>
 
 <template>
-  <AppShellLayout>
-    <section class="billing-view" aria-labelledby="billing-view-heading">
-      <header class="billing-view__header">
+  <section class="billing-view" aria-labelledby="billing-view-heading">
+    <header class="billing-view__header">
+      <div>
         <h1 id="billing-view-heading" class="billing-view__title">
           Facturación Mensual LPH y Fondos Patrimoniales
         </h1>
@@ -112,249 +150,255 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
           Emita recibos por Alícuota (Hamilton), Cuota Fija Mensual o Partes Iguales con aplicación
           automática de saldo a favor.
         </p>
-      </header>
-
-      <div
-        v-if="financeStore.errorMessage"
-        id="billing-error-banner"
-        class="billing-view__alert billing-view__alert--warning"
-        role="status"
-      >
-        {{ financeStore.errorMessage }}
       </div>
-
-      <div
-        v-if="successBanner"
-        id="billing-success-banner"
-        class="billing-view__alert billing-view__alert--success"
-        role="status"
+      <button
+        id="btn-dual-refresh"
+        type="button"
+        class="dual-refresh-btn"
+        :disabled="isRefreshing || financeStore.isLoading"
+        @click="triggerRefresh"
       >
-        {{ successBanner }}
-      </div>
+        <span aria-hidden="true">🔄</span>
+        <span>{{ isRefreshing ? 'Actualizando...' : 'Refrescar' }}</span>
+      </button>
+    </header>
 
-      <p v-if="validationError" id="billing-validation-error" class="billing-view__error">
-        {{ validationError }}
-      </p>
+    <div
+      v-if="financeStore.errorMessage"
+      id="billing-error-banner"
+      class="billing-view__alert billing-view__alert--warning"
+      role="status"
+    >
+      {{ financeStore.errorMessage }}
+    </div>
 
-      <div class="billing-view__layout">
-        <form
-          id="form-facturar-periodo"
-          class="billing-view__card"
-          novalidate
-          @submit.prevent="handleEmitBilling"
-        >
-          <h2 class="billing-view__card-title">Emitir Facturación del Periodo</h2>
+    <div
+      v-if="successBanner"
+      id="billing-success-banner"
+      class="billing-view__alert billing-view__alert--success"
+      role="status"
+    >
+      {{ successBanner }}
+    </div>
 
-          <div class="billing-view__grid">
-            <div class="billing-view__field">
-              <label for="input-facturar-periodo" class="billing-view__label"
-                >Periodo (YYYY-MM)</label
-              >
-              <input
-                id="input-facturar-periodo"
-                v-model="periodo"
-                type="text"
-                class="billing-view__input"
-                placeholder="2026-10"
-              />
-            </div>
+    <p v-if="validationError" id="billing-validation-error" class="billing-view__error">
+      {{ validationError }}
+    </p>
 
-            <div class="billing-view__field">
-              <label for="select-facturar-modalidad" class="billing-view__label"
-                >Modalidad de Cobro</label
-              >
-              <select
-                id="select-facturar-modalidad"
-                v-model="modalidad"
-                class="billing-view__input"
-              >
-                <option value="ALICUOTA">ALÍCUOTA (Art. 7 y 11 LPH — Hamilton)</option>
-                <option value="CUOTA_FIJA">CUOTA FIJA MENSUAL (Conciliación a Fondo)</option>
-                <option value="PARTES_IGUALES">PARTES IGUALES (1/N Exacto)</option>
-              </select>
-            </div>
-          </div>
+    <div class="billing-view__layout">
+      <form
+        id="form-facturar-periodo"
+        class="billing-view__card"
+        novalidate
+        @submit.prevent="handleEmitBilling"
+      >
+        <h2 class="billing-view__card-title">Emitir Facturación del Periodo</h2>
 
-          <div v-if="modalidad === 'CUOTA_FIJA'" class="billing-view__field">
-            <label for="input-monto-cuota-fija" class="billing-view__label">
-              Monto Global de Cuota Fija Mensual (USD)
+        <div class="billing-view__grid">
+          <div class="billing-view__field">
+            <label for="input-facturar-periodo" class="billing-view__label">
+              Periodo (YYYY-MM)
             </label>
             <input
-              id="input-monto-cuota-fija"
-              v-model="montoCuotaFijaUsd"
+              id="input-facturar-periodo"
+              v-model="periodo"
+              type="text"
+              class="billing-view__input"
+              placeholder="2026-10"
+            />
+          </div>
+
+          <div class="billing-view__field">
+            <label for="select-facturar-modalidad" class="billing-view__label">
+              Modalidad de Cobro
+            </label>
+            <select id="select-facturar-modalidad" v-model="modalidad" class="billing-view__input">
+              <option value="ALICUOTA">ALÍCUOTA (Art. 7 y 11 LPH — Hamilton)</option>
+              <option value="CUOTA_FIJA">CUOTA FIJA MENSUAL (Conciliación a Fondo)</option>
+              <option value="PARTES_IGUALES">PARTES IGUALES (1/N Exacto)</option>
+            </select>
+          </div>
+        </div>
+
+        <div v-if="modalidad === 'CUOTA_FIJA'" class="billing-view__field">
+          <label for="input-monto-cuota-fija" class="billing-view__label">
+            Monto Global de Cuota Fija Mensual (USD)
+          </label>
+          <input
+            id="input-monto-cuota-fija"
+            v-model="montoCuotaFijaUsd"
+            type="number"
+            step="0.01"
+            class="billing-view__input tabular-num"
+          />
+        </div>
+
+        <label class="billing-view__checkbox">
+          <input id="check-incluir-reserva" v-model="incluirFondoReserva" type="checkbox" />
+          <span>Incluir recargo automático del Fondo de Reserva Legal</span>
+        </label>
+
+        <div class="billing-view__grid">
+          <div class="billing-view__field">
+            <label for="input-cuota-extra-monto" class="billing-view__label">
+              Cuota Extraordinaria Total (USD)
+            </label>
+            <input
+              id="input-cuota-extra-monto"
+              v-model="cuotaExtraUsd"
               type="number"
               step="0.01"
               class="billing-view__input tabular-num"
             />
           </div>
 
-          <label class="billing-view__checkbox">
-            <input id="check-incluir-reserva" v-model="incluirFondoReserva" type="checkbox" />
-            <span>Incluir recargo automático del Fondo de Reserva Legal</span>
-          </label>
-
-          <div class="billing-view__grid">
-            <div class="billing-view__field">
-              <label for="input-cuota-extra-monto" class="billing-view__label">
-                Cuota Extraordinaria Total (USD)
-              </label>
-              <input
-                id="input-cuota-extra-monto"
-                v-model="cuotaExtraUsd"
-                type="number"
-                step="0.01"
-                class="billing-view__input tabular-num"
-              />
-            </div>
-
-            <div class="billing-view__field">
-              <label for="input-cuota-extra-desc" class="billing-view__label">
-                Concepto Cuota Extraordinaria
-              </label>
-              <input
-                id="input-cuota-extra-desc"
-                v-model="descCuotaExtra"
-                type="text"
-                class="billing-view__input"
-                placeholder="Ej. Impermeabilización azotea"
-              />
-            </div>
-          </div>
-
-          <button id="btn-submit-facturacion" type="submit" class="billing-view__submit">
-            Emitir Recibos del Periodo
-          </button>
-        </form>
-
-        <form
-          id="form-crear-fondo"
-          class="billing-view__card"
-          novalidate
-          @submit.prevent="handleCreateFund"
-        >
-          <h2 class="billing-view__card-title">Fondos Patrimoniales del Condominio</h2>
-
           <div class="billing-view__field">
-            <label for="input-fondo-nombre" class="billing-view__label">Nombre del Fondo</label>
+            <label for="input-cuota-extra-desc" class="billing-view__label">
+              Concepto Cuota Extraordinaria
+            </label>
             <input
-              id="input-fondo-nombre"
-              v-model="nombreFondo"
+              id="input-cuota-extra-desc"
+              v-model="descCuotaExtra"
               type="text"
               class="billing-view__input"
-              placeholder="Ej. Fondo de Reserva Legal"
+              placeholder="Ej. Impermeabilización azotea"
             />
           </div>
+        </div>
 
-          <div class="billing-view__grid">
-            <div class="billing-view__field">
-              <label for="select-fondo-tipo" class="billing-view__label">Tipo de Fondo</label>
-              <select id="select-fondo-tipo" v-model="tipoFondo" class="billing-view__input">
-                <option value="RESERVA_LEGAL">RESERVA_LEGAL</option>
-                <option value="CAJA_CHICA">CAJA_CHICA</option>
-                <option value="ESPECIAL">ESPECIAL</option>
-              </select>
-            </div>
+        <button id="btn-submit-facturacion" type="submit" class="billing-view__submit">
+          Emitir Recibos del Periodo
+        </button>
+      </form>
 
-            <div class="billing-view__field">
-              <label for="input-fondo-porcentaje" class="billing-view__label"
-                >Recargo Mensual (%)</label
-              >
-              <input
-                id="input-fondo-porcentaje"
-                v-model="porcentajeRecargo"
-                type="number"
-                step="0.01"
-                class="billing-view__input tabular-num"
-              />
-            </div>
-          </div>
-
-          <button id="btn-submit-fondo" type="submit" class="billing-view__submit">
-            Registrar Fondo Patrimonial
-          </button>
-
-          <ul id="fondos-list" class="billing-view__funds-list" aria-label="Fondos activos">
-            <li v-for="f in financeStore.data.fondos" :key="f.id" class="billing-view__fund-item">
-              <span>
-                <strong>{{ f.nombre }}</strong> ({{ f.tipo }} · {{ f.porcentaje_recargo }}%)
-              </span>
-              <strong class="tabular-num">${{ f.saldo_actual_usd }} USD</strong>
-            </li>
-          </ul>
-        </form>
-      </div>
-
-      <article
-        v-if="financeStore.data.ultimaFacturacion"
-        id="billing-summary-card"
+      <form
+        id="form-crear-fondo"
         class="billing-view__card"
+        novalidate
+        @submit.prevent="handleCreateFund"
       >
-        <h2 class="billing-view__card-title">
-          Resumen de Emisión — {{ financeStore.data.ultimaFacturacion.periodo }}
-        </h2>
-        <div class="billing-view__metrics">
-          <div>
-            <span>Recibos Emitidos:</span>
-            <strong class="tabular-num">
-              {{ financeStore.data.ultimaFacturacion.recibos_emitidos }}
-            </strong>
+        <h2 class="billing-view__card-title">Fondos Patrimoniales del Condominio</h2>
+
+        <div class="billing-view__field">
+          <label for="input-fondo-nombre" class="billing-view__label">Nombre del Fondo</label>
+          <input
+            id="input-fondo-nombre"
+            v-model="nombreFondo"
+            type="text"
+            class="billing-view__input"
+            placeholder="Ej. Fondo de Reserva Legal"
+          />
+        </div>
+
+        <div class="billing-view__grid">
+          <div class="billing-view__field">
+            <label for="select-fondo-tipo" class="billing-view__label">Tipo de Fondo</label>
+            <select id="select-fondo-tipo" v-model="tipoFondo" class="billing-view__input">
+              <option value="RESERVA_LEGAL">RESERVA_LEGAL</option>
+              <option value="CAJA_CHICA">CAJA_CHICA</option>
+              <option value="ESPECIAL">ESPECIAL</option>
+            </select>
           </div>
-          <div>
-            <span>Facturado Bruto:</span>
-            <strong class="tabular-num">
-              ${{ financeStore.data.ultimaFacturacion.total_facturado_bruto_usd }} USD
-            </strong>
-          </div>
-          <div>
-            <span>Créditos Aplicados:</span>
-            <strong class="tabular-num">
-              -${{ financeStore.data.ultimaFacturacion.total_credito_descontado_usd }} USD
-            </strong>
-          </div>
-          <div>
-            <span>Facturado Neto:</span>
-            <strong class="tabular-num">
-              ${{ financeStore.data.ultimaFacturacion.total_facturado_neto_usd }} USD
-            </strong>
+
+          <div class="billing-view__field">
+            <label for="input-fondo-porcentaje" class="billing-view__label">
+              Recargo Mensual (%)
+            </label>
+            <input
+              id="input-fondo-porcentaje"
+              v-model="porcentajeRecargo"
+              type="number"
+              step="0.01"
+              class="billing-view__input tabular-num"
+            />
           </div>
         </div>
-      </article>
 
-      <section
-        v-if="financeStore.data.resumen?.estado_cobranza.length"
-        class="billing-view__card"
-        aria-label="Recibos emitidos para consulta de desglose"
-      >
-        <h2 class="billing-view__card-title">Inspección de Desglose de Recibos</h2>
-        <ul class="billing-view__funds-list">
-          <li
-            v-for="(rec, idx) in financeStore.data.resumen.estado_cobranza"
-            :key="`${rec.unidad_id}-${rec.periodo}-${idx}`"
-            class="billing-view__fund-item"
-          >
+        <button id="btn-submit-fondo" type="submit" class="billing-view__submit">
+          Registrar Fondo Patrimonial
+        </button>
+
+        <ul id="fondos-list" class="billing-view__funds-list" aria-label="Fondos activos">
+          <li v-for="f in financeStore.data.fondos" :key="f.id" class="billing-view__fund-item">
             <span>
-              Unidad #{{ rec.unidad_id }} · {{ rec.periodo }} — Saldo:
-              <strong class="tabular-num">${{ rec.saldo_usd }} USD</strong>
+              <strong>{{ f.nombre }}</strong> ({{ f.tipo }} · {{ f.porcentaje_recargo }}%)
             </span>
-            <button
-              :id="`btn-inspect-recibo-${rec.recibo_id ?? idx + 1}`"
-              type="button"
-              class="billing-view__inspect-btn"
-              @click="handleOpenBreakdown(rec.recibo_id ?? idx + 1)"
-            >
-              Ver Desglose
-            </button>
+            <strong class="tabular-num">${{ f.saldo_actual_usd }} USD</strong>
           </li>
         </ul>
-      </section>
+      </form>
+    </div>
 
-      <ReceiptBreakdownModal
-        :open="showBreakdownModal"
-        :desglose="financeStore.data.desgloseActivo"
-        @close="showBreakdownModal = false"
-      />
+    <article
+      v-if="financeStore.data.ultimaFacturacion"
+      id="billing-summary-card"
+      class="billing-view__card"
+    >
+      <h2 class="billing-view__card-title">
+        Resumen de Emisión — {{ financeStore.data.ultimaFacturacion.periodo }}
+      </h2>
+      <div class="billing-view__metrics">
+        <div>
+          <span>Recibos Emitidos:</span>
+          <strong class="tabular-num">
+            {{ financeStore.data.ultimaFacturacion.recibos_emitidos }}
+          </strong>
+        </div>
+        <div>
+          <span>Facturado Bruto:</span>
+          <strong class="tabular-num">
+            ${{ financeStore.data.ultimaFacturacion.total_facturado_bruto_usd }} USD
+          </strong>
+        </div>
+        <div>
+          <span>Créditos Aplicados:</span>
+          <strong class="tabular-num">
+            -${{ financeStore.data.ultimaFacturacion.total_credito_descontado_usd }} USD
+          </strong>
+        </div>
+        <div>
+          <span>Facturado Neto:</span>
+          <strong class="tabular-num">
+            ${{ financeStore.data.ultimaFacturacion.total_facturado_neto_usd }} USD
+          </strong>
+        </div>
+      </div>
+    </article>
+
+    <section
+      v-if="financeStore.data.resumen?.estado_cobranza.length"
+      class="billing-view__card"
+      aria-label="Recibos emitidos para consulta de desglose"
+    >
+      <h2 class="billing-view__card-title">Inspección de Desglose de Recibos</h2>
+      <ul class="billing-view__funds-list">
+        <li
+          v-for="(rec, idx) in financeStore.data.resumen.estado_cobranza"
+          :key="`${rec.unidad_id}-${rec.periodo}-${idx}`"
+          class="billing-view__fund-item"
+        >
+          <span>
+            {{ unitLabels[rec.unidad_id] ?? 'Unidad habitacional' }} · {{ rec.periodo }} — Saldo:
+            <strong class="tabular-num">${{ rec.saldo_usd }} USD</strong>
+          </span>
+          <button
+            :id="`btn-inspect-recibo-${rec.recibo_id ?? idx + 1}`"
+            type="button"
+            class="billing-view__inspect-btn"
+            @click="handleOpenBreakdown(rec.recibo_id ?? idx + 1)"
+          >
+            Ver Desglose
+          </button>
+        </li>
+      </ul>
     </section>
-  </AppShellLayout>
+
+    <ReceiptBreakdownModal
+      :open="showBreakdownModal"
+      :desglose="financeStore.data.desgloseActivo"
+      @close="showBreakdownModal = false"
+    />
+  </section>
 </template>
 
 <style scoped>
@@ -364,43 +408,51 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
   gap: 1.25rem;
 }
 
+.billing-view__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .billing-view__title {
   margin: 0;
   font-size: clamp(1.25rem, 3cqi, 1.5rem);
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
 .billing-view__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   max-inline-size: 65ch;
 }
 
 .billing-view__alert {
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-md, 0.75rem);
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .billing-view__alert--warning {
-  background-color: var(--status-warn-bg, #fffbeb);
-  border: 1px solid var(--status-warn-border, #f59e0b);
-  color: var(--status-warn-text, #92400e);
+  background-color: var(--status-warn-bg);
+  border: 1px solid var(--status-warn-border);
+  color: var(--status-warn-text);
 }
 
 .billing-view__alert--success {
-  background-color: var(--status-ok-bg, #ecfdf5);
-  border: 1px solid var(--status-ok-border, #10b981);
-  color: var(--status-ok-text, #065f46);
+  background-color: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .billing-view__error {
   margin: 0;
-  color: var(--status-danger-text, #b91c1c);
+  color: var(--status-danger-text);
   font-size: 0.85rem;
   font-weight: 700;
 }
@@ -412,9 +464,9 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
 }
 
 .billing-view__card {
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-radius: var(--radius-md, 0.875rem);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: clamp(1rem, 2.5cqi, 1.25rem);
   display: flex;
   flex-direction: column;
@@ -426,7 +478,7 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
   margin: 0;
   font-size: 1rem;
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .billing-view__grid {
@@ -444,34 +496,37 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
 .billing-view__label {
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
 }
 
 .billing-view__input {
+  min-block-size: 2.75rem;
   padding: 0.55rem 0.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #94a3b8);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
   font-size: 0.875rem;
 }
 
 .billing-view__checkbox {
+  min-block-size: 2.75rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
 .billing-view__submit {
+  min-block-size: 2.75rem;
   align-self: flex-start;
   padding: 0.6rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-weight: 700;
   cursor: pointer;
 }
@@ -487,14 +542,15 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
 
 .billing-view__fund-item {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.6rem 0.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  background-color: var(--surface-subtle, #f8fafc);
-  border: 1px solid var(--border-subtle, #e2e8f0);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
   font-size: 0.85rem;
 }
 
@@ -510,17 +566,18 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
   flex-direction: column;
   gap: 0.15rem;
   padding: 0.6rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  background-color: var(--surface-subtle, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
 }
 
 .billing-view__inspect-btn {
+  min-block-size: 2.75rem;
   padding: 0.375rem 0.75rem;
-  border-radius: var(--radius-sm, 0.45rem);
-  border: 1px solid var(--brand-accent, #0369a1);
-  background-color: var(--brand-tint, #f0f9ff);
-  color: var(--brand-accent, #0369a1);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brand-accent);
+  background-color: var(--brand-tint);
+  color: var(--brand-accent);
   font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
@@ -528,12 +585,5 @@ async function handleOpenBreakdown(reciboId: number): Promise<void> {
 
 .tabular-num {
   font-variant-numeric: tabular-nums;
-}
-
-@media (pointer: coarse) {
-  .billing-view__submit,
-  .billing-view__inspect-btn {
-    min-block-size: 2.75rem;
-  }
 }
 </style>

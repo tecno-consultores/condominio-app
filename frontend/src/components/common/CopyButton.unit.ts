@@ -192,5 +192,16 @@ describe('CopyButton.vue', () => {
     expect(writeText).toHaveBeenCalledTimes(1);
 
     wrapper.unmount();
+
+    // Cubrir fallback cuando execCommand no es función y destino no existe
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: undefined });
+    const noCopyWrapper = mount(CopyButton, {
+      props: { targetId: 'does-not-exist', label: 'Sin destino' },
+    });
+    await noCopyWrapper.find('button').trigger('click');
+    await flushPromises();
+    expect(noCopyWrapper.find('.copy-control__icon').text()).toBe('⧉');
+    noCopyWrapper.unmount();
   });
 });

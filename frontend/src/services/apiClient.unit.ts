@@ -5,11 +5,15 @@ import {
   apiRequest,
   getCsrfToken,
   readCsrfCookie,
+  registerUnauthorizedCallback,
+  resetCsrfToken,
   setCsrfToken,
 } from './apiClient';
 
 describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
   afterEach(() => {
+    registerUnauthorizedCallback(null);
+    resetCsrfToken();
     vi.restoreAllMocks();
   });
 
@@ -46,8 +50,124 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     );
   });
 
+  it('soporta FormData/Blob sin forzar Content-Type JSON, métodos patch/delete y respuesta JSON corrupta', async () => {
+    setCsrfToken('csrf-form');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ url: 's3://bucket/comprobante.avif', estado: 'ENCOLADO' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const formData = new FormData();
+    formData.append('archivo', new Blob(['png-bytes'], { type: 'image/png' }), 'pago.png');
+
+    await apiClient.post('/api/evidencias/subir?categoria=comprobantes', formData, {
+      idempotencyKey: 'idemp-upload-1',
+    });
+
+    const [, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(firstInit.body).toBe(formData);
+    expect((firstInit.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+    expect((firstInit.headers as Record<string, string>)['Idempotency-Key']).toBe('idemp-upload-1');
+
+    // Blob body directo también preserva binario
+    const rawBlob = new Blob(['abc'], { type: 'application/octet-stream' });
+    await apiClient.patch('/api/test', rawBlob);
+    const [, patchInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(patchInit.method).toBe('PATCH');
+    expect(patchInit.body).toBe(rawBlob);
+    expect((patchInit.headers as Record<string, string>)['Idempotency-Key']).toBeTruthy();
+
+    // DELETE adjunta Idempotency-Key automática y método DELETE
+    await apiClient.delete('/api/accesos/pases/9');
+    const [, delInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(delInit.method).toBe('DELETE');
+    expect((delInit.headers as Record<string, string>)['Idempotency-Key']).toBeTruthy();
+
+    // Respuesta con content-type application/json cuyo .json() falla (ej. body vacío) no lanza SyntaxError
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 204,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => {
+          throw new SyntaxError('Unexpected end of JSON input');
+        },
+      }),
+    );
+    await expect(apiClient.get('/api/health')).resolves.toBeNull();
+  });
+
+  it('conserva exactamente la misma Idempotency-Key al reintentar tras refresh por HTTP 401 e invoca callback 401 si falla', async () => {
+    setCsrfToken('csrf-retry');
+    const capturedKeys: string[] = [];
+    let attempt = 0;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === '/api/auth/refresh') {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ message: 'ok', csrf_token: 'csrf-refreshed' }),
+          } as Response;
+        }
+        attempt += 1;
+        const headers = init?.headers as Record<string, string>;
+        capturedKeys.push(headers['Idempotency-Key']);
+        if (attempt === 1) {
+          return {
+            ok: false,
+            status: 401,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ detail: 'Expirado' }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ id: 99 }),
+        } as Response;
+      }),
+    );
+
+    const created = await apiClient.post<{ id: number }>('/api/incidencias/crear', {
+      area: 'Ascensor',
+      descripcion: 'Falla',
+    });
+    expect(created.id).toBe(99);
+    expect(capturedKeys).toHaveLength(2);
+    expect(capturedKeys[0]).toBe(capturedKeys[1]);
+    expect(capturedKeys[0].length).toBeGreaterThanOrEqual(8);
+
+    // Callback unauthorized + resetCsrfToken cuando el refresh falla en 401
+    const unauthSpy = vi.fn();
+    registerUnauthorizedCallback(unauthSpy);
+    setCsrfToken('csrf-to-clear');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ detail: 'Token revocado' }),
+      })),
+    );
+    await expect(apiClient.get('/api/finanzas/resumen')).rejects.toMatchObject({
+      status: 401,
+      refreshAttempted: true,
+    });
+    expect(unauthSpy).toHaveBeenCalledTimes(1);
+    expect(getCsrfToken()).toBe('csrf-client-initialized');
+  });
+
   it('transforma errores HTTP (detail string, detail array y sin JSON) y fallos de red en ApiError', async () => {
-    // Caso 1: detail como string (ej. 401)
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -61,7 +181,6 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
       new ApiError(401, 'Credenciales inválidas'),
     );
 
-    // Caso 2: detail como arreglo de validación 422
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -75,7 +194,6 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
       new ApiError(422, 'correo electrónico inválido'),
     );
 
-    // Caso 3: Respuesta 500 sin cuerpo JSON
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -86,13 +204,11 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     );
     await expect(apiRequest('/api/health')).rejects.toEqual(new ApiError(500, 'Error HTTP 500'));
 
-    // Caso 4: Fallo de red (fetch rechaza promesa)
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network offline')));
     await expect(apiRequest('/api/auth/me')).rejects.toEqual(
       new ApiError(0, 'Sin conexión con el servidor. Verifique su red.'),
     );
 
-    // Caso 5: Atajos apiClient.get / post / put
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -162,22 +278,6 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     expect(refreshCalls).toBe(1);
     expect(getCsrfToken()).toBe('csrf-rotado-nuevo');
 
-    // Si /api/auth/refresh falla, propaga ApiError(401, ..., true) sin loop infinito
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: false,
-        status: 401,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ detail: 'Sesión expirada' }),
-      })),
-    );
-    await expect(apiClient.get('/api/finanzas/resumen')).rejects.toMatchObject({
-      status: 401,
-      refreshAttempted: true,
-    });
-
-    // Sincroniza csrf_token desde cuerpo JSON, rotaciones en document.cookie y fallos de red en /refresh
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -218,7 +318,6 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
   });
 
   it('cubre fronteras estrictas de GET sin mutación, cookies CSRF, detail[] vacío y reutilización post-refresh', async () => {
-    // 1. Nombre exacto de ApiError y bordes de extractErrorDetail
     const customErr = new ApiError(400, 'Detalle');
     expect(customErr.name).toBe('ApiError');
 
@@ -227,7 +326,6 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     document.cookie = 'csrf_token=';
     expect(readCsrfCookie()).toBeNull();
 
-    // 2. GET sin opciones: no adjunta Content-Type, X-CSRF-Token ni Idempotency-Key
     const getFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -248,7 +346,6 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     });
     expect(getCsrfToken()).toBe('csrf-trimmed-header');
 
-    // Body con csrf_token en blanco NO sobreescribe el token activo ni acepta msg no-string
     setCsrfToken('csrf-estable');
     vi.stubGlobal(
       'fetch',
@@ -272,7 +369,6 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     await expect(apiRequest('/api/test')).rejects.toMatchObject({ detail: 'Error HTTP 422' });
     expect(getCsrfToken()).toBe('csrf-body-trimmed');
 
-    // 3. Verifica argumentos exactos de POST /api/auth/refresh y reinicio de inflightRefresh en ciclos secuenciales
     setCsrfToken('csrf-para-refresh');
     let phase = 0;
     const seqFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

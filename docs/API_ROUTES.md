@@ -54,7 +54,8 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * **Paso 3:** Subida de captura de pantalla (Cámara/Galería).
   * **Botón Final:** "Enviar Reporte". Al pulsar, muestra un *spinner* y se bloquea visualmente para evitar doble envío.
 * **Endpoints FastAPI:**
-  * `POST /api/pagos/reportar`: Registra el pago y la tasa del día exacto tras verificar titularidad activa en `ContratoOcupacion` (anti-IDOR, salvo roles `TESORERO`/`PRESIDENTE`) y unicidad parcial `uq_pagos_metodo_ref_activo` en `(metodo_pago, numero_referencia)` (`409 Conflict`). **Requiere campo `numero_referencia` en el payload si el método no es efectivo.** *[Header: Idempotency-Key]* -> Worker convierte imagen a AVIF.
+  * `POST /api/evidencias/subir`: Ingesta previa opcional (`FormData` multipart con `categoria=comprobantes`) antes de reportar.
+  * `POST /api/pagos/reportar`: Registra el pago (con campo opcional `url_comprobante` devuelto en `PagoResponse`) y la tasa del día exacto tras verificar titularidad activa en `ContratoOcupacion` (anti-IDOR, salvo roles `TESORERO`/`PRESIDENTE`) y unicidad parcial `uq_pagos_metodo_ref_activo` en `(metodo_pago, numero_referencia)` (`409 Conflict`). **Requiere campo `numero_referencia` en el payload si el método no es efectivo.** *[Header: Idempotency-Key]* -> Worker convierte imagen a AVIF.
 
 ---
 
@@ -123,7 +124,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * `POST /api/tareas/diarias` y `POST /api/tareas/generar-diarias`: Crea una tarea puntual o genera las tareas diarias a partir de plantillas activas.
   * `GET /api/tareas/diarias`: Checklist del día en curso.
   * `PUT /api/tareas/{id}/completar`: Conserje marca como lista (acepta URL de foto opcional).
-  * `POST /api/evidencias/subir`: Ingesta binaria segura (`application/octet-stream` o `multipart/form-data`, $\le 2\text{ MB}$ y verificación de *Magic Bytes* + Pillow) que encola conversión AVIF/S3 en KeyDB (`202 ENCOLADO`; integración UI en Hito 22.3). *[Header: Idempotency-Key]*
+  * `POST /api/evidencias/subir`: Ingesta binaria segura (`application/octet-stream` o `multipart/form-data`, $\le 2\text{ MB}$ y verificación de *Magic Bytes* + Pillow) que encola conversión AVIF/S3 en KeyDB (`202 ENCOLADO`; conectado en `PaymentWizardView`, `IncidentsFeedView` y `SpokespersonGalleryView`, Hito 22). *[Header: Idempotency-Key]*
   * `POST /api/voceros/fotos`: Sube AVIFs (Límite: 30 con bloqueo pesimista `.with_for_update()`). *[Header: Idempotency-Key]*
   * `GET /api/voceros/galeria`: Lista fotos del mes en curso organizadas por área.
 
@@ -139,6 +140,13 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 * **Endpoints FastAPI:**
   * `POST /api/bitacora/acta`: Guarda una nueva acta o minuta.
   * `GET /api/bitacora/historial`: Devuelve la lista ordenada por fecha.
+  * `POST /api/comunicados`: Publica comunicados oficiales en la cartelera vecinal con validación segura de enlace (`ruta interna` o `https://`).
+  * `GET /api/comunicados/recientes`: Lista comunicados activos para la cartelera en `/dashboard`.
+
+---
+
+### 🖥️ Vista Comodín 404 y Navegación Unificada (Hito 22)
+* **Rutas Vue:** Todas las rutas autenticadas viven bajo la ruta padre `<AppShellLayout>` (`/`), con ruta comodín `/:pathMatch(.*)*` (`NotFoundView.vue` `#not-found-card`), cajón móvil `<dialog>` completo y salida en `< 768px`.
 
 ---
 

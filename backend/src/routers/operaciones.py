@@ -458,7 +458,7 @@ def _validar_imagen_segura(file_bytes: bytes) -> None:
 
 
 @router.post(
-    "/evidencias/subir",  # api-parity-ignore: wire en Hito 22.3
+    "/evidencias/subir",
     response_model=EvidenciaUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(exigir_idempotencia("subir_evidencia", hash_body=False))],

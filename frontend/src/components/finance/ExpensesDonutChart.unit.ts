@@ -10,7 +10,7 @@ describe('ExpensesDonutChart.vue', () => {
     expect(wrapper.text()).toContain('No se han registrado egresos en el periodo actual.');
   });
 
-  it('renderiza categorías con porcentaje y monto en USD', () => {
+  it('renderiza categorías con redondeo ROUND_HALF_UP y stroke-dashoffset acumulado exacto', () => {
     const wrapper = mount(ExpensesDonutChart, {
       props: {
         expensesByCategory: {
@@ -25,5 +25,12 @@ describe('ExpensesDonutChart.vue', () => {
     expect(wrapper.text()).toContain('300.00 USD (75%)');
     expect(wrapper.text()).toContain('Vigilancia');
     expect(wrapper.text()).toContain('100.00 USD (25%)');
+
+    const circles = wrapper.findAll('svg circle');
+    expect(circles).toHaveLength(3);
+    expect(circles[1]?.attributes('stroke-dasharray')).toBe('75 25');
+    expect(circles[1]?.attributes('stroke-dashoffset')).toBe('25');
+    expect(circles[2]?.attributes('stroke-dasharray')).toBe('25 75');
+    expect(circles[2]?.attributes('stroke-dashoffset')).toBe('50');
   });
 });

@@ -143,7 +143,7 @@ export class ApprovePendingPayment implements Task {
   async performAs(actor: Actor): Promise<void> {
     const page = actor.page();
     await page.goto('/tesoreria/pagos', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Aprobar Pago' }).first().click();
+    await page.locator('.btn-approve-payment').first().click();
     await page.locator('.banner--success').waitFor({ state: 'visible' });
   }
 }

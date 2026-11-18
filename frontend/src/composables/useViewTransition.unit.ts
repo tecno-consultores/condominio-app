@@ -135,6 +135,20 @@ describe('useViewTransition.ts (View Transitions, Top Layer & Reduced Motion)', 
     await closeTopLayerDialog(closedDialog);
     expect(closedDialog.close).not.toHaveBeenCalled();
 
+    // Elemento que ya tiene tabindex conserva su tabindex y rama sin document.body
+    const headingWithTabindex = document.createElement('h2');
+    headingWithTabindex.id = 'existing-tab';
+    headingWithTabindex.setAttribute('tabindex', '0');
+    document.body.appendChild(headingWithTabindex);
+    await runWithViewTransition(vi.fn(), { focusSelector: '#existing-tab' });
+    expect(headingWithTabindex.getAttribute('tabindex')).toBe('0');
+
+    resetDisplayTransitionProbeForTests();
+    const originalBody = document.body;
+    Object.defineProperty(document, 'body', { configurable: true, value: null });
+    expect(canTransitionDisplay()).toBe(false);
+    Object.defineProperty(document, 'body', { configurable: true, value: originalBody });
+
     delete (Element.prototype as Partial<Element>).getAnimations;
   });
 });

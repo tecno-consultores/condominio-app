@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { ref } from 'vue';
+import { useTopLayerDialog } from '../../composables/useTopLayerDialog';
 import type { ReciboDesgloseDTO } from '../../stores/financeStore';
 
 const props = defineProps<{
@@ -13,71 +14,12 @@ const emit = defineEmits<{
 
 const dialogRef = ref<HTMLDialogElement | null>(null);
 
-watch(
-  () => Boolean(props.open && props.desglose),
-  async (isOpen) => {
-    if (!isOpen) {
-      const el = dialogRef.value;
-      if (el?.open && typeof el.close === 'function') {
-        el.close();
-      }
-      return;
-    }
-    await nextTick();
-    const el = dialogRef.value;
-    if (el && typeof el.showModal === 'function' && !el.open) {
-      el.showModal();
-    }
-  },
-  { immediate: true },
-);
-
-let pressedOutside: boolean | null = null;
-
-function hasNativeClosedBy(): boolean {
-  return typeof HTMLDialogElement !== 'undefined' && 'closedBy' in HTMLDialogElement.prototype;
-}
-
-function isOutsideDialog(
-  event: { clientX: number; clientY: number },
-  dialog: HTMLDialogElement,
-): boolean {
-  const rect = dialog.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return false;
-  return (
-    event.clientX < rect.left ||
-    event.clientX > rect.right ||
-    event.clientY < rect.top ||
-    event.clientY > rect.bottom
-  );
-}
-
-function handlePointerDown(event: PointerEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  pressedOutside = isOutsideDialog(event, dialog);
-}
-
-function handlePointerUp(event: PointerEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  if (pressedOutside === true && isOutsideDialog(event, dialog)) {
-    pressedOutside = null;
-    emit('close');
-  }
-}
-
-function handleBackdropClick(event: MouseEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  if (pressedOutside !== null) {
-    pressedOutside = null;
-    return;
-  }
-  if (event.target === dialog && isOutsideDialog(event, dialog)) {
-    emit('close');
-  }
-}
+const { dialogProps, onPointerDown, onPointerUp, onBackdropClick } = useTopLayerDialog({
+  dialogRef,
+  isOpen: () => Boolean(props.open && props.desglose),
+  onClose: () => emit('close'),
+  unmountsWhenClosed: true,
+});
 </script>
 
 <template>
@@ -85,19 +27,19 @@ function handleBackdropClick(event: MouseEvent): void {
     v-if="open && desglose"
     id="modal-recibo-desglose"
     ref="dialogRef"
-    v-bind="{ closedby: 'any' }"
+    v-bind="dialogProps"
     class="breakdown-modal top-layer-dialog"
     aria-labelledby="breakdown-modal-title"
     @close="emit('close')"
-    @pointerdown="handlePointerDown"
-    @pointerup="handlePointerUp"
-    @click="handleBackdropClick"
+    @pointerdown="onPointerDown"
+    @pointerup="onPointerUp"
+    @click="onBackdropClick"
   >
     <div class="breakdown-modal__card">
       <header class="breakdown-modal__header">
         <div>
           <h2 id="breakdown-modal-title" class="breakdown-modal__title">
-            Desglose del Recibo #{{ desglose.recibo_id }} — {{ desglose.identificador_unidad }}
+            Desglose del Recibo — {{ desglose.identificador_unidad }}
           </h2>
           <p class="breakdown-modal__meta">
             Periodo: <strong>{{ desglose.periodo }}</strong> · Alícuota:
@@ -155,10 +97,6 @@ function handleBackdropClick(event: MouseEvent): void {
 </template>
 
 <style scoped>
-dialog:modal {
-  overscroll-behavior: contain;
-}
-
 .breakdown-modal[open] {
   padding: 0;
   border: none;
@@ -168,22 +106,16 @@ dialog:modal {
   overscroll-behavior: contain;
 }
 
-.breakdown-modal::backdrop {
-  overflow: hidden;
-  background-color: rgba(15, 23, 42, 0.65);
-  overscroll-behavior: contain;
-}
-
 .breakdown-modal__card {
   inline-size: 100%;
   max-block-size: min(85dvh, 40rem);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background-color: var(--surface-elevated, #ffffff);
-  color: var(--text-primary, #0f172a);
-  border-radius: var(--radius-lg, 1rem);
+  background-color: var(--surface-elevated);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
   padding: clamp(1rem, 3cqi, 1.5rem);
-  border: 1px solid var(--border-subtle, #cbd5e1);
+  border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-modal);
   display: flex;
   flex-direction: column;
@@ -201,23 +133,23 @@ dialog:modal {
   margin: 0;
   font-size: clamp(1rem, 2.5cqi, 1.15rem);
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
 .breakdown-modal__meta {
   margin: 0.25rem 0 0;
   font-size: 0.825rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .breakdown-modal__badge {
   font-size: 0.725rem;
   font-weight: 700;
   padding: 0.25rem 0.6rem;
-  border-radius: var(--radius-pill, 9999px);
-  background-color: var(--brand-tint, #e0f2fe);
-  color: var(--brand-accent, #0369a1);
+  border-radius: var(--radius-pill);
+  background-color: var(--brand-tint);
+  color: var(--brand-accent);
 }
 
 .breakdown-modal__list {
@@ -235,15 +167,15 @@ dialog:modal {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.65rem 0.75rem;
-  border-radius: var(--radius-sm, 0.625rem);
-  background-color: var(--surface-subtle, #f8fafc);
-  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
 }
 
 .breakdown-modal__item--credit {
-  background-color: var(--status-ok-bg, #ecfdf5);
-  border-color: var(--status-ok-border, #a7f3d0);
-  color: var(--status-ok-text, #14532d);
+  background-color: var(--status-ok-bg);
+  border-color: var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .breakdown-modal__item-info {
@@ -255,21 +187,21 @@ dialog:modal {
 .breakdown-modal__item-type {
   font-size: 0.7rem;
   font-weight: 700;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary);
 }
 
 .breakdown-modal__item-desc {
   font-size: 0.85rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .breakdown-modal__item-amount {
   font-size: 0.875rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .breakdown-modal__summary {
-  border-top: 1px solid var(--border-subtle, #e2e8f0);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 0.75rem;
   display: flex;
   flex-direction: column;
@@ -280,17 +212,18 @@ dialog:modal {
   display: flex;
   justify-content: space-between;
   font-size: 0.875rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
 }
 
 .breakdown-modal__close {
   margin-top: 0.5rem;
   align-self: flex-end;
+  min-block-size: 2.75rem;
   padding: 0.55rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--brand-600, #0369a1);
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brand-600);
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-weight: 700;
   cursor: pointer;
 }
@@ -299,23 +232,17 @@ dialog:modal {
   font-variant-numeric: tabular-nums;
 }
 
-@media (pointer: coarse) {
-  .breakdown-modal__close {
-    min-block-size: 2.75rem;
-  }
-}
-
 @media (max-width: 639px) {
   .breakdown-modal[open] {
     margin: auto 0 0 0;
     inline-size: 100%;
     max-inline-size: 100%;
     max-block-size: 88dvh;
-    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 
   .breakdown-modal__card {
-    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     max-block-size: 88dvh;
   }
 }

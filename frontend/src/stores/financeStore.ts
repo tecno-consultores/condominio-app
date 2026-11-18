@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { apiClient, ApiError } from '../services/apiClient';
+import { compareDecimal, divideDecimalHalfUp, multiplyDecimalHalfUp } from '../utils/decimal';
 import { generateIdempotencyKey } from '../utils/security';
-import { useAuthStore } from './authStore';
+import { registerSessionResetter } from './authStore';
+import { resolveStoreError } from './storeErrors';
 
 export type MonedaPago = 'USD' | 'VES';
 export type MetodoPago = 'PAGO_MOVIL' | 'TRANSFERENCIA' | 'ZELLE' | 'EFECTIVO';
@@ -11,9 +13,10 @@ export type EstadoRecibo =
   'PENDIENTE' | 'ABONO_PARCIAL' | 'SOLVENTE' | 'MOROSO' | 'PAGADO' | 'PAGADO_PARCIAL';
 export type ModalidadFacturacion = 'ALICUOTA' | 'CUOTA_FIJA' | 'PARTES_IGUALES';
 export type TipoFondoCondominio = 'RESERVA_LEGAL' | 'CAJA_CHICA' | 'ESPECIAL';
+export type CategoriaEvidencia = 'comprobantes' | 'incidencias' | 'tareas' | 'voceros';
 
 export interface TasaCambioDTO {
-  id: number;
+  id?: number;
   fecha: string;
   tasa_usd_ves: string;
 }
@@ -64,13 +67,31 @@ export interface EgresoCreateDTO {
   monto: string;
   moneda: MonedaPago;
   url_factura?: string | null;
+  incidencia_id?: number | null;
+  es_gasto_comun?: boolean;
 }
 
 export interface ComunicadoDTO {
   id: number;
   titulo: string;
   contenido: string;
+  enlace_externo?: string | null;
   url_adjunto?: string | null;
+  activo?: boolean;
+}
+
+export interface ComunicadoCreateDTO {
+  titulo: string;
+  contenido: string;
+  enlace_externo?: string | null;
+}
+
+export interface EvidenciaUploadResponseDTO {
+  url: string;
+  mime_origen: string;
+  formato_destino: string;
+  bytes_recibidos: number;
+  estado: string;
 }
 
 export interface CierreMensualDTO {
@@ -140,6 +161,7 @@ export interface ReciboDesgloseDTO {
 
 export interface CertificadoSolvenciaDTO {
   id: number;
+  jti?: string;
   folio: string;
   unidad_id: number;
   identificador_unidad: string;
@@ -153,6 +175,7 @@ export interface CertificadoSolvenciaDTO {
 
 export interface VerificarSolvenciaDTO {
   valido: boolean;
+  jti?: string;
   folio: string;
   unidad_id: number;
   identificador_unidad: string;
@@ -175,47 +198,10 @@ export interface FinanceStateData {
   verificacionSolvencia: VerificarSolvenciaDTO | null;
 }
 
-export function convertUsdToVes(usdAmount: string | number, rateUsdVes: string | number): string {
-  const usd = typeof usdAmount === 'number' ? usdAmount : Number.parseFloat(usdAmount);
-  const rate = typeof rateUsdVes === 'number' ? rateUsdVes : Number.parseFloat(rateUsdVes);
-  if (!Number.isFinite(usd) || !Number.isFinite(rate) || rate <= 0) {
-    return '0.00';
-  }
-  return (usd * rate).toFixed(2);
-}
-
-export function convertVesToUsd(vesAmount: string | number, rateUsdVes: string | number): string {
-  const ves = typeof vesAmount === 'number' ? vesAmount : Number.parseFloat(vesAmount);
-  const rate = typeof rateUsdVes === 'number' ? rateUsdVes : Number.parseFloat(rateUsdVes);
-  if (!Number.isFinite(ves) || !Number.isFinite(rate) || rate <= 0) {
-    return '0.00';
-  }
-  return (ves / rate).toFixed(2);
-}
-
-export function determinePaymentCoverage(
-  montoAbonoUsd: number,
-  saldoPendienteUsd: number,
-): 'PAGO_TOTAL' | 'ABONO_PARCIAL' {
-  if (montoAbonoUsd <= 0 || saldoPendienteUsd <= 0) {
-    return 'ABONO_PARCIAL';
-  }
-  return montoAbonoUsd + 0.0001 >= saldoPendienteUsd ? 'PAGO_TOTAL' : 'ABONO_PARCIAL';
-}
-
-export const useFinanceStore = defineStore('finance', () => {
-  const data = ref<FinanceStateData>({
-    tasaActiva: {
-      id: 1,
-      fecha: '2026-10-29',
-      tasa_usd_ves: '36.50',
-    },
-    resumen: {
-      deuda_total_usd: '0.00',
-      total_egresos_usd: '0.00',
-      gastos_por_categoria: {},
-      estado_cobranza: [],
-    },
+function createInitialFinanceData(): FinanceStateData {
+  return {
+    tasaActiva: null,
+    resumen: null,
     pagosEnRevision: [],
     comunicados: [],
     ultimoCierre: null,
@@ -224,55 +210,205 @@ export const useFinanceStore = defineStore('finance', () => {
     desgloseActivo: null,
     certificadoSolvenciaActivo: null,
     verificacionSolvencia: null,
-  });
+  };
+}
 
+export function convertUsdToVes(usdAmount: string | number, rateUsdVes: string | number): string {
+  if (compareDecimal(rateUsdVes, '0') <= 0) {
+    return '0.00';
+  }
+  return multiplyDecimalHalfUp(usdAmount, rateUsdVes, 2);
+}
+
+export function convertVesToUsd(vesAmount: string | number, rateUsdVes: string | number): string {
+  if (compareDecimal(rateUsdVes, '0') <= 0) {
+    return '0.00';
+  }
+  return divideDecimalHalfUp(vesAmount, rateUsdVes, 2);
+}
+
+export function determinePaymentCoverage(
+  montoAbonoUsd: number | string,
+  saldoPendienteUsd: number | string,
+): 'PAGO_TOTAL' | 'ABONO_PARCIAL' {
+  if (compareDecimal(montoAbonoUsd, '0') <= 0 || compareDecimal(saldoPendienteUsd, '0') <= 0) {
+    return 'ABONO_PARCIAL';
+  }
+  return compareDecimal(montoAbonoUsd, saldoPendienteUsd) >= 0 ? 'PAGO_TOTAL' : 'ABONO_PARCIAL';
+}
+
+export const useFinanceStore = defineStore('finance', () => {
+  const data = ref<FinanceStateData>(createInitialFinanceData());
   const isLoading = ref(false);
   const isStale = ref(false);
   const errorMessage = ref<string | null>(null);
   const lastUpdatedAt = ref<number | null>(null);
 
-  const activeRateValue = computed(() => data.value.tasaActiva?.tasa_usd_ves ?? '36.50');
+  const activeRateValue = computed<string | null>(
+    () => data.value.tasaActiva?.tasa_usd_ves ?? null,
+  );
   const isPeriodClosed = computed(() => data.value.ultimoCierre?.estado === 'CERRADO');
+
+  function resetState(): void {
+    data.value = createInitialFinanceData();
+    isLoading.value = false;
+    isStale.value = false;
+    errorMessage.value = null;
+    lastUpdatedAt.value = null;
+  }
+
+  registerSessionResetter(resetState);
 
   async function handleStoreError(
     error: unknown,
     fallbackMessage: string,
-    markStaleOnFailure = false,
+    isGetOperation = false,
+    hasCachedData = false,
   ): Promise<void> {
-    if (error instanceof ApiError && error.status === 401) {
-      isStale.value = false;
-      errorMessage.value = error.detail;
-      await useAuthStore().handleUnauthorizedError(error);
-      return;
-    }
-    if (markStaleOnFailure) {
-      isStale.value = true;
-    }
-    errorMessage.value = error instanceof ApiError ? error.detail : fallbackMessage;
+    const res = await resolveStoreError(error, fallbackMessage, {
+      isGetOperation,
+      hasCachedData,
+    });
+    isStale.value = res.isStale;
+    errorMessage.value = res.message;
+  }
+
+  function hasDashboardCache(): boolean {
+    return (
+      data.value.tasaActiva !== null ||
+      data.value.resumen !== null ||
+      data.value.comunicados.length > 0
+    );
   }
 
   async function fetchDashboardData(): Promise<void> {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      const [tasa, resumen] = await Promise.all([
+      const [tasaRes, resumenRes, comunicadosRes] = await Promise.allSettled([
         apiClient.get<TasaCambioDTO>('/api/finanzas/tasa'),
         apiClient.get<ResumenFinancieroDTO>('/api/finanzas/resumen'),
+        apiClient.get<ComunicadoDTO[]>('/api/comunicados/recientes'),
       ]);
+
+      const rejectedReasons = [tasaRes, resumenRes, comunicadosRes]
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .map((r) => r.reason);
+
+      const unauthorizedErr = rejectedReasons.find(
+        (reason) => reason instanceof ApiError && reason.status === 401,
+      );
+      if (unauthorizedErr) {
+        await handleStoreError(unauthorizedErr, 'Sesión expirada.', true, hasDashboardCache());
+        return;
+      }
+
+      if (tasaRes.status === 'fulfilled' && tasaRes.value) {
+        data.value = { ...data.value, tasaActiva: tasaRes.value };
+      } else if (
+        tasaRes.status === 'rejected' &&
+        tasaRes.reason instanceof ApiError &&
+        tasaRes.reason.status === 404
+      ) {
+        // Ausencia matutina de tasa oficial BCV es estado nominal esperable (HTTP 404)
+        data.value = { ...data.value, tasaActiva: null };
+      }
+
+      if (comunicadosRes.status === 'fulfilled' && Array.isArray(comunicadosRes.value)) {
+        data.value = { ...data.value, comunicados: comunicadosRes.value };
+      }
+
+      if (resumenRes.status === 'fulfilled' && resumenRes.value) {
+        data.value = { ...data.value, resumen: resumenRes.value };
+        isStale.value = false;
+        lastUpdatedAt.value = Date.now();
+        return;
+      }
+
+      if (resumenRes.status === 'rejected') {
+        await handleStoreError(
+          resumenRes.reason,
+          'No se pudo sincronizar el resumen financiero. Mostrando últimos datos conocidos.',
+          true,
+          hasDashboardCache(),
+        );
+      }
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function fetchComunicadosRecientes(): Promise<ComunicadoDTO[]> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const comunicados = await apiClient.get<ComunicadoDTO[]>('/api/comunicados/recientes');
       data.value = {
         ...data.value,
-        tasaActiva: tasa,
-        resumen,
+        comunicados: Array.isArray(comunicados) ? comunicados : [],
       };
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
+      return data.value.comunicados;
     } catch (error) {
-      // Anti-Destructive Catch: preserva data.value intacto y marca isStale = true si no es 401
       await handleStoreError(
         error,
-        'No se pudo sincronizar el resumen financiero. Mostrando últimos datos conocidos.',
+        'No se pudieron cargar los comunicados recientes.',
         true,
+        data.value.comunicados.length > 0,
       );
+      return data.value.comunicados;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function publicarComunicado(
+    payload: ComunicadoCreateDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<ComunicadoDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const created = await apiClient.post<ComunicadoDTO>('/api/comunicados', payload, {
+        idempotencyKey,
+      });
+      data.value = {
+        ...data.value,
+        comunicados: [created, ...data.value.comunicados],
+      };
+      isStale.value = false;
+      lastUpdatedAt.value = Date.now();
+      return created;
+    } catch (error) {
+      await handleStoreError(error, 'No se pudo publicar el comunicado oficial.');
+      throw error;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function subirEvidencia(
+    archivo: File,
+    categoria: CategoriaEvidencia,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<EvidenciaUploadResponseDTO> {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      const formData = new FormData();
+      formData.append('archivo', archivo);
+      const uploaded = await apiClient.post<EvidenciaUploadResponseDTO>(
+        `/api/evidencias/subir?categoria=${encodeURIComponent(categoria)}`,
+        formData,
+        { idempotencyKey },
+      );
+      isStale.value = false;
+      lastUpdatedAt.value = Date.now();
+      return uploaded;
+    } catch (error) {
+      await handleStoreError(error, 'No se pudo subir el archivo de evidencia.');
+      throw error;
     } finally {
       isLoading.value = false;
     }
@@ -294,18 +430,25 @@ export const useFinanceStore = defineStore('finance', () => {
         error,
         'Error al consultar pagos en revisión. Mostrando lista en caché.',
         true,
+        data.value.pagosEnRevision.length > 0,
       );
     } finally {
       isLoading.value = false;
     }
   }
 
-  async function registrarTasa(tasaUsdVes: string, fecha?: string): Promise<TasaCambioDTO> {
+  async function registrarTasa(
+    tasaUsdVes: string,
+    fecha?: string,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<TasaCambioDTO> {
     isLoading.value = true;
     errorMessage.value = null;
     try {
       const payload = fecha ? { tasa_usd_ves: tasaUsdVes, fecha } : { tasa_usd_ves: tasaUsdVes };
-      const nuevaTasa = await apiClient.post<TasaCambioDTO>('/api/finanzas/tasa', payload);
+      const nuevaTasa = await apiClient.post<TasaCambioDTO>('/api/finanzas/tasa', payload, {
+        idempotencyKey,
+      });
       data.value = {
         ...data.value,
         tasaActiva: nuevaTasa,
@@ -333,6 +476,7 @@ export const useFinanceStore = defineStore('finance', () => {
         payload,
         { idempotencyKey },
       );
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return result;
     } catch (error) {
@@ -343,7 +487,10 @@ export const useFinanceStore = defineStore('finance', () => {
     }
   }
 
-  async function reportarPago(payload: PagoReportarDTO, idempotencyKey: string): Promise<PagoDTO> {
+  async function reportarPago(
+    payload: PagoReportarDTO,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<PagoDTO> {
     isLoading.value = true;
     errorMessage.value = null;
     try {
@@ -354,6 +501,7 @@ export const useFinanceStore = defineStore('finance', () => {
         ...data.value,
         pagosEnRevision: [created, ...data.value.pagosEnRevision],
       };
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
@@ -380,6 +528,7 @@ export const useFinanceStore = defineStore('finance', () => {
         ...data.value,
         pagosEnRevision: data.value.pagosEnRevision.filter((p) => p.id !== pagoId),
       };
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return updated;
     } catch (error) {
@@ -390,10 +539,15 @@ export const useFinanceStore = defineStore('finance', () => {
     }
   }
 
-  async function rechazarPago(pagoId: number, motivo: string): Promise<PagoDTO> {
+  async function rechazarPago(
+    pagoId: number,
+    motivo: string,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<PagoDTO> {
     const cleanMotivo = motivo.trim();
     if (cleanMotivo.length < 5) {
       const msg = 'El motivo de rechazo debe tener al menos 5 caracteres.';
+      isStale.value = false;
       errorMessage.value = msg;
       throw new ApiError(422, msg);
     }
@@ -401,13 +555,16 @@ export const useFinanceStore = defineStore('finance', () => {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      const updated = await apiClient.put<PagoDTO>(`/api/pagos/${pagoId}/rechazar`, {
-        motivo: cleanMotivo,
-      });
+      const updated = await apiClient.put<PagoDTO>(
+        `/api/pagos/${pagoId}/rechazar`,
+        { motivo: cleanMotivo },
+        { idempotencyKey },
+      );
       data.value = {
         ...data.value,
         pagosEnRevision: data.value.pagosEnRevision.filter((p) => p.id !== pagoId),
       };
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return updated;
     } catch (error) {
@@ -418,17 +575,23 @@ export const useFinanceStore = defineStore('finance', () => {
     }
   }
 
-  async function ejecutarCierreMensual(periodo: string): Promise<CierreMensualDTO> {
+  async function ejecutarCierreMensual(
+    periodo: string,
+    idempotencyKey: string = generateIdempotencyKey(),
+  ): Promise<CierreMensualDTO> {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      const cierre = await apiClient.post<CierreMensualDTO>('/api/finanzas/cierre-mensual', {
-        periodo,
-      });
+      const cierre = await apiClient.post<CierreMensualDTO>(
+        '/api/finanzas/cierre-mensual',
+        { periodo },
+        { idempotencyKey },
+      );
       data.value = {
         ...data.value,
         ultimoCierre: cierre,
       };
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return cierre;
     } catch (error) {
@@ -455,6 +618,7 @@ export const useFinanceStore = defineStore('finance', () => {
         error,
         'No se pudieron sincronizar los fondos patrimoniales. Mostrando datos en caché.',
         true,
+        data.value.fondos.length > 0,
       );
     } finally {
       isLoading.value = false;
@@ -463,7 +627,7 @@ export const useFinanceStore = defineStore('finance', () => {
 
   async function crearFondo(
     payload: FondoCondominioCreateDTO,
-    idempotencyKey: string,
+    idempotencyKey: string = generateIdempotencyKey(),
   ): Promise<FondoCondominioDTO> {
     isLoading.value = true;
     errorMessage.value = null;
@@ -475,6 +639,7 @@ export const useFinanceStore = defineStore('finance', () => {
         ...data.value,
         fondos: [...data.value.fondos, created],
       };
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return created;
     } catch (error) {
@@ -487,7 +652,7 @@ export const useFinanceStore = defineStore('finance', () => {
 
   async function facturarPeriodo(
     payload: FacturarPeriodoRequestDTO,
-    idempotencyKey: string,
+    idempotencyKey: string = generateIdempotencyKey(),
   ): Promise<FacturarPeriodoResponseDTO> {
     isLoading.value = true;
     errorMessage.value = null;
@@ -501,6 +666,7 @@ export const useFinanceStore = defineStore('finance', () => {
         ...data.value,
         ultimaFacturacion: res,
       };
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return res;
     } catch (error) {
@@ -530,6 +696,7 @@ export const useFinanceStore = defineStore('finance', () => {
         error,
         'No se pudo consultar el desglose del recibo seleccionado.',
         true,
+        data.value.desgloseActivo !== null,
       );
       throw error;
     } finally {
@@ -539,7 +706,7 @@ export const useFinanceStore = defineStore('finance', () => {
 
   async function emitirCertificadoSolvencia(
     unidadId: number,
-    idempotencyKey: string,
+    idempotencyKey: string = generateIdempotencyKey(),
   ): Promise<CertificadoSolvenciaDTO> {
     isLoading.value = true;
     errorMessage.value = null;
@@ -553,6 +720,7 @@ export const useFinanceStore = defineStore('finance', () => {
         ...data.value,
         certificadoSolvenciaActivo: cert,
       };
+      isStale.value = false;
       lastUpdatedAt.value = Date.now();
       return cert;
     } catch (error) {
@@ -583,7 +751,12 @@ export const useFinanceStore = defineStore('finance', () => {
       lastUpdatedAt.value = Date.now();
       return res;
     } catch (error) {
-      await handleStoreError(error, 'No se pudo verificar el Certificado de Solvencia.', true);
+      await handleStoreError(
+        error,
+        'No se pudo verificar el Certificado de Solvencia.',
+        true,
+        data.value.verificacionSolvencia !== null,
+      );
       throw error;
     } finally {
       isLoading.value = false;
@@ -598,7 +771,11 @@ export const useFinanceStore = defineStore('finance', () => {
     lastUpdatedAt,
     activeRateValue,
     isPeriodClosed,
+    resetState,
     fetchDashboardData,
+    fetchComunicadosRecientes,
+    publicarComunicado,
+    subirEvidencia,
     fetchPagosEnRevision,
     registrarTasa,
     registrarEgreso,

@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import {
+  addDecimalHalfUp,
+  compareDecimal,
+  divideDecimalHalfUp,
+  multiplyDecimalHalfUp,
+  roundDecimalHalfUp,
+} from '../../utils/decimal';
 
 export interface CategorySlice {
   category: string;
-  amountUsd: number;
+  amountFormatted: string;
   percentage: number;
+  dashOffset: number;
   color: string;
 }
 
@@ -13,21 +21,34 @@ const props = defineProps<{
   totalExpensesUsd: string;
 }>();
 
-const PALETTE = ['#0369a1', '#0d9488', '#6366f1', '#f59e0b', '#ec4899'];
+const PALETTE = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+];
 
 const slices = computed<CategorySlice[]>(() => {
   const entries = Object.entries(props.expensesByCategory);
-  const total = entries.reduce((sum, [, val]) => sum + Number.parseFloat(val), 0);
-  if (total <= 0) {
+  const totalStr = addDecimalHalfUp(
+    entries.map(([, val]) => val),
+    2,
+  );
+  if (compareDecimal(totalStr, '0') <= 0) {
     return [];
   }
+  let cumulativePercent = 0;
   return entries.map(([category, rawVal], idx) => {
-    const amountUsd = Number.parseFloat(rawVal);
-    const percentage = Math.round((amountUsd / total) * 100);
+    const pctExact = divideDecimalHalfUp(multiplyDecimalHalfUp(rawVal, '100', 4), totalStr, 4);
+    const percentage = Number(roundDecimalHalfUp(pctExact, 0));
+    const dashOffset = (125 - cumulativePercent) % 100;
+    cumulativePercent += percentage;
     return {
       category,
-      amountUsd,
+      amountFormatted: roundDecimalHalfUp(rawVal, 2),
       percentage,
+      dashOffset,
       color: PALETTE[idx % PALETTE.length]!,
     };
   });
@@ -42,7 +63,7 @@ const slices = computed<CategorySlice[]>(() => {
   >
     <header class="expenses-card__header">
       <h2 class="expenses-card__title">Distribución de Egresos</h2>
-      <strong class="expenses-card__total">Total: {{ totalExpensesUsd }} USD</strong>
+      <strong class="expenses-card__total tabular-nums">Total: {{ totalExpensesUsd }} USD</strong>
     </header>
 
     <div v-if="slices.length > 0" class="expenses-card__grid">
@@ -52,9 +73,16 @@ const slices = computed<CategorySlice[]>(() => {
         role="img"
         aria-label="Gráfico de anillo de gastos"
       >
-        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#e2e8f0" stroke-width="5" />
         <circle
-          v-for="(slice, idx) in slices"
+          cx="21"
+          cy="21"
+          r="15.915"
+          fill="transparent"
+          stroke="var(--chart-track)"
+          stroke-width="5"
+        />
+        <circle
+          v-for="slice in slices"
           :key="slice.category"
           cx="21"
           cy="21"
@@ -63,7 +91,7 @@ const slices = computed<CategorySlice[]>(() => {
           :stroke="slice.color"
           stroke-width="5"
           :stroke-dasharray="`${slice.percentage} ${100 - slice.percentage}`"
-          :stroke-dashoffset="idx * 25"
+          :stroke-dashoffset="slice.dashOffset"
         />
       </svg>
 
@@ -71,8 +99,8 @@ const slices = computed<CategorySlice[]>(() => {
         <li v-for="slice in slices" :key="slice.category" class="expenses-legend__item">
           <span class="expenses-legend__dot" :style="{ backgroundColor: slice.color }" />
           <span class="expenses-legend__name">{{ slice.category }}</span>
-          <strong class="expenses-legend__val">
-            {{ slice.amountUsd.toFixed(2) }} USD ({{ slice.percentage }}%)
+          <strong class="expenses-legend__val tabular-nums">
+            {{ slice.amountFormatted }} USD ({{ slice.percentage }}%)
           </strong>
         </li>
       </ul>
@@ -84,9 +112,9 @@ const slices = computed<CategorySlice[]>(() => {
 <style scoped>
 .expenses-card {
   padding: 1.25rem;
-  border-radius: var(--radius-md, 0.75rem);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-card);
 }
 
@@ -100,12 +128,12 @@ const slices = computed<CategorySlice[]>(() => {
 .expenses-card__title {
   margin: 0;
   font-size: 1rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .expenses-card__total {
   font-size: 0.9rem;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
 }
 
 .expenses-card__grid {
@@ -126,37 +154,38 @@ const slices = computed<CategorySlice[]>(() => {
   padding: 0;
   margin: 0;
   flex: 1;
-  min-width: 200px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .expenses-legend__item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.35rem 0;
   font-size: 0.85rem;
-  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
+  color: var(--text-secondary);
 }
 
 .expenses-legend__dot {
   width: 10px;
   height: 10px;
-  border-radius: 9999px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
 .expenses-legend__name {
   flex: 1;
-  color: var(--text-secondary, #334155);
 }
 
 .expenses-legend__val {
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .expenses-card__empty {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary);
 }
 </style>

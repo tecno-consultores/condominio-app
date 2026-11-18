@@ -1,4 +1,4 @@
-import { sanitizeObject } from '../utils/security';
+import { sanitizeObject, generateIdempotencyKey } from '../utils/security';
 
 export class ApiError extends Error {
   public readonly status: number;
@@ -45,15 +45,17 @@ export function readCsrfCookie(): string | null {
   return null;
 }
 
-let activeCsrfToken = readCsrfCookie() ?? 'csrf-client-initialized';
+const DEFAULT_CSRF_TOKEN = 'csrf-client-initialized';
+let activeCsrfToken = readCsrfCookie() ?? DEFAULT_CSRF_TOKEN;
 let lastCookieCsrfToken: string | null = readCsrfCookie();
 let inflightRefresh: Promise<boolean> | null = null;
+let unauthorizedCallback: ((err: ApiError) => Promise<void> | void) | null = null;
 
 function syncCsrfFromCookieIfNeeded(): void {
   const cookieToken = readCsrfCookie();
   if (
     cookieToken &&
-    (activeCsrfToken === 'csrf-client-initialized' || cookieToken !== lastCookieCsrfToken)
+    (activeCsrfToken === DEFAULT_CSRF_TOKEN || cookieToken !== lastCookieCsrfToken)
   ) {
     lastCookieCsrfToken = cookieToken;
     activeCsrfToken = cookieToken;
@@ -62,6 +64,17 @@ function syncCsrfFromCookieIfNeeded(): void {
 
 export function setCsrfToken(token: string): void {
   activeCsrfToken = token;
+}
+
+export function resetCsrfToken(): void {
+  activeCsrfToken = DEFAULT_CSRF_TOKEN;
+  lastCookieCsrfToken = null;
+}
+
+export function registerUnauthorizedCallback(
+  callback: ((err: ApiError) => Promise<void> | void) | null,
+): void {
+  unauthorizedCallback = callback;
 }
 
 export function getCsrfToken(): string {
@@ -101,6 +114,24 @@ function extractErrorDetail(payload: unknown, fallbackStatus: number): string {
   return `Error HTTP ${fallbackStatus}`;
 }
 
+async function parseJsonSafely(response: Response): Promise<unknown> {
+  const contentType = response.headers?.get?.('content-type') ?? '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return sanitizeObject(await response.json());
+  } catch {
+    return null;
+  }
+}
+
+function isBinaryBody(body: unknown): boolean {
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+  const isBlob = typeof Blob !== 'undefined' && body instanceof Blob;
+  return isFormData || isBlob;
+}
+
 async function executeRefreshSession(): Promise<boolean> {
   try {
     const res = await fetch('/api/auth/refresh', {
@@ -111,11 +142,7 @@ async function executeRefreshSession(): Promise<boolean> {
         'X-CSRF-Token': getCsrfToken(),
       },
     });
-    const contentType = res.headers?.get?.('content-type') ?? '';
-    let parsed: unknown = null;
-    if (contentType.includes('application/json')) {
-      parsed = sanitizeObject(await res.json());
-    }
+    const parsed = await parseJsonSafely(res);
     syncCsrfFromResponse(res, parsed);
     return res.ok;
   } catch {
@@ -132,18 +159,16 @@ async function trySingleFlightRefresh(): Promise<boolean> {
   return inflightRefresh;
 }
 
-async function executeApiRequest<T>(
-  path: string,
+function buildRequestHeaders(
+  method: string,
   options: RequestOptions,
-  retried: boolean,
-): Promise<T> {
-  const method = options.method ?? 'GET';
+  rawBody: boolean,
+): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...(options.headers ?? {}),
   };
-
-  if (options.body !== undefined) {
+  if (options.body !== undefined && !rawBody && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
   if (MUTATING_METHODS.has(method)) {
@@ -152,6 +177,30 @@ async function executeApiRequest<T>(
   if (options.idempotencyKey) {
     headers['Idempotency-Key'] = options.idempotencyKey;
   }
+  return headers;
+}
+
+async function notifyUnauthorizedFailure(err: ApiError): Promise<void> {
+  resetCsrfToken();
+  if (unauthorizedCallback) {
+    await unauthorizedCallback(err);
+  }
+}
+
+async function executeApiRequest<T>(
+  path: string,
+  options: RequestOptions,
+  retried: boolean,
+): Promise<T> {
+  const method = options.method ?? 'GET';
+  const basePath = path.split('?')[0];
+  const rawBody = isBinaryBody(options.body);
+  const headers = buildRequestHeaders(method, options, rawBody);
+
+  let serializedBody: BodyInit | undefined;
+  if (options.body !== undefined) {
+    serializedBody = rawBody ? (options.body as BodyInit) : JSON.stringify(options.body);
+  }
 
   let response: Response;
   try {
@@ -159,25 +208,23 @@ async function executeApiRequest<T>(
       method,
       credentials: 'include',
       headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body: serializedBody,
     });
   } catch {
     throw new ApiError(0, 'Sin conexión con el servidor. Verifique su red.');
   }
 
-  let parsed: unknown = null;
-  const contentType = response.headers?.get?.('content-type') ?? '';
-  if (contentType.includes('application/json')) {
-    parsed = sanitizeObject(await response.json());
-  }
+  const parsed = await parseJsonSafely(response);
   syncCsrfFromResponse(response, parsed);
 
-  if (response.status === 401 && !retried && !REFRESH_EXCLUDED_PATHS.has(path)) {
+  if (response.status === 401 && !retried && !REFRESH_EXCLUDED_PATHS.has(basePath)) {
     const refreshed = await trySingleFlightRefresh();
     if (refreshed) {
       return executeApiRequest<T>(path, options, true);
     }
-    throw new ApiError(401, extractErrorDetail(parsed, 401), true);
+    const authErr = new ApiError(401, extractErrorDetail(parsed, 401), true);
+    await notifyUnauthorizedFailure(authErr);
+    throw authErr;
   }
 
   if (!response.ok) {
@@ -188,7 +235,18 @@ async function executeApiRequest<T>(
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  return executeApiRequest<T>(path, options, false);
+  const method = options.method ?? 'GET';
+  const basePath = path.split('?')[0];
+  const needsAutoIdempotency =
+    MUTATING_METHODS.has(method) &&
+    !REFRESH_EXCLUDED_PATHS.has(basePath) &&
+    !options.idempotencyKey;
+
+  const resolvedOptions: RequestOptions = needsAutoIdempotency
+    ? { ...options, idempotencyKey: generateIdempotencyKey() }
+    : options;
+
+  return executeApiRequest<T>(path, resolvedOptions, false);
 }
 
 export const apiClient = {
@@ -208,5 +266,15 @@ export const apiClient = {
     options: Omit<RequestOptions, 'method' | 'body'> = {},
   ): Promise<T> {
     return apiRequest<T>(path, { ...options, method: 'PUT', body });
+  },
+  patch<T>(
+    path: string,
+    body?: unknown,
+    options: Omit<RequestOptions, 'method' | 'body'> = {},
+  ): Promise<T> {
+    return apiRequest<T>(path, { ...options, method: 'PATCH', body });
+  },
+  delete<T>(path: string, options: Omit<RequestOptions, 'method' | 'body'> = {}): Promise<T> {
+    return apiRequest<T>(path, { ...options, method: 'DELETE' });
   },
 };

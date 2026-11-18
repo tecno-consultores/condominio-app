@@ -1,11 +1,15 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import CopyButton from '../../components/common/CopyButton.vue';
-import AppShellLayout from '../../components/layout/AppShellLayout.vue';
 import { useIdempotency } from '../../composables/useIdempotency';
+import { useAuthStore } from '../../stores/authStore';
 import { useFinanceStore } from '../../stores/financeStore';
 import { useOperationsStore } from '../../stores/operationsStore';
 
+const authStore = useAuthStore();
 const financeStore = useFinanceStore();
 const operationsStore = useOperationsStore();
 const { currentKey, rotateKey } = useIdempotency();
@@ -16,8 +20,29 @@ const verifySig = ref('');
 const validationError = ref<string | null>(null);
 const successBanner = ref<string | null>(null);
 
-onMounted(() => {
-  void operationsStore.fetchAdminData();
+const verificationResultClass = computed(() => {
+  const verificacion = financeStore.data.verificacionSolvencia;
+  if (!verificacion) {
+    return '';
+  }
+  if (!verificacion.valido) {
+    return 'solvency-view__certificate--danger';
+  }
+  return verificacion.vigente
+    ? 'solvency-view__certificate--ok'
+    : 'solvency-view__certificate--warn';
+});
+
+onMounted(async () => {
+  await operationsStore.fetchUnidades();
+  if (authStore.activeUnitId !== null) {
+    selectedUnidadId.value = authStore.activeUnitId;
+    return;
+  }
+  const firstUnit = operationsStore.data.unidades[0];
+  if (firstUnit) {
+    selectedUnidadId.value = firstUnit.id;
+  }
 });
 
 async function handleEmitSolvency(): Promise<void> {
@@ -56,171 +81,166 @@ async function handleVerifySolvency(): Promise<void> {
 </script>
 
 <template>
-  <AppShellLayout>
-    <section class="solvency-view" aria-labelledby="solvency-view-heading">
-      <header class="solvency-view__header">
-        <h1 id="solvency-view-heading" class="solvency-view__title">
-          Certificado Digital de Solvencia (Art. 14 LPH)
-        </h1>
-        <p class="solvency-view__subtitle">
-          Emita y verifique certificados inmutables con sello criptográfico HMAC-SHA256 para
-          unidades con deuda cero ($0.00 USD).
-        </p>
-      </header>
-
-      <div
-        v-if="financeStore.errorMessage"
-        id="solvencia-error-banner"
-        class="solvency-view__alert solvency-view__alert--warning"
-        role="status"
-      >
-        {{ financeStore.errorMessage }}
-      </div>
-
-      <div
-        v-if="successBanner"
-        id="solvencia-success-banner"
-        class="solvency-view__alert solvency-view__alert--success"
-        role="status"
-      >
-        {{ successBanner }}
-      </div>
-
-      <p v-if="validationError" id="solvencia-validation-error" class="solvency-view__error">
-        {{ validationError }}
+  <section class="solvency-view" aria-labelledby="solvency-view-heading">
+    <header class="solvency-view__header">
+      <h1 id="solvency-view-heading" class="solvency-view__title">
+        Certificado Digital de Solvencia (Art. 14 LPH)
+      </h1>
+      <p class="solvency-view__subtitle">
+        Emita y verifique certificados inmutables con sello criptográfico HMAC-SHA256 para unidades
+        con deuda cero ($0.00 USD).
       </p>
+    </header>
 
-      <div class="solvency-view__layout">
-        <article id="card-solvencia-status" class="solvency-view__card">
-          <h2 class="solvency-view__card-title">Emisión de Certificado de Solvencia</h2>
+    <div
+      v-if="financeStore.errorMessage"
+      id="solvencia-error-banner"
+      class="solvency-view__alert solvency-view__alert--warning"
+      role="status"
+    >
+      {{ financeStore.errorMessage }}
+    </div>
 
-          <div class="solvency-view__field">
-            <label for="input-solvencia-unidad-id" class="solvency-view__label">
-              Unidad Habitacional
-            </label>
-            <select
-              id="input-solvencia-unidad-id"
-              v-model.number="selectedUnidadId"
-              class="solvency-view__input"
-            >
-              <option v-for="u in operationsStore.data.unidades" :key="u.id" :value="u.id">
-                #{{ u.id }} — {{ u.identificador }}
-              </option>
-            </select>
-          </div>
+    <div
+      v-if="successBanner"
+      id="solvencia-success-banner"
+      class="solvency-view__alert solvency-view__alert--success"
+      role="status"
+    >
+      {{ successBanner }}
+    </div>
 
-          <button
-            id="btn-emitir-solvencia"
-            type="button"
-            class="solvency-view__submit"
-            @click="handleEmitSolvency"
+    <p v-if="validationError" id="solvencia-validation-error" class="solvency-view__error">
+      {{ validationError }}
+    </p>
+
+    <div class="solvency-view__layout">
+      <article id="card-solvencia-status" class="solvency-view__card">
+        <h2 class="solvency-view__card-title">Emisión de Certificado de Solvencia</h2>
+
+        <div class="solvency-view__field">
+          <label for="input-solvencia-unidad-id" class="solvency-view__label">
+            Unidad Habitacional
+          </label>
+          <select
+            id="input-solvencia-unidad-id"
+            v-model.number="selectedUnidadId"
+            class="solvency-view__input"
           >
-            Emitir Certificado de Solvencia
-          </button>
+            <option v-for="u in operationsStore.data.unidades" :key="u.id" :value="u.id">
+              {{ u.identificador }}
+            </option>
+          </select>
+        </div>
 
-          <div
-            v-if="financeStore.data.certificadoSolvenciaActivo"
-            id="qr-solvencia-badge"
-            class="solvency-view__certificate"
-          >
-            <div class="solvency-view__cert-row">
-              <span>Folio Oficial:</span>
-              <strong>{{ financeStore.data.certificadoSolvenciaActivo.folio }}</strong>
-            </div>
-            <div class="solvency-view__cert-row">
-              <span>Unidad:</span>
-              <strong>{{
-                financeStore.data.certificadoSolvenciaActivo.identificador_unidad
-              }}</strong>
-            </div>
-            <div class="solvency-view__cert-row">
-              <span>Deuda Verificada:</span>
-              <strong class="tabular-nums">
-                ${{ financeStore.data.certificadoSolvenciaActivo.deuda_verificada_usd }} USD
-              </strong>
-            </div>
-            <div class="solvency-view__cert-row">
-              <span>Vigencia Hasta:</span>
-              <strong>{{ financeStore.data.certificadoSolvenciaActivo.fecha_vencimiento }}</strong>
-            </div>
-            <div class="solvency-view__qr-box">
-              <div class="solvency-view__qr-header">
-                <span class="solvency-view__qr-label">Sello QR HMAC-SHA256</span>
-                <CopyButton
-                  id="btn-copy-solvency-token"
-                  target-id="solvency-qr-token"
-                  label="Copiar sello QR HMAC-SHA256 de solvencia"
-                />
-              </div>
-              <code id="solvency-qr-token" class="solvency-view__qr-code">
-                {{ financeStore.data.certificadoSolvenciaActivo.qr_token }}
-              </code>
-            </div>
-          </div>
-        </article>
-
-        <form
-          id="form-verificar-solvencia"
-          class="solvency-view__card"
-          novalidate
-          @submit.prevent="handleVerifySolvency"
+        <button
+          id="btn-emitir-solvencia"
+          type="button"
+          class="solvency-view__submit"
+          @click="handleEmitSolvency"
         >
-          <h2 class="solvency-view__card-title">Verificación Pública de Autenticidad</h2>
+          Emitir Certificado de Solvencia
+        </button>
 
-          <div class="solvency-view__field">
-            <label for="input-verificar-folio" class="solvency-view__label"
-              >Folio del Certificado</label
-            >
-            <input
-              id="input-verificar-folio"
-              v-model="verifyFolio"
-              type="text"
-              class="solvency-view__input"
-              placeholder="Ej. SOLV-202610-0001-ABCD"
-            />
+        <div
+          v-if="financeStore.data.certificadoSolvenciaActivo"
+          id="qr-solvencia-badge"
+          class="solvency-view__certificate solvency-view__certificate--ok"
+        >
+          <div class="solvency-view__cert-row">
+            <span>Folio Oficial:</span>
+            <strong>{{ financeStore.data.certificadoSolvenciaActivo.folio }}</strong>
           </div>
-
-          <div class="solvency-view__field">
-            <label for="input-verificar-sig" class="solvency-view__label"
-              >Firma Criptográfica (HMAC-SHA256)</label
-            >
-            <input
-              id="input-verificar-sig"
-              v-model="verifySig"
-              type="text"
-              class="solvency-view__input"
-              placeholder="Digest hexadecimal de 64 caracteres"
-            />
+          <div class="solvency-view__cert-row">
+            <span>Unidad:</span>
+            <strong>{{ financeStore.data.certificadoSolvenciaActivo.identificador_unidad }}</strong>
           </div>
-
-          <button id="btn-verificar-solvencia" type="submit" class="solvency-view__submit">
-            Verificar Firma y Vigencia
-          </button>
-
-          <div
-            v-if="financeStore.data.verificacionSolvencia"
-            id="solvencia-verificacion-result"
-            class="solvency-view__certificate"
-          >
-            <strong>
-              <span aria-hidden="true">{{
-                financeStore.data.verificacionSolvencia.valido ? '✓ ' : '✕ '
-              }}</span>
-              {{
-                financeStore.data.verificacionSolvencia.valido
-                  ? 'CERTIFICADO AUTÉNTICO'
-                  : 'INVÁLIDO'
-              }}
+          <div class="solvency-view__cert-row">
+            <span>Deuda Verificada:</span>
+            <strong class="tabular-nums">
+              ${{ financeStore.data.certificadoSolvenciaActivo.deuda_verificada_usd }} USD
             </strong>
-            <span>
-              Unidad: {{ financeStore.data.verificacionSolvencia.identificador_unidad }} · Vigente:
-              {{ financeStore.data.verificacionSolvencia.vigente ? 'SÍ' : 'NO' }}
-            </span>
           </div>
-        </form>
-      </div>
-    </section>
-  </AppShellLayout>
+          <div class="solvency-view__cert-row">
+            <span>Vigencia Hasta:</span>
+            <strong>{{ financeStore.data.certificadoSolvenciaActivo.fecha_vencimiento }}</strong>
+          </div>
+          <div class="solvency-view__qr-box">
+            <div class="solvency-view__qr-header">
+              <span class="solvency-view__qr-label">Sello QR HMAC-SHA256</span>
+              <CopyButton
+                id="btn-copy-solvency-token"
+                target-id="solvency-qr-token"
+                label="Copiar sello QR HMAC-SHA256 de solvencia"
+              />
+            </div>
+            <code id="solvency-qr-token" class="solvency-view__qr-code">
+              {{ financeStore.data.certificadoSolvenciaActivo.qr_token }}
+            </code>
+          </div>
+        </div>
+      </article>
+
+      <form
+        id="form-verificar-solvencia"
+        class="solvency-view__card"
+        novalidate
+        @submit.prevent="handleVerifySolvency"
+      >
+        <h2 class="solvency-view__card-title">Verificación Pública de Autenticidad</h2>
+
+        <div class="solvency-view__field">
+          <label for="input-verificar-folio" class="solvency-view__label">
+            Folio del Certificado
+          </label>
+          <input
+            id="input-verificar-folio"
+            v-model="verifyFolio"
+            type="text"
+            class="solvency-view__input"
+            placeholder="Ej. SOLV-202610-0001-ABCD"
+          />
+        </div>
+
+        <div class="solvency-view__field">
+          <label for="input-verificar-sig" class="solvency-view__label">
+            Firma Criptográfica (HMAC-SHA256)
+          </label>
+          <input
+            id="input-verificar-sig"
+            v-model="verifySig"
+            type="text"
+            class="solvency-view__input"
+            placeholder="Digest hexadecimal de 64 caracteres"
+          />
+        </div>
+
+        <button id="btn-verificar-solvencia" type="submit" class="solvency-view__submit">
+          Verificar Firma y Vigencia
+        </button>
+
+        <div
+          v-if="financeStore.data.verificacionSolvencia"
+          id="solvencia-verificacion-result"
+          class="solvency-view__certificate"
+          :class="verificationResultClass"
+        >
+          <strong>
+            <span aria-hidden="true">{{
+              financeStore.data.verificacionSolvencia.valido ? '✓ ' : '✕ '
+            }}</span>
+            {{
+              financeStore.data.verificacionSolvencia.valido ? 'CERTIFICADO AUTÉNTICO' : 'INVÁLIDO'
+            }}
+          </strong>
+          <span>
+            Unidad: {{ financeStore.data.verificacionSolvencia.identificador_unidad }} · Vigente:
+            {{ financeStore.data.verificacionSolvencia.vigente ? 'SÍ' : 'NO' }}
+          </span>
+        </div>
+      </form>
+    </div>
+  </section>
 </template>
 
 <style scoped>
@@ -234,39 +254,39 @@ async function handleVerifySolvency(): Promise<void> {
   margin: 0;
   font-size: clamp(1.25rem, 3cqi, 1.5rem);
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
 .solvency-view__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
   max-inline-size: 65ch;
 }
 
 .solvency-view__alert {
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-md, 0.75rem);
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .solvency-view__alert--warning {
-  background-color: var(--status-warn-bg, #fffbeb);
-  border: 1px solid var(--status-warn-border, #f59e0b);
-  color: var(--status-warn-text, #92400e);
+  background-color: var(--status-warn-bg);
+  border: 1px solid var(--status-warn-border);
+  color: var(--status-warn-text);
 }
 
 .solvency-view__alert--success {
-  background-color: var(--status-ok-bg, #ecfdf5);
-  border: 1px solid var(--status-ok-border, #10b981);
-  color: var(--status-ok-text, #065f46);
+  background-color: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .solvency-view__error {
   margin: 0;
-  color: var(--status-danger-text, #b91c1c);
+  color: var(--status-danger-text);
   font-size: 0.85rem;
   font-weight: 700;
 }
@@ -278,10 +298,10 @@ async function handleVerifySolvency(): Promise<void> {
 }
 
 .solvency-view__card {
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  border-block-start: 3px solid var(--brand-accent, #0369a1);
-  border-radius: var(--radius-md, 0.875rem);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-block-start: 3px solid var(--brand-accent);
+  border-radius: var(--radius-md);
   padding: clamp(1rem, 2.5cqi, 1.25rem);
   display: flex;
   flex-direction: column;
@@ -293,7 +313,7 @@ async function handleVerifySolvency(): Promise<void> {
   margin: 0;
   font-size: 1rem;
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .solvency-view__field {
@@ -305,25 +325,27 @@ async function handleVerifySolvency(): Promise<void> {
 .solvency-view__label {
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
 }
 
 .solvency-view__input {
+  min-block-size: 2.75rem;
   padding: 0.55rem 0.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--border-control, #94a3b8);
-  background-color: var(--surface-card, #ffffff);
-  color: var(--text-primary, #0f172a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-control);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
   font-size: 0.875rem;
 }
 
 .solvency-view__submit {
+  min-block-size: 2.75rem;
   align-self: flex-start;
   padding: 0.6rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-weight: 700;
   cursor: pointer;
 }
@@ -331,14 +353,29 @@ async function handleVerifySolvency(): Promise<void> {
 .solvency-view__certificate {
   margin-top: 0.5rem;
   padding: 0.875rem;
-  border-radius: var(--radius-md, 0.75rem);
-  background-color: var(--status-ok-bg, #f0fdf4);
-  border: 1px solid var(--status-ok-border, #86efac);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
   font-size: 0.85rem;
-  color: var(--status-ok-text, #064e3b);
+}
+
+.solvency-view__certificate--ok {
+  background-color: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
+}
+
+.solvency-view__certificate--warn {
+  background-color: var(--status-warn-bg);
+  border: 1px solid var(--status-warn-border);
+  color: var(--status-warn-text);
+}
+
+.solvency-view__certificate--danger {
+  background-color: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .solvency-view__cert-row {
@@ -350,9 +387,9 @@ async function handleVerifySolvency(): Promise<void> {
 .solvency-view__qr-box {
   margin-top: 0.35rem;
   padding: 0.5rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px dashed var(--status-ok-border, #10b981);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-card);
+  border: 1px dashed var(--status-ok-border);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -368,18 +405,12 @@ async function handleVerifySolvency(): Promise<void> {
 .solvency-view__qr-label {
   font-size: 0.72rem;
   font-weight: 700;
-  color: var(--status-ok-text, #047857);
+  color: var(--status-ok-text);
 }
 
 .solvency-view__qr-code {
   font-size: 0.72rem;
   word-break: break-all;
-  color: var(--text-primary, #0f172a);
-}
-
-@media (pointer: coarse) {
-  .solvency-view__submit {
-    min-block-size: 2.75rem;
-  }
+  color: var(--text-primary);
 }
 </style>

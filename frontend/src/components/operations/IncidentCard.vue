@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { IncidenciaDTO } from '../../stores/operationsStore';
-import { sanitizeUntrustedText } from '../../utils/security';
+import { isSafeMediaUrl } from '../../utils/security';
 
 const props = defineProps<{
   incident: IncidenciaDTO;
@@ -13,6 +13,16 @@ const emit = defineEmits<{
 }>();
 
 const isPulsing = ref(false);
+const safeImageUrl = computed<string | null>(() => {
+  if (!props.incident.url_foto || !isSafeMediaUrl(props.incident.url_foto)) {
+    return null;
+  }
+  return props.incident.url_foto.trim();
+});
+
+const isProcessingEvidence = computed<boolean>(() =>
+  Boolean(props.incident.url_foto && props.incident.url_foto.trim().startsWith('s3://')),
+);
 
 function handleAdherir(): void {
   isPulsing.value = true;
@@ -24,10 +34,10 @@ function handleAdherir(): void {
 </script>
 
 <template>
-  <article class="incident-card" :aria-label="`Incidencia #${incident.id} en ${incident.area}`">
+  <article class="incident-card" :aria-label="`Incidencia vecinal en ${incident.area}`">
     <header class="incident-card__header">
       <div>
-        <strong class="incident-card__area">{{ sanitizeUntrustedText(incident.area) }}</strong>
+        <strong class="incident-card__area">{{ incident.area }}</strong>
         <span
           class="incident-card__status"
           :class="`incident-card__status--${incident.estado.toLowerCase()}`"
@@ -43,10 +53,23 @@ function handleAdherir(): void {
       </span>
     </header>
 
-    <p class="incident-card__desc">{{ sanitizeUntrustedText(incident.descripcion) }}</p>
+    <p class="incident-card__desc">{{ incident.descripcion }}</p>
+
+    <figure v-if="safeImageUrl" class="incident-card__media">
+      <img
+        :src="safeImageUrl"
+        :alt="`Fotografía de evidencia en ${incident.area}`"
+        class="incident-card__img"
+        loading="lazy"
+        decoding="async"
+        width="320"
+        height="180"
+      />
+    </figure>
 
     <footer class="incident-card__footer">
-      <span v-if="incident.url_foto" class="avif-badge">Evidencia AVIF optimizada</span>
+      <span v-if="isProcessingEvidence" class="avif-badge">Evidencia AVIF en procesamiento</span>
+      <span v-else-if="safeImageUrl" class="avif-badge">Evidencia fotográfica adjunta</span>
       <button
         type="button"
         class="btn-me-sumo"
@@ -62,9 +85,9 @@ function handleAdherir(): void {
 <style scoped>
 .incident-card {
   padding: 1.125rem;
-  border-radius: var(--radius-md, 0.75rem);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-card);
 }
 
@@ -78,37 +101,37 @@ function handleAdherir(): void {
 
 .incident-card__area {
   font-size: 1rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin-right: 0.5rem;
 }
 
 .incident-card__status {
   display: inline-block;
   padding: 0.15rem 0.5rem;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
   font-size: 0.725rem;
   font-weight: 700;
 }
 
 .incident-card__status--abierto {
-  background-color: var(--status-danger-bg, #fee2e2);
-  color: var(--status-danger-text, #991b1b);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .incident-card__status--en_proceso {
-  background-color: var(--status-warn-bg, #fef3c7);
-  color: var(--status-warn-text, #92400e);
+  background-color: var(--status-warn-bg);
+  color: var(--status-warn-text);
 }
 
 .incident-card__status--cerrado {
-  background-color: var(--status-ok-bg, #dcfce7);
-  color: var(--status-ok-text, #166534);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .incident-card__counter {
   font-size: 0.85rem;
   font-weight: 700;
-  color: var(--status-warn-text, #92400e);
+  color: var(--status-warn-text);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -132,11 +155,26 @@ function handleAdherir(): void {
 .incident-card__desc {
   margin: 0 0 0.875rem;
   font-size: 0.9rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
+}
+
+.incident-card__media {
+  margin: 0 0 0.875rem;
+}
+
+.incident-card__img {
+  display: block;
+  max-inline-size: 100%;
+  block-size: auto;
+  max-block-size: 14rem;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
 }
 
 .incident-card__footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
@@ -144,18 +182,18 @@ function handleAdherir(): void {
 
 .avif-badge {
   font-size: 0.75rem;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
   font-weight: 600;
 }
 
 .btn-me-sumo {
-  min-height: 44px;
+  min-block-size: 2.75rem;
   margin-left: auto;
   padding: 0.5rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--brand-accent, #0369a1);
-  background-color: var(--brand-tint, #f0f9ff);
-  color: var(--brand-accent, #0369a1);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brand-accent);
+  background-color: var(--brand-tint);
+  color: var(--brand-accent);
   font-weight: 700;
   cursor: pointer;
 }

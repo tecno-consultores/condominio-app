@@ -1,16 +1,22 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 Condominio App Contributors -->
+
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import EmptyStateCard from '../../components/common/EmptyStateCard.vue';
 import SkeletonCard from '../../components/common/SkeletonCard.vue';
 import RejectPaymentModal from '../../components/finance/RejectPaymentModal.vue';
-import AppShellLayout from '../../components/layout/AppShellLayout.vue';
+import { useDualRefresh } from '../../composables/useDualRefresh';
 import { useFinanceStore } from '../../stores/financeStore';
+import { isSafeMediaUrl } from '../../utils/security';
 
 const financeStore = useFinanceStore();
 
 const rejectModalOpen = ref(false);
 const selectedPagoId = ref<number | null>(null);
 const actionMessage = ref<string | null>(null);
+
+const { isRefreshing, triggerRefresh } = useDualRefresh(() => financeStore.fetchPagosEnRevision());
 
 onMounted(async () => {
   await financeStore.fetchPagosEnRevision();
@@ -20,7 +26,7 @@ async function handleApprove(pagoId: number): Promise<void> {
   actionMessage.value = null;
   try {
     await financeStore.aprobarPago(pagoId);
-    actionMessage.value = `Pago #${pagoId} aprobado e imputado al recibo correspondiente.`;
+    actionMessage.value = 'Pago aprobado e imputado al recibo correspondiente.';
   } catch {
     // Error almacenado en financeStore.errorMessage
   }
@@ -36,20 +42,38 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
   try {
     await financeStore.rechazarPago(payload.pagoId, payload.motivo);
     rejectModalOpen.value = false;
-    actionMessage.value = `Pago #${payload.pagoId} rechazado con auditoría forense registrada.`;
+    actionMessage.value = 'Pago rechazado con auditoría forense registrada.';
   } catch {
     // Error almacenado en financeStore.errorMessage
   }
 }
+
+function isProcessingProof(url: string | null | undefined): boolean {
+  return Boolean(url && url.trim().startsWith('s3://'));
+}
 </script>
 
 <template>
-  <AppShellLayout>
+  <section aria-labelledby="treasury-payments-title">
     <header class="page-header">
-      <h1 class="page-header__title">Mesa de Conciliación de Pagos (Tesorería)</h1>
-      <p class="page-header__subtitle">
-        Aprueba abonos conciliados en banco o recházalos dejando trazabilidad forense obligatoria.
-      </p>
+      <div>
+        <h1 id="treasury-payments-title" class="page-header__title">
+          Mesa de Conciliación de Pagos (Tesorería)
+        </h1>
+        <p class="page-header__subtitle">
+          Aprueba abonos conciliados en banco o recházalos dejando trazabilidad forense obligatoria.
+        </p>
+      </div>
+      <button
+        id="btn-dual-refresh"
+        type="button"
+        class="dual-refresh-btn"
+        :disabled="isRefreshing || financeStore.isLoading"
+        @click="triggerRefresh"
+      >
+        <span aria-hidden="true">🔄</span>
+        <span>{{ isRefreshing ? 'Actualizando...' : 'Refrescar' }}</span>
+      </button>
     </header>
 
     <div v-if="financeStore.errorMessage" class="banner banner--error" role="alert">
@@ -81,16 +105,32 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
           class="payment-card"
         >
           <div class="payment-card__header">
-            <strong>Pago #{{ pago.id }} — Recibo #{{ pago.recibo_id }}</strong>
-            <span class="payment-card__method">{{ pago.metodo_pago }}</span>
+            <strong>Abono reportado — {{ pago.metodo_pago }}</strong>
+            <span class="payment-card__method">{{ pago.estado }}</span>
           </div>
 
-          <p class="payment-card__amount">
+          <p class="payment-card__amount tabular-nums">
             {{ pago.monto }} {{ pago.moneda }} (<strong>{{ pago.monto_usd }} USD</strong> a tasa
             {{ pago.tasa_cambio }})
           </p>
           <p class="payment-card__ref">
             Referencia: <strong>{{ pago.numero_referencia || 'Efectivo en taquilla' }}</strong>
+          </p>
+
+          <p v-if="isSafeMediaUrl(pago.url_comprobante)" class="payment-card__proof">
+            <a
+              :href="pago.url_comprobante!.trim()"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="payment-card__proof-link"
+            >
+              Ver comprobante digital
+            </a>
+          </p>
+          <p v-else-if="isProcessingProof(pago.url_comprobante)" class="payment-card__proof">
+            <span class="payment-card__proof-pending">
+              Comprobante en procesamiento multimedia
+            </span>
           </p>
 
           <div class="payment-card__actions">
@@ -121,51 +161,56 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
       @close="rejectModalOpen = false"
       @confirm="handleConfirmReject"
     />
-  </AppShellLayout>
+  </section>
 </template>
 
 <style scoped>
 .page-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
   margin-bottom: 1.25rem;
 }
 
 .page-header__title {
   margin: 0;
   font-size: 1.3rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .page-header__subtitle {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .banner {
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   margin-bottom: 1rem;
   font-size: 0.875rem;
 }
 
 .banner--error {
-  background-color: var(--status-danger-bg, #fef2f2);
-  border: 1px solid var(--status-danger-border, #f87171);
-  color: var(--status-danger-text, #991b1b);
+  background-color: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .banner--success {
-  background-color: var(--status-ok-bg, #f0fdf4);
-  border: 1px solid var(--status-ok-border, #4ade80);
-  color: var(--status-ok-text, #166534);
+  background-color: var(--status-ok-bg);
+  border: 1px solid var(--status-ok-border);
+  color: var(--status-ok-text);
 }
 
 .empty-state {
   padding: 1.5rem;
-  border-radius: var(--radius-md, 0.75rem);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
-  color: var(--text-secondary, #475569);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
 }
 
 .payment-grid {
@@ -175,59 +220,82 @@ async function handleConfirmReject(payload: { pagoId: number; motivo: string }):
 
 .payment-card {
   padding: 1.25rem;
-  border-radius: var(--radius-md, 0.75rem);
-  background-color: var(--surface-card, #ffffff);
-  border: 1px solid var(--border-subtle, #cbd5e1);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-card);
 }
 
 .payment-card__header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 
 .payment-card__method {
   padding: 0.2rem 0.55rem;
-  border-radius: var(--radius-pill, 9999px);
-  background-color: var(--brand-tint, #e0f2fe);
-  color: var(--brand-accent, #0369a1);
+  border-radius: var(--radius-pill);
+  background-color: var(--brand-tint);
+  color: var(--brand-accent);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
 .payment-card__amount,
-.payment-card__ref {
+.payment-card__ref,
+.payment-card__proof {
   margin: 0.25rem 0;
   font-size: 0.9rem;
-  color: var(--text-primary, #1e293b);
+  color: var(--text-primary);
+}
+
+.payment-card__proof-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  color: var(--brand-accent);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.payment-card__proof-pending {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--status-info-bg);
+  color: var(--status-info-text);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .payment-card__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 1rem;
 }
 
 .btn-approve-payment {
-  min-height: 44px;
+  min-block-size: 2.75rem;
   padding: 0.5rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: none;
-  background-color: #15803d;
-  color: #ffffff;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-ok-border);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
   font-weight: 700;
   cursor: pointer;
 }
 
 .btn-reject-payment {
-  min-height: 44px;
+  min-block-size: 2.75rem;
   padding: 0.5rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--status-danger-border, #dc2626);
-  background-color: var(--status-danger-bg, #ffffff);
-  color: var(--status-danger-text, #991b1b);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-danger-border);
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
   font-weight: 700;
   cursor: pointer;
 }

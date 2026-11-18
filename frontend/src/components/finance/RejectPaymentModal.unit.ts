@@ -62,14 +62,23 @@ describe('RejectPaymentModal.vue', () => {
     await wrapper.find('#modal-reject-reason').trigger('close');
     expect(wrapper.emitted('close')).toHaveLength(1);
 
+    // @cancel nativo y light-dismiss backdrop click
+    const modal = wrapper.find('#modal-reject-reason');
+    await modal.trigger('cancel');
+    await modal.trigger('pointerdown', { clientX: -10, clientY: -10 });
+    await modal.trigger('pointerup', { clientX: -10, clientY: -10 });
+    await modal.trigger('click', { clientX: -10, clientY: -10 });
+    expect(wrapper.emitted('close')?.length).toBeGreaterThanOrEqual(2);
+
     // Simular dialog.open = true y cerrar vía prop open=false
-    const dialogEl = wrapper.find('#modal-reject-reason').element as HTMLDialogElement;
+    const dialogEl = modal.element as HTMLDialogElement;
     Object.defineProperty(dialogEl, 'open', { configurable: true, value: true });
     await wrapper.setProps({ open: false });
     expect(closeSpy).toHaveBeenCalled();
 
     // Con open=false, un evento close nativo no re-emite close
+    const countBeforeNativeClose = wrapper.emitted('close')?.length ?? 0;
     await wrapper.find('#modal-reject-reason').trigger('close');
-    expect(wrapper.emitted('close')).toHaveLength(1);
+    expect(wrapper.emitted('close')?.length).toBe(countBeforeNativeClose);
   });
 });

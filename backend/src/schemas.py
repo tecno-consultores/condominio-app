@@ -130,6 +130,7 @@ class PagoResponse(BaseModel):
     tasa_cambio: Decimal
     metodo_pago: str
     numero_referencia: str | None
+    url_comprobante: str | None = None
     estado: str
 
 

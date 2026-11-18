@@ -136,5 +136,12 @@ Feature: Cobertura Funcional y Flujos BDD de Identidad, Finanzas, Operaciones, A
     And waitFor('#register-heading')
     Then match script("getComputedStyle(document.querySelector('#register-heading')).textWrap") == 'balance'
 
+  Scenario: 14. Una ruta desconocida renderiza la vista 404 accesible (#not-found-card) y retorna al acceso (Hito 22)
+    Given driver baseUrl + '/ruta-inexistente-hito22'
+    And waitFor('#not-found-card')
+    And waitFor('#btn-go-home')
+    When click('#btn-go-home')
+    Then waitFor('#login-form')
+
 
 

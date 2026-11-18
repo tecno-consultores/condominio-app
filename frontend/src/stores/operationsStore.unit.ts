@@ -234,6 +234,57 @@ describe('operationsStore — Patrón No Destructivo, Incidencias, Conserjería,
   it('maneja errores en lecturas y mutaciones de operaciones preservando estado no destructivo', async () => {
     const store = useOperationsStore();
 
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+      { id: 10, identificador: 'Torre A-101', estructura_id: 2 },
+    ]);
+    const unidadesRes = await store.fetchUnidades();
+    expect(unidadesRes).toHaveLength(1);
+    expect(store.data.unidades[0]?.identificador).toBe('Torre A-101');
+
+    // Fallos de red en GET sin caché previa NO activan isStale; con caché SÍ activan isStale
+    store.resetState();
+    vi.spyOn(apiClient, 'get').mockRejectedValue(new Error('Network down'));
+    await store.fetchUnidades();
+    expect(store.isStale).toBe(false);
+
+    // Cargar caché para verificar isStale = true en GET posteriores
+    store.data.incidencias = [
+      {
+        id: 1,
+        usuario_creador_id: 1,
+        area: 'Lobby',
+        descripcion: 'Foco',
+        url_foto: null,
+        estado: 'ABIERTO',
+        adhesiones_count: 1,
+      },
+    ];
+    store.data.tareasDiarias = [
+      {
+        id: 1,
+        plantilla_id: null,
+        incidencia_id: null,
+        titulo: 'Limpiar',
+        area: 'PB',
+        fecha: '2026-10-30',
+        completada: false,
+        url_evidencia: null,
+      },
+    ];
+    store.data.galeriaVoceros.fotos = [
+      {
+        id: 1,
+        usuario_id: 1,
+        periodo: '2026-10',
+        area: 'Azotea',
+        comentario: 'Ok',
+        url_foto: '/api/health',
+      },
+    ];
+    store.data.bitacora = [
+      { id: 1, fecha: '2026-10-30', hora: '09:00', ubicacion: 'PB', contenido: 'Ok', autor_id: 1 },
+    ];
+
     vi.spyOn(apiClient, 'get')
       .mockRejectedValueOnce(new Error('Err inc'))
       .mockRejectedValueOnce(new ApiError(500, 'Err inc api'))
@@ -253,6 +304,42 @@ describe('operationsStore — Patrón No Destructivo, Incidencias, Conserjería,
     await store.fetchBitacora();
     await store.fetchBitacora();
     expect(store.isStale).toBe(true);
+
+    // Rutas de tareas administrativas (plantillas, tarea diaria, generar diarias)
+    vi.spyOn(apiClient, 'post')
+      .mockResolvedValueOnce({
+        id: 1,
+        titulo: 'Revisar tanques',
+        area: 'Azotea',
+        frecuencia: 'DIARIA',
+        activa: true,
+      })
+      .mockResolvedValueOnce({
+        id: 200,
+        plantilla_id: null,
+        incidencia_id: null,
+        titulo: 'Cambiar bombillo',
+        area: 'PB',
+        fecha: '2026-10-30',
+        completada: false,
+        url_evidencia: null,
+      })
+      .mockResolvedValueOnce({ tareas_generadas: 3 })
+      .mockRejectedValueOnce(new ApiError(403, 'Sin permiso plantilla'))
+      .mockRejectedValueOnce(new ApiError(400, 'Tarea inválida'))
+      .mockRejectedValueOnce(new ApiError(403, 'Sin permiso generar'));
+
+    const pt = await store.crearPlantillaTarea({ titulo: 'Revisar tanques', area: 'Azotea' });
+    expect(pt.id).toBe(1);
+    const td = await store.crearTareaDiaria({ titulo: 'Cambiar bombillo', area: 'PB' });
+    expect(td.id).toBe(200);
+    const genRes = await store.generarTareasDiarias('2026-10-30');
+    expect(genRes.tareas_generadas).toBe(3);
+
+    await expect(store.crearPlantillaTarea({ titulo: 'X', area: 'Y' })).rejects.toThrow();
+    await expect(store.crearTareaDiaria({ titulo: 'X', area: 'Y' })).rejects.toThrow();
+    await expect(store.generarTareasDiarias()).rejects.toThrow();
+    expect(store.isStale).toBe(false);
 
     vi.spyOn(apiClient, 'post')
       .mockRejectedValueOnce(new ApiError(409, 'Estructura duplicada'))

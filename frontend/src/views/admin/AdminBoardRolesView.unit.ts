@@ -14,7 +14,7 @@ describe('AdminBoardRolesView.vue — Gestión de Cargos de Junta', () => {
     setActivePinia(createPinia());
   });
 
-  it('valida ID de usuario y permite asignar un cargo de Junta de Condominio', async () => {
+  it('valida identificador de propietario y permite asignar un cargo de Junta de Condominio', async () => {
     const store = useOperationsStore();
     const roleSpy = vi.spyOn(store, 'asignarCargoJunta').mockResolvedValue({
       id: 14,
@@ -41,16 +41,20 @@ describe('AdminBoardRolesView.vue — Gestión de Cargos de Junta', () => {
       cargo: 'TESORERO',
     });
     expect(wrapper.find('#junta-success-banner').text()).toContain('Roberto Gómez');
+    expect(wrapper.find('#junta-success-banner').text()).not.toContain('#14');
   });
 
-  it('muestra alerta cuando asignarCargoJunta falla', async () => {
+  it('muestra alerta cuando asignarCargoJunta falla y nunca inquilinos en directiva', async () => {
     const store = useOperationsStore();
     vi.spyOn(store, 'asignarCargoJunta').mockImplementation(async () => {
+      store.isStale = false;
       store.errorMessage = 'El usuario no posee una propiedad activa';
       throw new Error('400');
     });
 
     const wrapper = mount(AdminBoardRolesView);
+    expect(wrapper.find('#select-junta-cargo').text()).not.toContain('INQUILINO');
+
     await wrapper.find('#input-junta-usuario-id').setValue('29');
     await wrapper.find('#form-asignar-junta').trigger('submit.prevent');
     await flushPromises();

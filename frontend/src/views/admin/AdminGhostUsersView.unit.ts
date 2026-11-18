@@ -14,9 +14,9 @@ describe('AdminGhostUsersView.vue — Bandeja de Usuarios Fantasma Pendientes', 
     setActivePinia(createPinia());
   });
 
-  it('lista usuarios fantasma pendientes y permite vincularlos y activar su cuenta', async () => {
+  it('lista usuarios fantasma pendientes, deshabilita voto asamblea para INQUILINO y activa cuenta', async () => {
     const store = useOperationsStore();
-    vi.spyOn(store, 'fetchAdminData').mockResolvedValue();
+    const fetchSpy = vi.spyOn(store, 'fetchAdminData').mockResolvedValue();
     store.data.unidades = [
       { id: 1, identificador: 'Apto 1-A', estructura_id: 1 },
       { id: 2, identificador: 'Apto 1-B', estructura_id: 1 },
@@ -39,7 +39,7 @@ describe('AdminGhostUsersView.vue — Bandeja de Usuarios Fantasma Pendientes', 
       correo: 'sofia@test.com',
       telefono: '0414-0001111',
       es_activo: true,
-      rol: 'VOCERO',
+      rol: 'INQUILINO',
     });
 
     const wrapper = mount(AdminGhostUsersView);
@@ -47,19 +47,31 @@ describe('AdminGhostUsersView.vue — Bandeja de Usuarios Fantasma Pendientes', 
 
     await wrapper.find('#select-unit-18').setValue('2');
     await wrapper.find('#select-ocupante-18').setValue('INQUILINO');
-    await wrapper.find('#select-rol-18').setValue('VOCERO');
+    const voteCheckbox = wrapper.find('#check-votar-18');
+    expect((voteCheckbox.element as HTMLInputElement).disabled).toBe(true);
+    expect((voteCheckbox.element as HTMLInputElement).checked).toBe(false);
+
     await wrapper.find('#btn-activate-user-18').trigger('click');
     await flushPromises();
 
     expect(assignSpy).toHaveBeenCalledWith(18, {
       unidad_id: 2,
       tipo_ocupante: 'INQUILINO',
-      rol: 'VOCERO',
+      rol: 'INQUILINO',
+      puede_votar_asamblea: false,
     });
     expect(wrapper.find('#ghost-success-banner').text()).toContain('Sofía Rojas');
+
+    // Cambiar de nuevo a PROPIETARIO habilita voto y rol VOCERO
+    await wrapper.find('#select-ocupante-18').setValue('PROPIETARIO');
+    expect((voteCheckbox.element as HTMLInputElement).disabled).toBe(false);
+    await wrapper.find('#select-rol-18').setValue('VOCERO');
+    await wrapper.find('#btn-dual-refresh').trigger('click');
+    await flushPromises();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('muestra estado vacío, banner de caché y maneja error en asignación', async () => {
+  it('muestra estado vacío, banner de caché/error real y maneja error en asignación', async () => {
     const store = useOperationsStore();
     vi.spyOn(store, 'fetchAdminData').mockResolvedValue();
     store.isStale = true;
@@ -83,10 +95,15 @@ describe('AdminGhostUsersView.vue — Bandeja de Usuarios Fantasma Pendientes', 
         rol: 'FANTASMA',
       },
     ];
-    vi.spyOn(store, 'asignarUsuarioFantasma').mockRejectedValue(new Error('Fallo red'));
+    vi.spyOn(store, 'asignarUsuarioFantasma').mockImplementation(async () => {
+      store.isStale = false;
+      store.errorMessage = 'Permiso denegado';
+      throw new Error('403');
+    });
     await flushPromises();
     await wrapper.find('#btn-activate-user-19').trigger('click');
     await flushPromises();
+    expect(wrapper.find('#ghost-error-banner').text()).toContain('Permiso denegado');
     expect(wrapper.find('#ghost-success-banner').exists()).toBe(false);
   });
 });

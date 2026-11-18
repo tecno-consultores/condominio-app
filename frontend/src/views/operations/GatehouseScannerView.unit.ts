@@ -3,13 +3,25 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import GatehouseScannerView from './GatehouseScannerView.vue';
 import { useAccessAmenitiesStore } from '../../stores/accessAmenitiesStore';
+import { useAuthStore } from '../../stores/authStore';
 
 describe('GatehouseScannerView.vue', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
   });
 
-  it('verifica un pase QR válido en garita y muestra alerta en intento de Replay Attack', async () => {
+  it('verifica un pase QR válido en garita sin exponer JTI y alerta Replay Attack', async () => {
+    const authStore = useAuthStore();
+    authStore.setProfileForTesting({
+      id: 5,
+      nombre: 'Pedro Conserje',
+      cedula: 'V-5',
+      correo: 'conserje@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'CONSERJE',
+    });
+
     const store = useAccessAmenitiesStore();
     vi.spyOn(store, 'verificarPaseQR').mockImplementation(async (token) => {
       if (token === 'replay.token') {
@@ -50,6 +62,8 @@ describe('GatehouseScannerView.vue', () => {
     expect(wrapper.find('#qr-scan-success-card').exists()).toBe(true);
     expect(wrapper.find('#qr-scan-success-card').text()).toContain('Técnico Fibra');
     expect(wrapper.find('#qr-scan-success-card').text()).toContain('XYZ-999');
+    expect(wrapper.find('#qr-scan-success-card').text()).not.toContain('JTI:');
+    expect(wrapper.find('#qr-scan-success-card').text()).not.toContain('550e8400');
 
     // 2. Intento de Replay Attack
     await wrapper.find('#input-scan-qr-token').setValue('replay.token');
@@ -58,5 +72,22 @@ describe('GatehouseScannerView.vue', () => {
 
     expect(wrapper.find('#qr-scan-error-alert').exists()).toBe(true);
     expect(wrapper.find('#qr-scan-error-alert').text()).toContain('único uso ya fue utilizado');
+  });
+
+  it('oculta escáner para residentes sin privilegios de garita', () => {
+    const authStore = useAuthStore();
+    authStore.setProfileForTesting({
+      id: 2,
+      nombre: 'Residente',
+      cedula: 'V-2',
+      correo: 'res@test.com',
+      telefono: '0414',
+      es_activo: true,
+      rol: 'PROPIETARIO',
+    });
+
+    const wrapper = mount(GatehouseScannerView);
+    expect(wrapper.find('#form-verificar-qr-garita').exists()).toBe(false);
+    expect(wrapper.find('#scanner-rbac-warning').exists()).toBe(true);
   });
 });

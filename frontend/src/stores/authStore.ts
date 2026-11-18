@@ -1,12 +1,46 @@
 import { computed, ref } from 'vue';
-import { defineStore } from 'pinia';
+import { defineStore, getActivePinia } from 'pinia';
 import type { Router } from 'vue-router';
-import { ApiError, apiRequest } from '../services/apiClient';
+import {
+  ApiError,
+  apiRequest,
+  registerUnauthorizedCallback,
+  resetCsrfToken,
+} from '../services/apiClient';
+import { isSafeRedirectUrl } from '../utils/security';
 
 let boundRouter: Router | null = null;
+const resettersByPinia = new WeakMap<object, Set<() => void>>();
 
 export function registerAuthRouter(router: Router): void {
   boundRouter = router;
+}
+
+export function registerSessionResetter(resetFn: () => void): void {
+  const activePinia = getActivePinia();
+  if (!activePinia) {
+    return;
+  }
+  let group = resettersByPinia.get(activePinia);
+  if (!group) {
+    group = new Set<() => void>();
+    resettersByPinia.set(activePinia, group);
+  }
+  group.add(resetFn);
+}
+
+function runRegisteredResetters(): void {
+  const activePinia = getActivePinia();
+  if (!activePinia) {
+    return;
+  }
+  const group = resettersByPinia.get(activePinia);
+  if (!group) {
+    return;
+  }
+  for (const resetFn of group) {
+    resetFn();
+  }
 }
 
 export type RolUsuario =
@@ -31,6 +65,12 @@ export interface UsuarioPerfil {
   unidad_activa_id?: number | null;
 }
 
+export interface AuthSessionResponse {
+  message: string;
+  rol: RolUsuario;
+  csrf_token: string;
+}
+
 export interface RegistroPayload {
   nombre: string;
   cedula: string;
@@ -47,6 +87,15 @@ export interface AsyncStoreState<T> {
   isStale: boolean;
   errorMessage: string | null;
   lastUpdatedAt: number | null;
+}
+
+function isValidProfilePayload(payload: unknown): payload is UsuarioPerfil {
+  return (
+    Boolean(payload) &&
+    typeof payload === 'object' &&
+    typeof (payload as UsuarioPerfil).id === 'number' &&
+    typeof (payload as UsuarioPerfil).rol === 'string'
+  );
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -66,12 +115,28 @@ export const useAuthStore = defineStore('auth', () => {
     () => data.value !== null && data.value.es_activo && data.value.rol !== 'FANTASMA',
   );
   const userRole = computed<RolUsuario | null>(() => data.value?.rol ?? null);
+  const activeUnitId = computed<number | null>(() => data.value?.unidad_activa_id ?? null);
+
+  function clearSession(): void {
+    data.value = null;
+    isStale.value = false;
+    errorMessage.value = null;
+    lastUpdatedAt.value = null;
+    rbacNotice.value = null;
+    sessionHydrated.value = true;
+    resetCsrfToken();
+    runRegisteredResetters();
+  }
 
   async function fetchProfile(): Promise<UsuarioPerfil | null> {
     isLoading.value = true;
     errorMessage.value = null;
     try {
       const profile = await apiRequest<UsuarioPerfil>('/api/auth/me');
+      if (!isValidProfilePayload(profile)) {
+        clearSession();
+        return null;
+      }
       data.value = profile;
       isStale.value = false;
       lastUpdatedAt.value = Date.now();
@@ -79,14 +144,11 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : new ApiError(0, 'Error inesperado');
       if (apiErr.status === 401) {
-        data.value = null;
-        isStale.value = false;
-        errorMessage.value = apiErr.detail;
+        clearSession();
         return null;
       }
-      // Regla Anti-Destructive Catch: ante fallos de red o 5xx conservamos los datos previos
       errorMessage.value = apiErr.detail;
-      if (data.value !== null) {
+      if (data.value !== null && (apiErr.status === 0 || apiErr.status >= 500)) {
         isStale.value = true;
       }
       return data.value;
@@ -100,7 +162,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      await apiRequest<{ message: string }>('/api/auth/login', {
+      await apiRequest<AuthSessionResponse>('/api/auth/login', {
         method: 'POST',
         body: { correo, password },
       });
@@ -146,21 +208,14 @@ export const useAuthStore = defineStore('auth', () => {
     rbacNotice.value = message;
   }
 
-  function clearSession(): void {
-    data.value = null;
-    isStale.value = false;
-    errorMessage.value = null;
-    lastUpdatedAt.value = null;
-    sessionHydrated.value = true;
-  }
-
   async function logout(): Promise<void> {
-    clearSession();
-    rbacNotice.value = null;
     try {
+      // Enviar POST /api/auth/logout antes de limpiar CSRF/stores para revocar la sesión en KeyDB
       await apiRequest('/api/auth/logout', { method: 'POST' });
     } catch {
-      // Silenciamos fallos de red al cerrar sesión para garantizar limpieza local inmediata
+      // Garantizamos limpieza local aunque la red falle durante el cierre de sesión
+    } finally {
+      clearSession();
     }
   }
 
@@ -168,16 +223,36 @@ export const useAuthStore = defineStore('auth', () => {
     if (!(err instanceof ApiError) || err.status !== 401) {
       return false;
     }
+    const wasAuthenticated = data.value !== null;
     clearSession();
     errorMessage.value = 'Su sesión ha expirado. Inicie sesión nuevamente.';
     if (boundRouter) {
-      const currentPath = boundRouter.currentRoute.value.path;
-      if (currentPath !== '/login' && currentPath !== '/registro') {
-        await boundRouter.push('/login');
+      const currentRoute = boundRouter.currentRoute.value;
+      const currentPath = currentRoute.path;
+      const currentFullPath = currentRoute.fullPath || currentPath;
+      if (currentPath !== '/login' && currentPath !== '/register') {
+        if (
+          wasAuthenticated &&
+          currentPath !== '/dashboard' &&
+          currentPath !== '/espera-aprobacion' &&
+          isSafeRedirectUrl(currentFullPath)
+        ) {
+          await boundRouter.push({ path: '/login', query: { redirect: currentFullPath } });
+        } else {
+          await boundRouter.push('/login');
+        }
       }
     }
     return true;
   }
+
+  registerUnauthorizedCallback(async (err) => {
+    if (data.value !== null) {
+      await handleUnauthorizedError(err);
+    } else {
+      clearSession();
+    }
+  });
 
   function setProfileForTesting(profile: UsuarioPerfil | null): void {
     data.value = profile;
@@ -199,6 +274,7 @@ export const useAuthStore = defineStore('auth', () => {
     isGhostUser,
     isActiveUser,
     userRole,
+    activeUnitId,
     fetchProfile,
     login,
     register,

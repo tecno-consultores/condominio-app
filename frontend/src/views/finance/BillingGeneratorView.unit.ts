@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import BillingGeneratorView from './BillingGeneratorView.vue';
 import { useFinanceStore } from '../../stores/financeStore';
+import { useOperationsStore } from '../../stores/operationsStore';
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -16,8 +17,16 @@ describe('BillingGeneratorView.vue', () => {
 
   it('valida campos, emite facturación trimodal, crea fondos y abre el modal de desglose', async () => {
     const store = useFinanceStore();
-    vi.spyOn(store, 'fetchDashboardData').mockResolvedValue();
+    const operationsStore = useOperationsStore();
+    const unidadesList = [
+      { id: 1, identificador: 'Apto 1-A', estructura_id: 1, alicuota: '25.0000' },
+    ];
+    operationsStore.data.unidades = unidadesList;
+
+    const dashboardSpy = vi.spyOn(store, 'fetchDashboardData').mockResolvedValue();
     vi.spyOn(store, 'fetchFondos').mockResolvedValue();
+    const unidadesSpy = vi.spyOn(operationsStore, 'fetchUnidades').mockResolvedValue(unidadesList);
+
     const facturarSpy = vi.spyOn(store, 'facturarPeriodo').mockResolvedValue({
       periodo: '2026-10',
       modalidad: 'CUOTA_FIJA',
@@ -74,6 +83,10 @@ describe('BillingGeneratorView.vue', () => {
     const wrapper = mount(BillingGeneratorView);
     await flushPromises();
 
+    expect(unidadesSpy).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain('Apto 1-A');
+    expect(wrapper.text()).not.toContain('Unidad #1');
+
     // Validación de periodo inválido
     await wrapper.find('#input-facturar-periodo').setValue('invalido');
     await wrapper.find('#form-facturar-periodo').trigger('submit.prevent');
@@ -123,6 +136,11 @@ describe('BillingGeneratorView.vue', () => {
     await wrapper.find('#btn-close-desglose').trigger('click');
     expect(wrapper.find('#modal-recibo-desglose').exists()).toBe(false);
 
+    // Refresco dual manual
+    await wrapper.find('#btn-dual-refresh').trigger('click');
+    await flushPromises();
+    expect(dashboardSpy).toHaveBeenCalledTimes(2);
+
     // Manejo de errores y banner de error del store
     store.errorMessage = 'Error de facturación simulado';
     facturarSpy.mockRejectedValueOnce(new Error('Fallo red'));
@@ -134,5 +152,41 @@ describe('BillingGeneratorView.vue', () => {
     await wrapper.find('#btn-inspect-recibo-1').trigger('click');
     await flushPromises();
     expect(wrapper.find('#billing-error-banner').exists()).toBe(true);
+
+    // Validar porcentaje de recargo negativo en creación de fondo
+    await wrapper.find('#input-fondo-nombre').setValue('Fondo Estricto');
+    await wrapper.find('#input-fondo-porcentaje').setValue('-1');
+    await wrapper.find('#form-crear-fondo').trigger('submit.prevent');
+    expect(wrapper.find('#billing-validation-error').text()).toContain('mayor o igual a cero');
+
+    // Cubrir fallback recibo_id=null, unidad desconocida y listado de fondos activos
+    store.data.fondos = [
+      {
+        id: 1,
+        nombre: 'Fondo Legal',
+        tipo: 'RESERVA_LEGAL',
+        porcentaje_recargo: '10.00',
+        saldo_actual_usd: '500.00',
+        es_activo: true,
+      },
+    ];
+    store.data.resumen = {
+      deuda_total_usd: '10.00',
+      total_egresos_usd: '0.00',
+      gastos_por_categoria: {},
+      estado_cobranza: [
+        {
+          recibo_id: undefined,
+          unidad_id: 999,
+          periodo: '2026-09',
+          estado: 'PENDIENTE',
+          saldo_usd: '10.00',
+        },
+      ],
+    };
+    await flushPromises();
+    expect(wrapper.text()).toContain('Fondo Legal');
+    expect(wrapper.text()).toContain('Unidad habitacional');
+    expect(wrapper.find('#btn-inspect-recibo-1').exists()).toBe(true);
   });
 });

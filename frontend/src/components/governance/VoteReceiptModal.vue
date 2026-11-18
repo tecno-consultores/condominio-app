@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { ref } from 'vue';
+import { useTopLayerDialog } from '../../composables/useTopLayerDialog';
 import CopyButton from '../common/CopyButton.vue';
 import type { ReciboVotoDTO, VotoReciboResumenDTO } from '../../stores/governanceStore';
 
@@ -15,71 +16,12 @@ const emit = defineEmits<{
 
 const dialogRef = ref<HTMLDialogElement | null>(null);
 
-watch(
-  () => Boolean(props.open && props.recibo),
-  async (isOpen) => {
-    if (!isOpen) {
-      const el = dialogRef.value;
-      if (el?.open && typeof el.close === 'function') {
-        el.close();
-      }
-      return;
-    }
-    await nextTick();
-    const el = dialogRef.value;
-    if (el && typeof el.showModal === 'function' && !el.open) {
-      el.showModal();
-    }
-  },
-  { immediate: true },
-);
-
-let pressedOutside: boolean | null = null;
-
-function hasNativeClosedBy(): boolean {
-  return typeof HTMLDialogElement !== 'undefined' && 'closedBy' in HTMLDialogElement.prototype;
-}
-
-function isOutsideDialog(
-  event: { clientX: number; clientY: number },
-  dialog: HTMLDialogElement,
-): boolean {
-  const rect = dialog.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return false;
-  return (
-    event.clientX < rect.left ||
-    event.clientX > rect.right ||
-    event.clientY < rect.top ||
-    event.clientY > rect.bottom
-  );
-}
-
-function handlePointerDown(event: PointerEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  pressedOutside = isOutsideDialog(event, dialog);
-}
-
-function handlePointerUp(event: PointerEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  if (pressedOutside === true && isOutsideDialog(event, dialog)) {
-    pressedOutside = null;
-    emit('close');
-  }
-}
-
-function handleBackdropClick(event: MouseEvent): void {
-  const dialog = dialogRef.value;
-  if (!dialog || hasNativeClosedBy()) return;
-  if (pressedOutside !== null) {
-    pressedOutside = null;
-    return;
-  }
-  if (event.target === dialog && isOutsideDialog(event, dialog)) {
-    emit('close');
-  }
-}
+const { dialogProps, onPointerDown, onPointerUp, onBackdropClick } = useTopLayerDialog({
+  dialogRef,
+  isOpen: () => Boolean(props.open && props.recibo),
+  onClose: () => emit('close'),
+  unmountsWhenClosed: true,
+});
 </script>
 
 <template>
@@ -87,20 +29,20 @@ function handleBackdropClick(event: MouseEvent): void {
     v-if="open && recibo"
     id="modal-vote-receipt"
     ref="dialogRef"
-    v-bind="{ closedby: 'any' }"
+    v-bind="dialogProps"
     class="vote-receipt-modal top-layer-dialog"
     aria-labelledby="vote-receipt-title"
     @close="emit('close')"
-    @pointerdown="handlePointerDown"
-    @pointerup="handlePointerUp"
-    @click="handleBackdropClick"
+    @pointerdown="onPointerDown"
+    @pointerup="onPointerUp"
+    @click="onBackdropClick"
   >
     <div class="vote-receipt-modal__card">
       <header class="vote-receipt-modal__header">
         <div>
           <span class="vote-receipt-modal__eyebrow">Comprobante Inmutable Art. 23 LPH</span>
           <h2 id="vote-receipt-title" class="vote-receipt-modal__title">
-            Recibo Criptográfico de Votación #{{ recibo.voto_id }}
+            Recibo Criptográfico de Votación
           </h2>
         </div>
         <span class="vote-receipt-modal__badge">HMAC-SHA256</span>
@@ -174,10 +116,6 @@ function handleBackdropClick(event: MouseEvent): void {
 </template>
 
 <style scoped>
-dialog:modal {
-  overscroll-behavior: contain;
-}
-
 .vote-receipt-modal[open] {
   padding: 0;
   border: none;
@@ -187,12 +125,8 @@ dialog:modal {
   overscroll-behavior: contain;
 }
 
-dialog::backdrop,
 .vote-receipt-modal::backdrop {
-  background-color: rgba(15, 23, 42, 0.65);
   backdrop-filter: blur(2px);
-  overflow: hidden;
-  overscroll-behavior: contain;
 }
 
 .vote-receipt-modal__card {
@@ -200,11 +134,11 @@ dialog::backdrop,
   max-block-size: min(85dvh, 40rem);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background-color: var(--surface-elevated, #ffffff);
-  color: var(--text-primary, #0f172a);
-  border-radius: var(--radius-lg, 1rem);
+  background-color: var(--surface-elevated);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
   padding: clamp(1rem, 3cqi, 1.5rem);
-  border: 1px solid var(--border-subtle, #cbd5e1);
+  border: 1px solid var(--border-subtle);
   box-shadow: var(--surface-hairline), var(--shadow-modal);
   display: flex;
   flex-direction: column;
@@ -222,7 +156,7 @@ dialog::backdrop,
   display: block;
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--brand-accent, #0369a1);
+  color: var(--brand-accent);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -231,7 +165,7 @@ dialog::backdrop,
   margin: 0.2rem 0 0;
   font-size: clamp(1rem, 2.5cqi, 1.15rem);
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   text-wrap: balance;
 }
 
@@ -239,9 +173,9 @@ dialog::backdrop,
   font-size: 0.725rem;
   font-weight: 700;
   padding: 0.25rem 0.6rem;
-  border-radius: var(--radius-pill, 9999px);
-  background-color: var(--status-ok-bg, #ecfdf5);
-  color: var(--status-ok-text, #047857);
+  border-radius: var(--radius-pill);
+  background-color: var(--status-ok-bg);
+  color: var(--status-ok-text);
 }
 
 .vote-receipt-modal__details {
@@ -257,26 +191,26 @@ dialog::backdrop,
   align-items: baseline;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  background-color: var(--surface-subtle, #f8fafc);
-  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
   font-size: 0.875rem;
 }
 
 .vote-receipt-modal__row dt {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary);
 }
 
 .vote-receipt-modal__row dd {
   margin: 0;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .vote-receipt-modal__signature-box {
   padding: 0.75rem;
-  border-radius: 0.625rem;
-  background-color: #0f172a;
-  color: #f8fafc;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-code-bg);
+  color: var(--surface-code-text);
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -292,20 +226,21 @@ dialog::backdrop,
 .vote-receipt-modal__signature-label {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #38bdf8;
+  color: var(--surface-code-accent);
 }
 
 .vote-receipt-modal__signature {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   word-break: break-all;
-  color: #e2e8f0;
+  color: var(--surface-code-text);
 }
 
 .vote-receipt-modal__message {
   margin: 0;
   font-size: 0.725rem;
-  color: #94a3b8;
+  color: var(--surface-code-text);
+  opacity: 0.82;
   word-break: break-all;
 }
 
@@ -315,19 +250,14 @@ dialog::backdrop,
 }
 
 .vote-receipt-modal__close {
+  min-block-size: 2.75rem;
   padding: 0.55rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
-  border: 1px solid var(--brand-600, #0369a1);
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brand-600);
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-weight: 700;
   cursor: pointer;
-}
-
-@media (pointer: coarse) {
-  .vote-receipt-modal__close {
-    min-block-size: 2.75rem;
-  }
 }
 
 @media (max-width: 639px) {
@@ -336,11 +266,11 @@ dialog::backdrop,
     inline-size: 100%;
     max-inline-size: 100%;
     max-block-size: 88dvh;
-    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 
   .vote-receipt-modal__card {
-    border-radius: var(--radius-lg, 1rem) var(--radius-lg, 1rem) 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     max-block-size: 88dvh;
   }
 }

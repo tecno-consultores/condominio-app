@@ -9,6 +9,10 @@ vi.mock('../services/apiClient', async (importOriginal) => {
   return {
     ...actual,
     apiRequest: vi.fn(),
+    apiClient: {
+      ...actual.apiClient,
+      delete: vi.fn(),
+    },
   };
 });
 
@@ -43,7 +47,7 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter√
 
     const pases = await store.fetchMisPases();
     expect(pases).toHaveLength(1);
-    expect(store.pases[0].nombre_visitante).toContain('&lt;b&gt;Visitante&lt;/b&gt;');
+    expect(store.pases[0].nombre_visitante).toBe('Carlos <b>Visitante</b>');
     expect(store.isStale).toBe(false);
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('Fallo de red pases'));
@@ -89,7 +93,7 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter√
     expect(creado.id).toBe(5);
     expect(store.ultimoPaseCreado?.id).toBe(5);
 
-    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+    vi.mocked(apiClient.apiClient.delete).mockResolvedValueOnce({
       ...paseMock,
       estado: 'REVOCADO',
     });
@@ -207,11 +211,13 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter√
       }),
     ).rejects.toBe('raw-crear-pase');
 
-    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('err-revocar'));
+    vi.mocked(apiClient.apiClient.delete).mockRejectedValueOnce(new Error('err-revocar'));
     await expect(store.revocarPaseVisita(1)).rejects.toThrow('err-revocar');
+    expect(store.isStale).toBe(false);
 
-    vi.mocked(apiClient.apiRequest).mockRejectedValueOnce('raw-revocar');
+    vi.mocked(apiClient.apiClient.delete).mockRejectedValueOnce('raw-revocar');
     await expect(store.revocarPaseVisita(1)).rejects.toBe('raw-revocar');
+    expect(store.isStale).toBe(false);
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('err-scan'));
     await expect(store.verificarPaseQR('bad.sig')).rejects.toThrow('err-scan');
@@ -251,7 +257,7 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter√
     vi.mocked(apiClient.apiRequest).mockResolvedValueOnce([areaMock]);
     const areas = await store.fetchAreasSociales();
     expect(areas).toHaveLength(1);
-    expect(store.areasSociales[0].nombre).toContain('&lt;b&gt;Fiestas&lt;/b&gt;');
+    expect(store.areasSociales[0].nombre).toBe('Sal√≥n de <b>Fiestas</b>');
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('Err areas'));
     const areasFallback = await store.fetchAreasSociales();
@@ -290,7 +296,7 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter√
     vi.mocked(apiClient.apiRequest).mockResolvedValueOnce([reservaMock]);
     const reservas = await store.fetchReservas();
     expect(reservas).toHaveLength(1);
-    expect(store.reservas[0].motivo_evento).toContain('&lt;i&gt;infantil&lt;/i&gt;');
+    expect(store.reservas[0].motivo_evento).toBe('Cumplea√±os <i>infantil</i>');
 
     vi.mocked(apiClient.apiRequest).mockRejectedValueOnce(new Error('Err reservas'));
     await store.fetchReservas();
@@ -408,5 +414,95 @@ describe('useAccessAmenitiesStore (Pases QR HMAC-SHA256, Anti-Replay y Paqueter√
     await store.fetchMisPases();
     expect(store.isStale).toBe(false);
     expect(authStore.isAuthenticated).toBe(false);
+  });
+
+  it('conserva elementos no modificados al actualizar mapas de pases, paquetes y reservas', async () => {
+    const store = useAccessAmenitiesStore();
+    const otroPase = {
+      id: 901,
+      jti: 'jti-901',
+      unidad_id: 2,
+      identificador_unidad: '2-B',
+      creado_por_id: 2,
+      nombre_visitante: 'Otro',
+      cedula_visitante: 'V-901',
+      placa_vehiculo: null,
+      modalidad: 'UNICO_USO' as const,
+      valido_desde: '2026-10-30T10:00:00Z',
+      valido_hasta: '2026-10-31T10:00:00Z',
+      estado: 'ACTIVO' as const,
+      usado_en: null,
+      verificado_por_id: null,
+      firma_hmac: 'a'.repeat(64),
+      qr_token: 'otro.sig',
+    };
+    const otroPaq = {
+      id: 902,
+      unidad_id: 2,
+      identificador_unidad: '2-B',
+      recibido_por_id: 5,
+      empresa_envio: 'MRW',
+      descripcion: 'Sobre',
+      url_foto_evidencia: null,
+      estado: 'EN_GARITA' as const,
+      fecha_recepcion: '2026-10-30T10:00:00Z',
+      fecha_entrega: null,
+      retirado_por_id: null,
+    };
+    const otraReserva = {
+      id: 903,
+      area_id: 1,
+      nombre_area: 'Sal√≥n',
+      unidad_id: 2,
+      identificador_unidad: '2-B',
+      solicitante_id: 4,
+      fecha_evento: '2026-12-25',
+      motivo_evento: 'Cena',
+      estado: 'CONFIRMADA' as const,
+      tarea_inspeccion_id: null,
+      observaciones_inspeccion: null,
+      creado_en: '2026-10-30T10:00:00Z',
+    };
+
+    store.pases = [{ ...otroPase, id: 10 }, otroPase];
+    store.ultimoPaseCreado = otroPase;
+    store.paquetes = [{ ...otroPaq, id: 20 }, otroPaq];
+    store.reservas = [{ ...otraReserva, id: 30 }, otraReserva];
+
+    vi.mocked(apiClient.apiClient.delete).mockResolvedValueOnce({
+      ...otroPase,
+      id: 10,
+      estado: 'REVOCADO',
+    });
+    await store.revocarPaseVisita(10);
+    expect(store.pases[1].estado).toBe('ACTIVO');
+    expect(store.ultimoPaseCreado?.estado).toBe('ACTIVO');
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+      ...otroPaq,
+      id: 20,
+      estado: 'ENTREGADO',
+    });
+    await store.confirmarEntregaPaquete(20);
+    expect(store.paquetes[1].estado).toBe('EN_GARITA');
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+      ...otraReserva,
+      id: 30,
+      estado: 'FINALIZADA_SIN_DANOS',
+    });
+    await store.inspeccionarReserva(30, {
+      estado: 'FINALIZADA_SIN_DANOS',
+      observaciones_inspeccion: 'OK',
+    });
+    expect(store.reservas[1].estado).toBe('CONFIRMADA');
+
+    vi.mocked(apiClient.apiRequest).mockResolvedValueOnce({
+      ...otraReserva,
+      id: 30,
+      estado: 'CANCELADA',
+    });
+    await store.cancelarReserva(30);
+    expect(store.reservas[1].estado).toBe('CONFIRMADA');
   });
 });

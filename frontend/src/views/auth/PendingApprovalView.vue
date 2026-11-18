@@ -13,6 +13,10 @@ const isHelpOpen = ref(false);
 async function checkApprovalStatus(): Promise<void> {
   statusMessage.value = null;
   const profile = await authStore.fetchProfile();
+  if (!profile && !authStore.isAuthenticated) {
+    await router.push('/login');
+    return;
+  }
   if (profile && profile.es_activo && profile.rol !== 'FANTASMA') {
     await router.push('/dashboard');
     return;
@@ -22,7 +26,7 @@ async function checkApprovalStatus(): Promise<void> {
 }
 
 async function handleLogout(): Promise<void> {
-  authStore.logout();
+  await authStore.logout();
   await router.push('/login');
 }
 </script>
@@ -145,10 +149,10 @@ async function handleLogout(): Promise<void> {
 .btn-primary {
   min-height: 48px;
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm, 0.5rem);
+  border-radius: var(--radius-sm);
   border: none;
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
   font-weight: 700;
   box-shadow: var(--btn-raised-shadow);
   cursor: pointer;
@@ -207,8 +211,8 @@ async function handleLogout(): Promise<void> {
 }
 
 .auth-help-btn:hover {
-  background-color: var(--brand-600, #0369a1);
-  color: #ffffff;
-  border-color: var(--brand-600, #0369a1);
+  background-color: var(--brand-600);
+  color: var(--text-on-accent);
+  border-color: var(--brand-600);
 }
 </style>
