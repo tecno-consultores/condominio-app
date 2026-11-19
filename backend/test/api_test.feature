@@ -1003,6 +1003,7 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method post
     Then status 415
 
+  @parallel=false
   Scenario: 30. Fusión UPSERT Reserva Área Social + Facturar Periodo y bloqueo de Cierre Mensual con pago EN_REVISION (Hito 21)
     Given path '/api/auth/login'
     And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
@@ -1133,6 +1134,551 @@ Feature: Validación BDD de Caja Negra y Seguridad Nivel 11X de la API Condomini
     When method post
     Then status 200
     And match response.estado == 'CERRADO'
+
+  # ==============================================================================
+  # Grupo 13: Flujos Nominales 2xx Aislados por UUID de los 9 Routers (Hito 23.1)
+  # ==============================================================================
+
+  @parallel=false
+  Scenario: 31. Flujos nominales 2xx de Finanzas, Pagos y Administración (fondos, egresos, solvencia, alícuota y aprobación)
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf = response.csrf_token
+
+    Given path '/api/usuarios/pendientes'
+    When method get
+    Then status 200
+    And match response == '#[]'
+
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    Given path '/api/estructura/generar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-f-est-' + java.util.UUID.randomUUID()
+    And request { nombre: "#('Torre F31 ' + uid)", tipo: 'TORRE', identificadores: ["#('F31-' + uid)"] }
+    When method post
+    Then status 201
+    * def unidadId = response.unidades[0].id
+
+    Given path '/api/estructura/unidades/' + unidadId + '/alicuota'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-f-ali-' + java.util.UUID.randomUUID()
+    And request { alicuota: '12.5000' }
+    When method put
+    Then status 200
+
+    Given path '/api/finanzas/tasa'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-f-tasa-' + java.util.UUID.randomUUID()
+    And request { tasa_usd_ves: '44.5000' }
+    When method post
+    Then status 201
+
+    Given path '/api/finanzas/tasa'
+    When method get
+    Then status 200
+
+    Given path '/api/finanzas/fondos'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-f-fondo-' + java.util.UUID.randomUUID()
+    And request { nombre: "#('Fondo Especial ' + uid)", tipo: 'ESPECIAL', porcentaje_recargo: '5.00' }
+    When method post
+    Then status 201
+
+    Given path '/api/finanzas/fondos'
+    When method get
+    Then status 200
+    And match response == '#[]'
+
+    * def propEmail = 'prop.f31.' + uid + '@condominio.test'
+    Given path '/api/auth/register'
+    And header Idempotency-Key = 'h23-f-reg-' + java.util.UUID.randomUUID()
+    And request
+      """
+      {
+        "nombre": "Propietario Finanzas 31",
+        "cedula": "#('V-31' + uid)",
+        "correo": "#(propEmail)",
+        "telefono": "+584145553100",
+        "password": "fake-qa-f31-123456!",
+        "unidad_solicitada_id": #(unidadId),
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    * def propId = response.id
+
+    Given path '/api/usuarios/' + propId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-f-asg-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), tipo_ocupante: 'PROPIETARIO', rol: 'PROPIETARIO' }
+    When method put
+    Then status 200
+
+    # Emisión y verificación pública de Certificado de Solvencia con deuda $0.00 antes de facturar 2091-03
+    Given path '/api/auth/login'
+    And request { correo: "#(propEmail)", password: 'fake-qa-f31-123456!' }
+    When method post
+    Then status 200
+    * def propCsrf = response.csrf_token
+
+    Given path '/api/finanzas/solvencia/' + unidadId
+    And header X-CSRF-Token = propCsrf
+    And header Idempotency-Key = 'h23-f-solv-' + java.util.UUID.randomUUID()
+    When method post
+    Then status 201
+    * def solvFolio = response.folio
+    * def solvSig = response.firma_hmac
+
+    Given path '/api/finanzas/solvencia/verificar/' + solvFolio
+    And param sig = solvSig
+    When method get
+    Then status 200
+    And match response.valido == true
+    And match response.vigente == true
+
+    # Egreso y facturación de periodo futuro aislado 2091-03 + reporte y aprobación de pago
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf2 = response.csrf_token
+
+    Given path '/api/finanzas/egresos'
+    And header X-CSRF-Token = presCsrf2
+    And header Idempotency-Key = 'h23-f-egr-' + java.util.UUID.randomUUID()
+    And request { periodo: '2091-03', categoria: 'MANTENIMIENTO', descripcion: "#('Bomba agua ' + uid)", monto: '20.00', moneda: 'USD', es_gasto_comun: true }
+    When method post
+    Then status 201
+
+    Given path '/api/finanzas/facturar-periodo'
+    And header X-CSRF-Token = presCsrf2
+    And header Idempotency-Key = 'h23-f-fact-' + java.util.UUID.randomUUID()
+    And request { periodo: '2091-03', modalidad: 'PARTES_IGUALES', incluir_fondo_reserva: false, cuota_extraordinaria_total_usd: '0.00' }
+    When method post
+    Then status 201
+
+    Given path '/api/auth/login'
+    And request { correo: "#(propEmail)", password: 'fake-qa-f31-123456!' }
+    When method post
+    Then status 200
+    * def propCsrf2 = response.csrf_token
+
+    Given path '/api/finanzas/resumen'
+    And param periodo = '2091-03'
+    When method get
+    Then status 200
+    * def recs = karate.filter(response.estado_cobranza, function(x){ return x.unidad_id == unidadId })
+    * def reciboId = recs[0].recibo_id
+    * def montoPagar = recs[0].monto_usd
+
+    Given path '/api/finanzas/recibos/' + reciboId + '/desglose'
+    When method get
+    Then status 200
+    And match response.recibo_id == reciboId
+
+    Given path '/api/pagos/reportar'
+    And header X-CSRF-Token = propCsrf2
+    And header Idempotency-Key = 'h23-f-pag-' + java.util.UUID.randomUUID()
+    And request { recibo_id: #(reciboId), monto: #(montoPagar), moneda: 'USD', metodo_pago: 'TRANSFERENCIA', numero_referencia: "#('REF31-' + uid)" }
+    When method post
+    Then status 201
+    * def pagoId = response.id
+
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf3 = response.csrf_token
+
+    Given path '/api/pagos/revision'
+    When method get
+    Then status 200
+    * def pagosVisibles = karate.filter(response, function(x){ return x.id == pagoId })
+    And match pagosVisibles == '#[1]'
+
+    Given path '/api/pagos/' + pagoId + '/aprobar'
+    And header X-CSRF-Token = presCsrf3
+    And header Idempotency-Key = 'h23-f-apr-' + java.util.UUID.randomUUID()
+    When method put
+    Then status 200
+    And match response.estado == 'APROBADO'
+
+    Given path '/api/finanzas/cierre-mensual'
+    And header X-CSRF-Token = presCsrf3
+    And header Idempotency-Key = 'h23-f-cie-' + java.util.UUID.randomUUID()
+    And request { periodo: '2091-03' }
+    When method post
+    Then status 200
+    And match response.estado == 'CERRADO'
+
+  Scenario: 32. Flujos nominales 2xx de Consultas LPH y Reservas de Áreas Sociales (votar, cerrar, listar, cancelar e inspeccionar)
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf = response.csrf_token
+
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    Given path '/api/estructura/generar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-cr-est-' + java.util.UUID.randomUUID()
+    And request { nombre: "#('Torre CR32 ' + uid)", tipo: 'TORRE', identificadores: ["#('CR32-' + uid)"] }
+    When method post
+    Then status 201
+    * def unidadId = response.unidades[0].id
+
+    * def propEmail = 'prop.cr32.' + uid + '@condominio.test'
+    Given path '/api/auth/register'
+    And header Idempotency-Key = 'h23-cr-reg-' + java.util.UUID.randomUUID()
+    And request
+      """
+      {
+        "nombre": "Copropietario Consultas 32",
+        "cedula": "#('V-32' + uid)",
+        "correo": "#(propEmail)",
+        "telefono": "+584145553200",
+        "password": "fake-qa-c32-123456!",
+        "unidad_solicitada_id": #(unidadId),
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    * def propId = response.id
+
+    Given path '/api/usuarios/' + propId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-cr-asg-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), tipo_ocupante: 'PROPIETARIO', rol: 'PROPIETARIO' }
+    When method put
+    Then status 200
+
+    Given path '/api/estructura/unidades/' + unidadId + '/alicuota'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-cr-ali-' + java.util.UUID.randomUUID()
+    And request { alicuota: '100.0000' }
+    When method put
+    Then status 200
+
+    Given path '/api/consultas'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-cr-con-' + java.util.UUID.randomUUID()
+    And request
+      """
+      {
+        "titulo": "#('Consulta Pintura ' + uid)",
+        "descripcion_legal": "Aprobación nominal LPH Art. 23 aislada por UUID.",
+        "tipo_consulta": "CARTA_CONSULTA_1RA",
+        "regla_quorum": "DOS_TERCIOS",
+        "fecha_cierre": "2099-12-31T23:59:59Z",
+        "opciones": [
+          { "etiqueta": "Sí, aprobar", "es_opcion_aprobatoria": true },
+          { "etiqueta": "No aprobar", "es_opcion_aprobatoria": false }
+        ]
+      }
+      """
+    When method post
+    Then status 201
+    * def consultaId = response.id
+    * def opcionId = response.opciones[0].id
+
+    Given path '/api/reservas/areas'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-cr-area-' + java.util.UUID.randomUUID()
+    And request { nombre: "#('Salón Nominal ' + uid)", aforo_maximo: 30, costo_uso_usd: '0.00', deposito_garantia_usd: '0.00', requiere_solvencia_estricta: false }
+    When method post
+    Then status 201
+    * def areaId = response.id
+
+    Given path '/api/auth/login'
+    And request { correo: "#(propEmail)", password: 'fake-qa-c32-123456!' }
+    When method post
+    Then status 200
+    * def propCsrf = response.csrf_token
+
+    Given path '/api/consultas'
+    When method get
+    Then status 200
+    And match response == '#[]'
+
+    Given path '/api/consultas/' + consultaId
+    When method get
+    Then status 200
+    And match response.id == consultaId
+
+    Given path '/api/consultas/' + consultaId + '/votar'
+    And header X-CSRF-Token = propCsrf
+    And header Idempotency-Key = 'h23-cr-vot-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), opcion_id: #(opcionId) }
+    When method post
+    Then status 201
+    And match response.firma_hmac == '#string'
+
+    Given path '/api/reservas/areas'
+    When method get
+    Then status 200
+
+    Given path '/api/reservas/solicitar'
+    And header X-CSRF-Token = propCsrf
+    And header Idempotency-Key = 'h23-cr-r1-' + java.util.UUID.randomUUID()
+    And request { area_id: #(areaId), unidad_id: #(unidadId), fecha_evento: '2098-04-10', motivo_evento: 'Cumpleaños vecinal 32' }
+    When method post
+    Then status 201
+    * def reservaId1 = response.id
+
+    Given path '/api/reservas/solicitar'
+    And header X-CSRF-Token = propCsrf
+    And header Idempotency-Key = 'h23-cr-r2-' + java.util.UUID.randomUUID()
+    And request { area_id: #(areaId), unidad_id: #(unidadId), fecha_evento: '2098-04-11', motivo_evento: 'Reunión educativa 32' }
+    When method post
+    Then status 201
+    * def reservaId2 = response.id
+
+    Given path '/api/reservas'
+    When method get
+    Then status 200
+
+    Given path '/api/reservas/' + reservaId2 + '/cancelar'
+    And header X-CSRF-Token = propCsrf
+    And header Idempotency-Key = 'h23-cr-canc-' + java.util.UUID.randomUUID()
+    When method put
+    Then status 200
+    And match response.estado == 'CANCELADA'
+
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf2 = response.csrf_token
+
+    Given path '/api/reservas/' + reservaId1 + '/inspeccionar'
+    And header X-CSRF-Token = presCsrf2
+    And header Idempotency-Key = 'h23-cr-insp-' + java.util.UUID.randomUUID()
+    And request { estado: 'FINALIZADA_SIN_DANOS', observaciones_inspeccion: 'Salón entregado limpio sin novedades' }
+    When method put
+    Then status 200
+    And match response.estado == 'FINALIZADA_SIN_DANOS'
+
+    Given path '/api/consultas/' + consultaId + '/cerrar'
+    And header X-CSRF-Token = presCsrf2
+    And header Idempotency-Key = 'h23-cr-cls-' + java.util.UUID.randomUUID()
+    When method post
+    Then status 200
+
+  Scenario: 33. Flujos nominales 2xx de Incidencias, Operaciones, Accesos QR, Paquetería y Cargos de Junta
+    Given path '/api/auth/login'
+    And request { correo: 'presidente.bootstrap@condominio.test', password: 'fake-qa-bootstrap-123456!' }
+    When method post
+    Then status 200
+    * def presCsrf = response.csrf_token
+
+    * def uid = (java.util.UUID.randomUUID() + '').substring(0, 8)
+    Given path '/api/estructura/generar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-oa-est-' + java.util.UUID.randomUUID()
+    And request { nombre: "#('Torre OA33 ' + uid)", tipo: 'TORRE', identificadores: ["#('OA33-' + uid)"] }
+    When method post
+    Then status 201
+    * def unidadId = response.unidades[0].id
+
+    * def propEmail = 'prop.oa33.' + uid + '@condominio.test'
+    Given path '/api/auth/register'
+    And header Idempotency-Key = 'h23-oa-regp-' + java.util.UUID.randomUUID()
+    And request
+      """
+      {
+        "nombre": "Propietario OA33",
+        "cedula": "#('V-33A' + uid.substring(0, 5))",
+        "correo": "#(propEmail)",
+        "telefono": "+584145553301",
+        "password": "fake-qa-oa33-123456!",
+        "unidad_solicitada_id": #(unidadId),
+        "tipo_ocupante_solicitado": "PROPIETARIO"
+      }
+      """
+    When method post
+    Then status 201
+    * def propId = response.id
+
+    Given path '/api/usuarios/' + propId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-oa-asgp-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), tipo_ocupante: 'PROPIETARIO', rol: 'PROPIETARIO' }
+    When method put
+    Then status 200
+
+    * def consEmail = 'cons.oa33.' + uid + '@condominio.test'
+    Given path '/api/auth/register'
+    And header Idempotency-Key = 'h23-oa-regc-' + java.util.UUID.randomUUID()
+    And request
+      """
+      {
+        "nombre": "Conserje OA33",
+        "cedula": "#('V-33B' + uid.substring(0, 5))",
+        "correo": "#(consEmail)",
+        "telefono": "+584145553302",
+        "password": "fake-qa-co33-123456!",
+        "unidad_solicitada_id": #(unidadId),
+        "tipo_ocupante_solicitado": "INQUILINO"
+      }
+      """
+    When method post
+    Then status 201
+    * def consId = response.id
+
+    Given path '/api/usuarios/' + consId + '/asignar'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-oa-asgc-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), tipo_ocupante: 'INQUILINO', rol: 'CONSERJE' }
+    When method put
+    Then status 200
+
+    # Promoción de Junta y operaciones administrativas del Presidente
+    Given path '/api/junta/cargos'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-oa-junta-' + java.util.UUID.randomUUID()
+    And request { usuario_id: #(propId), cargo: 'SECRETARIO' }
+    When method put
+    Then status 200
+    And match response.rol == 'SECRETARIO'
+
+    Given path '/api/tareas/plantillas'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-oa-tpl-' + java.util.UUID.randomUUID()
+    And request { titulo: "#('Ronda Garita ' + uid)", area: 'Garita', frecuencia: 'DIARIA' }
+    When method post
+    Then status 201
+
+    Given path '/api/tareas/generar-diarias'
+    And header X-CSRF-Token = presCsrf
+    When method post
+    Then status 200
+
+    Given path '/api/tareas/diarias'
+    And header X-CSRF-Token = presCsrf
+    And header Idempotency-Key = 'h23-oa-td-' + java.util.UUID.randomUUID()
+    And request { titulo: "#('Revisión Bombas ' + uid)", area: 'Sótano' }
+    When method post
+    Then status 201
+
+    Given path '/api/tareas/diarias'
+    When method get
+    Then status 200
+
+    Given path '/api/voceros/galeria'
+    When method get
+    Then status 200
+
+    # Secretario asienta acta en Bitácora, emite Comunicado y reporta Incidencia
+    Given path '/api/auth/login'
+    And request { correo: "#(propEmail)", password: 'fake-qa-oa33-123456!' }
+    When method post
+    Then status 200
+    * def secCsrf = response.csrf_token
+
+    Given path '/api/bitacora/acta'
+    And header X-CSRF-Token = secCsrf
+    And header Idempotency-Key = 'h23-oa-acta-' + java.util.UUID.randomUUID()
+    And request { fecha: '2026-11-18', hora: '19:30', ubicacion: "#('Salón ' + uid)", contenido: 'Verificación periódica de convivencia y mantenimiento.' }
+    When method post
+    Then status 201
+
+    Given path '/api/bitacora/historial'
+    When method get
+    Then status 200
+
+    Given path '/api/comunicados'
+    And header X-CSRF-Token = secCsrf
+    And header Idempotency-Key = 'h23-oa-com-' + java.util.UUID.randomUUID()
+    And request { titulo: "#('Aviso General ' + uid)", contenido: 'Corte programado de agua de 09:00 a 11:00 AM por limpieza.' }
+    When method post
+    Then status 201
+
+    Given path '/api/comunicados/recientes'
+    When method get
+    Then status 200
+
+    Given path '/api/incidencias/crear'
+    And header X-CSRF-Token = secCsrf
+    And header Idempotency-Key = 'h23-oa-inc-' + java.util.UUID.randomUUID()
+    And request { area: "#('Ascensor ' + uid)", descripcion: 'Luminaria intermitente en cabina principal' }
+    When method post
+    Then status 201
+    * def incidenciaId = response.id
+
+    Given path '/api/incidencias/abiertas'
+    When method get
+    Then status 200
+
+    # Pases QR de visita (emisión + listado + revocación del segundo pase)
+    Given path '/api/accesos/pases'
+    And header X-CSRF-Token = secCsrf
+    And header Idempotency-Key = 'h23-oa-p1-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), nombre_visitante: 'Visitante Nominal', cedula_visitante: 'V-33112233', modalidad: 'UNICO_USO' }
+    When method post
+    Then status 201
+    * def qrToken = response.qr_token
+
+    Given path '/api/accesos/pases'
+    And header X-CSRF-Token = secCsrf
+    And header Idempotency-Key = 'h23-oa-p2-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), nombre_visitante: 'Visitante Revocable', cedula_visitante: 'V-33112244', modalidad: 'VENTANA_TEMPORAL' }
+    When method post
+    Then status 201
+    * def paseRevId = response.id
+
+    Given path '/api/accesos/pases/mios'
+    When method get
+    Then status 200
+
+    Given path '/api/accesos/pases/' + paseRevId
+    And header X-CSRF-Token = secCsrf
+    When method delete
+    Then status 200
+
+    # Conserje se adhiere a incidencia, valida QR en garita, registra y lista paquetería
+    Given path '/api/auth/login'
+    And request { correo: "#(consEmail)", password: 'fake-qa-co33-123456!' }
+    When method post
+    Then status 200
+    * def consCsrf = response.csrf_token
+
+    Given path '/api/incidencias/' + incidenciaId + '/adherir'
+    And header X-CSRF-Token = consCsrf
+    And header Idempotency-Key = 'h23-oa-adh-' + java.util.UUID.randomUUID()
+    When method post
+    Then status 200
+    And match response.adhesiones_count == 2
+
+    Given path '/api/accesos/verificar-qr'
+    And header X-CSRF-Token = consCsrf
+    And header Idempotency-Key = 'h23-oa-vqr-' + java.util.UUID.randomUUID()
+    And request { qr_token: #(qrToken) }
+    When method post
+    Then status 200
+    And match response.autorizado == true
+
+    Given path '/api/paqueteria/registrar'
+    And header X-CSRF-Token = consCsrf
+    And header Idempotency-Key = 'h23-oa-paq-' + java.util.UUID.randomUUID()
+    And request { unidad_id: #(unidadId), empresa_envio: 'MRW', descripcion: "#('Sobre certificado ' + uid)" }
+    When method post
+    Then status 201
+    * def paqueteId = response.id
+
+    Given path '/api/paqueteria'
+    When method get
+    Then status 200
+
+    Given path '/api/paqueteria/' + paqueteId + '/entregar'
+    And header X-CSRF-Token = consCsrf
+    And header Idempotency-Key = 'h23-oa-ent-' + java.util.UUID.randomUUID()
+    When method put
+    Then status 200
+    And match response.estado == 'ENTREGADO'
 
 
 

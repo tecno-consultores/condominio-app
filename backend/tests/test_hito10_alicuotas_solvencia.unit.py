@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from collections.abc import AsyncIterator
 from decimal import Decimal
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
-from fastapi import HTTPException
-from fastapi.testclient import TestClient
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.database import get_db
 from src.dependencies import get_current_user
@@ -22,81 +23,56 @@ from src.facturacion_lph import (
     cargar_contexto_facturacion,
     persistir_lote_facturacion,
 )
-from src.finanzas import ErrorFinanciero, generar_firma_solvencia
+from src.finanzas import ErrorFinanciero
 from src.main import app
 from src.models import (
-    CertificadoSolvencia,
-    ContratoOcupacion,
+    AuditoriaRecibo,
     Egreso,
+    Estructura,
     FondoCondominio,
     PagoReportado,
     Recibo,
     ReciboItem,
     ReporteMensual,
-    TasaCambio,
     Unidad,
+    Usuario,
 )
 from src.redis_client import get_redis_client
-from src.security import get_solvency_signing_key
+from src.schemas import FacturarPeriodoRequest
+from tests._sqlite_helpers import SeededCondoContext, create_sqlite_fk_factory, seed_condo_base
 
 HEADERS = {"Idempotency-Key": "018f4a12-1010-7000-8000-000000001010"}
 
 
-class FakeUser:
-    def __init__(self, user_id: int = 1, rol: str = "TESORERO", es_activo: bool = True) -> None:
-        self.id = user_id
-        self.correo = f"{rol.lower()}@condominio.test"
-        self.rol = rol
-        self.es_activo = es_activo
+async def _preparar_entorno() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession], SeededCondoContext]:
+    engine, factory = await create_sqlite_fk_factory()
+    ctx = await seed_condo_base(factory)
+    return engine, factory, ctx
 
 
-def _result(value: Any) -> MagicMock:
-    res = MagicMock()
-    res.scalars().first.return_value = value
-    return res
+async def _cargar_usuario(factory: async_sessionmaker[AsyncSession], usuario_id: int) -> Usuario:
+    async with factory() as session:
+        usuario = await session.get(Usuario, usuario_id)
+        assert usuario is not None
+        return usuario
 
 
-def _result_list(values: list[Any]) -> MagicMock:
-    res = MagicMock()
-    res.scalars().all.return_value = values
-    return res
-
-
-def _mock_session(*results: Any) -> AsyncMock:
-    session = AsyncMock()
-    session.execute.side_effect = list(results)
-    added: list[Any] = []
-    seq = [0]
-
-    def _add(obj: Any) -> None:
-        added.append(obj)
-
-    session.add = MagicMock(side_effect=_add)
-
-    async def _flush(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        for obj in added:
-            if getattr(obj, "id", None) is None:
-                seq[0] += 1
-                obj.id = seq[0]
-
-    session.flush = AsyncMock(side_effect=_flush)
-
-    async def _refresh(instance: Any, *args: object, **kwargs: object) -> None:
-        if getattr(instance, "id", None) is None:
-            seq[0] += 1
-            instance.id = seq[0]
-
-    session.refresh = _refresh
-    return session
-
-
-def _setup(session: AsyncMock, user: FakeUser | None = None, redis_new: bool = True) -> AsyncMock:
+def _configurar_overrides(
+    factory: async_sessionmaker[AsyncSession],
+    usuario: Usuario,
+    *,
+    redis_new: bool = True,
+) -> AsyncMock:
     mock_redis = AsyncMock()
     mock_redis.set.return_value = redis_new
-    app.dependency_overrides[get_db] = lambda: session
+
+    async def _override_get_db() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_redis_client] = lambda: mock_redis
-    app.dependency_overrides[get_current_user] = lambda: user or FakeUser()
+    app.dependency_overrides[get_current_user] = lambda: usuario
     return mock_redis
 
 
@@ -105,109 +81,161 @@ def _setup(session: AsyncMock, user: FakeUser | None = None, redis_new: bool = T
 # ==============================================================================
 
 
-def test_reportar_pago_referencia_bancaria_duplicada_devuelve_409(client: TestClient) -> None:
-    pago_existente = PagoReportado(
-        id=9,
-        recibo_id=1,
-        usuario_id=2,
-        monto=Decimal("50.00"),
-        moneda="USD",
-        monto_usd=Decimal("50.00"),
-        tasa_cambio=Decimal("36.5000"),
-        metodo_pago="ZELLE",
-        numero_referencia="REF-DUP-001",
-        estado="APROBADO",
-    )
-    session = _mock_session(_result(pago_existente))
-    _setup(session, user=FakeUser(user_id=5, rol="PROPIETARIO"))
+async def test_reportar_pago_referencia_bancaria_duplicada_devuelve_409() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            recibo = Recibo(
+                condominio_id=1,
+                unidad_id=ctx.unidad_a_id,
+                periodo="2026-10",
+                monto_usd=Decimal("100.00"),
+                monto_pagado_usd=Decimal("0.00"),
+                estado="PENDIENTE",
+                bloqueado=False,
+            )
+            seed_db.add(recibo)
+            await seed_db.flush()
+            seed_db.add(
+                PagoReportado(
+                    condominio_id=1,
+                    recibo_id=recibo.id,
+                    usuario_id=ctx.propietario_id,
+                    monto=Decimal("50.00"),
+                    moneda="USD",
+                    monto_usd=Decimal("50.00"),
+                    tasa_cambio=Decimal("45.5000"),
+                    metodo_pago="ZELLE",
+                    numero_referencia="REF-DUP-001",
+                    estado="APROBADO",
+                )
+            )
+            await seed_db.commit()
+            recibo_id = recibo.id
 
-    res = client.post(
-        "/api/pagos/reportar",
-        json={
-            "recibo_id": 1,
-            "monto": "50.00",
-            "moneda": "USD",
-            "metodo_pago": "ZELLE",
-            "numero_referencia": "REF-DUP-001",
-        },
-        headers=HEADERS,
-    )
-    assert res.status_code == 409
-    assert "referencia bancaria ya fue registrado" in res.json()["detail"]
-    # pyrefly: ignore[implicit-any-empty-container]
-    app.dependency_overrides = {}
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        _configurar_overrides(factory, propietario)
 
-
-def test_reportar_pago_referencia_bancaria_unica_exito(client: TestClient) -> None:
-    tasa = TasaCambio(id=1, fecha=date.today(), tasa_usd_ves=Decimal("36.5000"))
-    recibo = Recibo(
-        id=1,
-        unidad_id=1,
-        periodo="2026-10",
-        monto_usd=Decimal("100.00"),
-        monto_pagado_usd=Decimal("0.00"),
-        estado="PENDIENTE",
-        bloqueado=False,
-    )
-    contrato = ContratoOcupacion(id=1, usuario_id=5, unidad_id=1, tipo_ocupante="PROPIETARIO", es_activo=True)
-    session = _mock_session(_result(None), _result(tasa), _result(recibo), _result(contrato))
-    _setup(session, user=FakeUser(user_id=5, rol="PROPIETARIO"))
-
-    res = client.post(
-        "/api/pagos/reportar",
-        json={
-            "recibo_id": 1,
-            "monto": "100.00",
-            "moneda": "USD",
-            "metodo_pago": "PAGO_MOVIL",
-            "numero_referencia": "REF-UNICA-999",
-        },
-        headers=HEADERS,
-    )
-    assert res.status_code == 201
-    app.dependency_overrides = {}
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            res = await client.post(
+                "/api/pagos/reportar",
+                json={
+                    "recibo_id": recibo_id,
+                    "monto": "50.00",
+                    "moneda": "USD",
+                    "metodo_pago": "ZELLE",
+                    "numero_referencia": "REF-DUP-001",
+                },
+                headers=HEADERS,
+            )
+            assert res.status_code == 409
+            assert "referencia bancaria ya fue registrado" in res.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_aprobar_pago_con_sobrepago_acredita_saldo_a_favor_unidad(client: TestClient) -> None:
-    pago = PagoReportado(
-        id=12,
-        recibo_id=1,
-        usuario_id=5,
-        monto=Decimal("125.00"),
-        moneda="USD",
-        monto_usd=Decimal("125.00"),
-        tasa_cambio=Decimal("36.5000"),
-        metodo_pago="ZELLE",
-        numero_referencia="REF-OVER-1",
-        estado="EN_REVISION",
-    )
-    recibo = Recibo(
-        id=1,
-        unidad_id=3,
-        periodo="2026-10",
-        monto_usd=Decimal("100.00"),
-        monto_pagado_usd=Decimal("0.00"),
-        estado="PENDIENTE",
-        bloqueado=False,
-    )
-    unidad = Unidad(
-        id=3,
-        identificador="A-03",
-        estructura_id=1,
-        alicuota=Decimal("25.0000"),
-        credito_disponible_usd=Decimal("10.00"),
-    )
-    session = _mock_session(_result(pago), _result(recibo), _result(unidad))
-    _setup(session)
+async def test_reportar_pago_referencia_bancaria_unica_exito() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            recibo = Recibo(
+                condominio_id=1,
+                unidad_id=ctx.unidad_a_id,
+                periodo="2026-10",
+                monto_usd=Decimal("100.00"),
+                monto_pagado_usd=Decimal("0.00"),
+                estado="PENDIENTE",
+                bloqueado=False,
+            )
+            seed_db.add(recibo)
+            await seed_db.commit()
+            recibo_id = recibo.id
 
-    res = client.put("/api/pagos/12/aprobar", headers=HEADERS)
-    assert res.status_code == 200
-    assert recibo.estado == "PAGADO"
-    assert recibo.monto_pagado_usd == Decimal("100.00")
-    assert unidad.credito_disponible_usd == Decimal("35.00")
-    audit = session.add.call_args[0][0]
-    assert "Sobrepago acreditado" in audit.motivo
-    app.dependency_overrides = {}
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        _configurar_overrides(factory, propietario)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            res = await client.post(
+                "/api/pagos/reportar",
+                json={
+                    "recibo_id": recibo_id,
+                    "monto": "100.00",
+                    "moneda": "USD",
+                    "metodo_pago": "PAGO_MOVIL",
+                    "numero_referencia": "REF-UNICA-999",
+                },
+                headers=HEADERS,
+            )
+            assert res.status_code == 201
+
+        async with factory() as check_db:
+            pago_bd = await check_db.get(PagoReportado, res.json()["id"])
+            assert pago_bd is not None
+            assert pago_bd.numero_referencia == "REF-UNICA-999"
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+async def test_aprobar_pago_con_sobrepago_acredita_saldo_a_favor_unidad() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            unidad_a = await seed_db.get(Unidad, ctx.unidad_a_id)
+            assert unidad_a is not None
+            unidad_a.credito_disponible_usd = Decimal("10.00")
+
+            recibo = Recibo(
+                condominio_id=1,
+                unidad_id=ctx.unidad_a_id,
+                periodo="2026-10",
+                monto_usd=Decimal("100.00"),
+                monto_pagado_usd=Decimal("0.00"),
+                estado="PENDIENTE",
+                bloqueado=False,
+            )
+            seed_db.add(recibo)
+            await seed_db.flush()
+            pago = PagoReportado(
+                condominio_id=1,
+                recibo_id=recibo.id,
+                usuario_id=ctx.propietario_id,
+                monto=Decimal("125.00"),
+                moneda="USD",
+                monto_usd=Decimal("125.00"),
+                tasa_cambio=Decimal("45.5000"),
+                metodo_pago="ZELLE",
+                numero_referencia="REF-OVER-1",
+                estado="EN_REVISION",
+            )
+            seed_db.add(pago)
+            await seed_db.commit()
+            recibo_id = recibo.id
+            pago_id = pago.id
+
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
+        _configurar_overrides(factory, tesorero)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            res = await client.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS)
+            assert res.status_code == 200
+
+        async with factory() as check_db:
+            recibo_bd = await check_db.get(Recibo, recibo_id)
+            unidad_bd = await check_db.get(Unidad, ctx.unidad_a_id)
+            assert recibo_bd is not None and unidad_bd is not None
+            assert recibo_bd.estado == "PAGADO"
+            assert recibo_bd.monto_pagado_usd == Decimal("100.00")
+            assert unidad_bd.credito_disponible_usd == Decimal("35.00")
+
+            res_audit = await check_db.execute(select(AuditoriaRecibo).where(AuditoriaRecibo.recibo_id == recibo_id))
+            audit = res_audit.scalars().first()
+            assert audit is not None
+            assert "Sobrepago acreditado" in audit.motivo
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 # ==============================================================================
@@ -215,47 +243,42 @@ def test_aprobar_pago_con_sobrepago_acredita_saldo_a_favor_unidad(client: TestCl
 # ==============================================================================
 
 
-def test_actualizar_alicuota_unidad_exito_y_errores(client: TestClient) -> None:
-    unidad = Unidad(
-        id=1,
-        identificador="A-01",
-        estructura_id=1,
-        alicuota=Decimal("0.0000"),
-        cuota_fija_usd=None,
-        credito_disponible_usd=Decimal("0.00"),
-    )
-    session = _mock_session(_result(unidad))
-    _setup(session)
+async def test_actualizar_alicuota_unidad_exito_y_errores() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
 
-    res = client.put(
-        "/api/estructura/unidades/1/alicuota",
-        json={"alicuota": "33.3333", "cuota_fija_usd": "25.00"},
-        headers=HEADERS,
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert Decimal(body["alicuota"]) == Decimal("33.3333")
-    assert Decimal(body["cuota_fija_usd"]) == Decimal("25.00")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            _configurar_overrides(factory, tesorero)
+            res = await client.put(
+                f"/api/estructura/unidades/{ctx.unidad_a_id}/alicuota",
+                json={"alicuota": "33.3333", "cuota_fija_usd": "25.00"},
+                headers=HEADERS,
+            )
+            assert res.status_code == 200
+            body = res.json()
+            assert Decimal(body["alicuota"]) == Decimal("33.3333")
+            assert Decimal(body["cuota_fija_usd"]) == Decimal("25.00")
 
-    # 404 Unidad no encontrada
-    session_404 = _mock_session(_result(None))
-    _setup(session_404)
-    res_404 = client.put(
-        "/api/estructura/unidades/999/alicuota",
-        json={"alicuota": "10.0000"},
-        headers=HEADERS,
-    )
-    assert res_404.status_code == 404
+            # 404 Unidad no encontrada
+            res_404 = await client.put(
+                "/api/estructura/unidades/999/alicuota",
+                json={"alicuota": "10.0000"},
+                headers=HEADERS,
+            )
+            assert res_404.status_code == 404
 
-    # 409 Idempotencia duplicada
-    _setup(_mock_session(), redis_new=False)
-    res_409 = client.put(
-        "/api/estructura/unidades/1/alicuota",
-        json={"alicuota": "10.0000"},
-        headers=HEADERS,
-    )
-    assert res_409.status_code == 409
-    app.dependency_overrides = {}
+            # 409 Idempotencia duplicada
+            _configurar_overrides(factory, tesorero, redis_new=False)
+            res_409 = await client.put(
+                f"/api/estructura/unidades/{ctx.unidad_a_id}/alicuota",
+                json={"alicuota": "10.0000"},
+                headers=HEADERS,
+            )
+            assert res_409.status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 # ==============================================================================
@@ -263,52 +286,47 @@ def test_actualizar_alicuota_unidad_exito_y_errores(client: TestClient) -> None:
 # ==============================================================================
 
 
-def test_crear_y_listar_fondos_condominio(client: TestClient) -> None:
-    session = _mock_session(_result(None))
-    _setup(session)
+async def test_crear_y_listar_fondos_condominio() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
 
-    res = client.post(
-        "/api/finanzas/fondos",
-        json={"nombre": "Fondo de Reserva Legal", "tipo": "RESERVA_LEGAL", "porcentaje_recargo": "10.00"},
-        headers=HEADERS,
-    )
-    assert res.status_code == 201
-    assert res.json()["nombre"] == "Fondo de Reserva Legal"
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            _configurar_overrides(factory, tesorero)
+            res = await client.post(
+                "/api/finanzas/fondos",
+                json={"nombre": "Fondo de Reserva Legal", "tipo": "RESERVA_LEGAL", "porcentaje_recargo": "10.00"},
+                headers=HEADERS,
+            )
+            assert res.status_code == 201
+            assert res.json()["nombre"] == "Fondo de Reserva Legal"
 
-    # 409 Nombre duplicado
-    fondo_exist = FondoCondominio(
-        id=1,
-        nombre="Fondo de Reserva Legal",
-        tipo="RESERVA_LEGAL",
-        porcentaje_recargo=Decimal("10.00"),
-        saldo_actual_usd=Decimal("0.00"),
-        es_activo=True,
-    )
-    session_dup = _mock_session(_result(fondo_exist))
-    _setup(session_dup)
-    res_dup = client.post(
-        "/api/finanzas/fondos",
-        json={"nombre": "Fondo de Reserva Legal"},
-        headers=HEADERS,
-    )
-    assert res_dup.status_code == 409
+            # 409 Nombre duplicado
+            res_dup = await client.post(
+                "/api/finanzas/fondos",
+                json={"nombre": "Fondo de Reserva Legal"},
+                headers=HEADERS,
+            )
+            assert res_dup.status_code == 409
 
-    # 409 Idempotencia duplicada
-    _setup(_mock_session(), redis_new=False)
-    res_idemp = client.post(
-        "/api/finanzas/fondos",
-        json={"nombre": "Caja Chica", "tipo": "CAJA_CHICA"},
-        headers=HEADERS,
-    )
-    assert res_idemp.status_code == 409
+            # 409 Idempotencia duplicada
+            _configurar_overrides(factory, tesorero, redis_new=False)
+            res_idemp = await client.post(
+                "/api/finanzas/fondos",
+                json={"nombre": "Caja Chica", "tipo": "CAJA_CHICA"},
+                headers=HEADERS,
+            )
+            assert res_idemp.status_code == 409
 
-    # GET /api/finanzas/fondos
-    session_list = _mock_session(_result_list([fondo_exist]))
-    _setup(session_list, user=FakeUser(rol="PROPIETARIO"))
-    res_list = client.get("/api/finanzas/fondos")
-    assert res_list.status_code == 200
-    assert len(res_list.json()) == 1
-    app.dependency_overrides = {}
+            # GET /api/finanzas/fondos
+            _configurar_overrides(factory, propietario)
+            res_list = await client.get("/api/finanzas/fondos")
+            assert res_list.status_code == 200
+            assert len(res_list.json()) == 1
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 # ==============================================================================
@@ -316,405 +334,394 @@ def test_crear_y_listar_fondos_condominio(client: TestClient) -> None:
 # ==============================================================================
 
 
-def test_facturar_periodo_modalidad_alicuota_con_credito_y_fondo(client: TestClient) -> None:
-    unidades = [
-        Unidad(
-            id=1,
-            identificador="A-01",
-            estructura_id=1,
-            alicuota=Decimal("33.3333"),
-            credito_disponible_usd=Decimal("50.00"),
-        ),
-        Unidad(
-            id=2,
-            identificador="A-02",
-            estructura_id=1,
-            alicuota=Decimal("33.3333"),
-            credito_disponible_usd=Decimal("10.00"),
-        ),
-        Unidad(
-            id=3,
-            identificador="A-03",
-            estructura_id=1,
-            alicuota=Decimal("33.3334"),
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-    ]
-    egresos = [
-        Egreso(
-            id=1,
-            periodo="2026-10",
-            categoria="MANTENIMIENTO",
-            descripcion="Bomba de agua",
-            monto=Decimal("100.00"),
-            moneda="USD",
-            monto_usd=Decimal("100.00"),
-            tasa_cambio=Decimal("36.5000"),
-            es_gasto_comun=True,
-        )
-    ]
-    fondo = FondoCondominio(
-        id=1,
-        nombre="Fondo de Reserva Legal",
-        tipo="RESERVA_LEGAL",
-        porcentaje_recargo=Decimal("10.00"),
-        saldo_actual_usd=Decimal("200.00"),
-        es_activo=True,
-    )
-    session = _mock_session(
-        _result(None),  # ReporteMensual
-        _result(None),  # Recibo existente
-        _result_list(unidades),
-        _result_list(egresos),
-        _result(fondo),
-        _result_list([]),
-    )
-    _setup(session)
+async def test_facturar_periodo_modalidad_alicuota_con_credito_y_fondo() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            u_a = await seed_db.get(Unidad, ctx.unidad_a_id)
+            u_b = await seed_db.get(Unidad, ctx.unidad_b_id)
+            assert u_a is not None and u_b is not None
+            u_a.alicuota = Decimal("33.3333")
+            u_a.credito_disponible_usd = Decimal("50.00")
+            u_b.alicuota = Decimal("33.3333")
+            u_b.credito_disponible_usd = Decimal("10.00")
+            u_c = Unidad(
+                condominio_id=1,
+                identificador="1-C",
+                estructura_id=ctx.estructura_id,
+                alicuota=Decimal("33.3334"),
+                credito_disponible_usd=Decimal("0.00"),
+            )
+            egreso = Egreso(
+                condominio_id=1,
+                periodo="2026-10",
+                categoria="MANTENIMIENTO",
+                descripcion="Bomba de agua",
+                monto=Decimal("100.00"),
+                moneda="USD",
+                monto_usd=Decimal("100.00"),
+                tasa_cambio=Decimal("45.5000"),
+                es_gasto_comun=True,
+            )
+            fondo = FondoCondominio(
+                condominio_id=1,
+                nombre="Fondo de Reserva Legal",
+                tipo="RESERVA_LEGAL",
+                porcentaje_recargo=Decimal("10.00"),
+                saldo_actual_usd=Decimal("200.00"),
+                es_activo=True,
+            )
+            seed_db.add_all([u_c, egreso, fondo])
+            await seed_db.commit()
+            fondo_id = fondo.id
 
-    res = client.post(
-        "/api/finanzas/facturar-periodo",
-        json={
-            "periodo": "2026-10",
-            "modalidad": "ALICUOTA",
-            "incluir_fondo_reserva": True,
-            "cuota_extraordinaria_total_usd": "30.00",
-            "descripcion_cuota_extraordinaria": "Pintura fachada",
-        },
-        headers=HEADERS,
-    )
-    assert res.status_code == 201
-    body = res.json()
-    assert body["recibos_emitidos"] == 3
-    assert Decimal(body["total_egresos_comunes_usd"]) == Decimal("100.00")
-    assert Decimal(body["recargo_fondo_reserva_usd"]) == Decimal("10.00")
-    assert Decimal(body["cuota_extraordinaria_total_usd"]) == Decimal("30.00")
-    assert Decimal(body["total_facturado_bruto_usd"]) == Decimal("140.00")
-    assert fondo.saldo_actual_usd == Decimal("210.00")
-    # Unidad 1 tenía $50 de crédito y su cargo bruto era ~$46.67 -> queda cubierta al 100%
-    assert unidades[0].credito_disponible_usd > Decimal("0.00")
-    assert unidades[1].credito_disponible_usd == Decimal("0.00")
-    app.dependency_overrides = {}
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
+        _configurar_overrides(factory, tesorero)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            res = await client.post(
+                "/api/finanzas/facturar-periodo",
+                json={
+                    "periodo": "2026-10",
+                    "modalidad": "ALICUOTA",
+                    "incluir_fondo_reserva": True,
+                    "cuota_extraordinaria_total_usd": "30.00",
+                    "descripcion_cuota_extraordinaria": "Pintura fachada",
+                },
+                headers=HEADERS,
+            )
+            assert res.status_code == 201
+            body = res.json()
+            assert body["recibos_emitidos"] == 3
+            assert Decimal(body["total_egresos_comunes_usd"]) == Decimal("100.00")
+            assert Decimal(body["recargo_fondo_reserva_usd"]) == Decimal("10.00")
+            assert Decimal(body["cuota_extraordinaria_total_usd"]) == Decimal("30.00")
+            assert Decimal(body["total_facturado_bruto_usd"]) == Decimal("140.00")
+
+        async with factory() as check_db:
+            fondo_bd = await check_db.get(FondoCondominio, fondo_id)
+            u_a_bd = await check_db.get(Unidad, ctx.unidad_a_id)
+            u_b_bd = await check_db.get(Unidad, ctx.unidad_b_id)
+            assert fondo_bd is not None and u_a_bd is not None and u_b_bd is not None
+            assert fondo_bd.saldo_actual_usd == Decimal("210.00")
+            # Unidad A tenía $50 de crédito y su cargo bruto era ~$46.67 -> queda cubierta al 100%
+            assert u_a_bd.credito_disponible_usd > Decimal("0.00")
+            assert u_b_bd.credito_disponible_usd == Decimal("0.00")
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_facturar_periodo_modalidad_cuota_fija_y_partes_iguales(client: TestClient) -> None:
-    unidades = [
-        Unidad(
-            id=1,
-            identificador="C-01",
-            estructura_id=1,
-            alicuota=Decimal("0.0000"),
-            cuota_fija_usd=Decimal("35.00"),
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-        Unidad(
-            id=2,
-            identificador="C-02",
-            estructura_id=1,
-            alicuota=Decimal("0.0000"),
-            cuota_fija_usd=None,
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-    ]
-    egresos = [
-        Egreso(
-            id=1,
-            periodo="2026-11",
-            categoria="VIGILANCIA",
-            descripcion="Servicio garita",
-            monto=Decimal("40.00"),
-            moneda="USD",
-            monto_usd=Decimal("40.00"),
-            tasa_cambio=Decimal("36.5000"),
-            es_gasto_comun=True,
-        )
-    ]
-    fondo = FondoCondominio(
-        id=1,
-        nombre="Fondo de Reserva Legal",
-        tipo="RESERVA_LEGAL",
-        porcentaje_recargo=Decimal("10.00"),
-        saldo_actual_usd=Decimal("100.00"),
-        es_activo=True,
-    )
-    session_fija = _mock_session(
-        _result(None),
-        _result(None),
-        _result_list(unidades),
-        _result_list(egresos),
-        _result(fondo),
-        _result_list([]),
-    )
-    _setup(session_fija)
+async def test_facturar_periodo_modalidad_cuota_fija_y_partes_iguales() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            u_a = await seed_db.get(Unidad, ctx.unidad_a_id)
+            assert u_a is not None
+            u_a.cuota_fija_usd = Decimal("35.00")
 
-    res_fija = client.post(
-        "/api/finanzas/facturar-periodo",
-        json={
-            "periodo": "2026-11",
-            "modalidad": "CUOTA_FIJA",
-            "monto_cuota_fija_usd": "25.00",
-        },
-        headers=HEADERS,
-    )
-    assert res_fija.status_code == 201
-    body_fija = res_fija.json()
-    # 35.00 + 25.00 = 60.00 facturado - 40.00 egresos = +20.00 superávit al fondo
-    assert Decimal(body_fija["total_facturado_bruto_usd"]) == Decimal("60.00")
-    assert Decimal(body_fija["superavit_conciliado_fondo_usd"]) == Decimal("20.00")
-    assert fondo.saldo_actual_usd == Decimal("120.00")
+            egreso_nov = Egreso(
+                condominio_id=1,
+                periodo="2026-11",
+                categoria="VIGILANCIA",
+                descripcion="Servicio garita",
+                monto=Decimal("40.00"),
+                moneda="USD",
+                monto_usd=Decimal("40.00"),
+                tasa_cambio=Decimal("45.5000"),
+                es_gasto_comun=True,
+            )
+            egreso_dic = Egreso(
+                condominio_id=1,
+                periodo="2026-12",
+                categoria="VIGILANCIA",
+                descripcion="Servicio garita",
+                monto=Decimal("40.00"),
+                moneda="USD",
+                monto_usd=Decimal("40.00"),
+                tasa_cambio=Decimal("45.5000"),
+                es_gasto_comun=True,
+            )
+            fondo = FondoCondominio(
+                condominio_id=1,
+                nombre="Fondo de Reserva Legal",
+                tipo="RESERVA_LEGAL",
+                porcentaje_recargo=Decimal("10.00"),
+                saldo_actual_usd=Decimal("100.00"),
+                es_activo=True,
+            )
+            seed_db.add_all([egreso_nov, egreso_dic, fondo])
+            await seed_db.commit()
+            fondo_id = fondo.id
 
-    # Modalidad PARTES_IGUALES
-    session_iguales = _mock_session(
-        _result(None),
-        _result(None),
-        _result_list(unidades),
-        _result_list(egresos),
-        _result(None),
-        _result_list([]),
-    )
-    _setup(session_iguales)
-    res_iguales = client.post(
-        "/api/finanzas/facturar-periodo",
-        json={
-            "periodo": "2026-12",
-            "modalidad": "PARTES_IGUALES",
-            "incluir_fondo_reserva": False,
-        },
-        headers=HEADERS,
-    )
-    assert res_iguales.status_code == 201
-    assert Decimal(res_iguales.json()["total_facturado_bruto_usd"]) == Decimal("40.00")
-    app.dependency_overrides = {}
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
+        _configurar_overrides(factory, tesorero)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            res_fija = await client.post(
+                "/api/finanzas/facturar-periodo",
+                json={
+                    "periodo": "2026-11",
+                    "modalidad": "CUOTA_FIJA",
+                    "monto_cuota_fija_usd": "25.00",
+                },
+                headers=HEADERS,
+            )
+            assert res_fija.status_code == 201
+            body_fija = res_fija.json()
+            # 35.00 + 25.00 = 60.00 facturado - 40.00 egresos = +20.00 superávit al fondo
+            assert Decimal(body_fija["total_facturado_bruto_usd"]) == Decimal("60.00")
+            assert Decimal(body_fija["superavit_conciliado_fondo_usd"]) == Decimal("20.00")
+
+            async with factory() as check_db:
+                fondo_bd = await check_db.get(FondoCondominio, fondo_id)
+                assert fondo_bd is not None
+                assert fondo_bd.saldo_actual_usd == Decimal("120.00")
+
+            # Modalidad PARTES_IGUALES
+            res_iguales = await client.post(
+                "/api/finanzas/facturar-periodo",
+                json={
+                    "periodo": "2026-12",
+                    "modalidad": "PARTES_IGUALES",
+                    "incluir_fondo_reserva": False,
+                },
+                headers=HEADERS,
+            )
+            assert res_iguales.status_code == 201
+            assert Decimal(res_iguales.json()["total_facturado_bruto_usd"]) == Decimal("40.00")
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_facturar_periodo_errores_y_bloqueos(client: TestClient) -> None:
-    # 1. Idempotencia duplicada
-    _setup(_mock_session(), redis_new=False)
-    assert (
-        client.post(
-            "/api/finanzas/facturar-periodo",
-            json={"periodo": "2026-10"},
-            headers=HEADERS,
-        ).status_code
-        == 409
-    )
+async def test_facturar_periodo_errores_y_bloqueos(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    engine_vacio, factory_vacio = await create_sqlite_fk_factory()
+    try:
+        async with factory() as seed_db:
+            seed_db.add(ReporteMensual(condominio_id=1, periodo="2026-10", estado="CERRADO"))
+            recibo_ya = Recibo(
+                condominio_id=1,
+                unidad_id=ctx.unidad_a_id,
+                periodo="2026-11",
+                monto_usd=Decimal("10.00"),
+                monto_pagado_usd=Decimal("0.00"),
+                estado="PENDIENTE",
+            )
+            seed_db.add(recibo_ya)
+            await seed_db.flush()
+            seed_db.add(
+                ReciboItem(
+                    condominio_id=1,
+                    recibo_id=recibo_ya.id,
+                    tipo_item="GASTO_COMUN",
+                    descripcion="Gasto común",
+                    monto_usd=Decimal("10.00"),
+                )
+            )
+            await seed_db.commit()
 
-    # 2. Periodo cerrado por Candado Contable
-    session_cerrado = _mock_session(_result(ReporteMensual(id=1, periodo="2026-10", estado="CERRADO")))
-    _setup(session_cerrado)
-    assert (
-        client.post(
-            "/api/finanzas/facturar-periodo",
-            json={"periodo": "2026-10"},
-            headers=HEADERS,
-        ).status_code
-        == 409
-    )
+        async with factory_vacio() as seed_vacio:
+            tesorero_vacio = Usuario(
+                condominio_id=1,
+                nombre="Tesorero Sin Unidades",
+                cedula="V-90000010",
+                correo="tes_vacio@condo.test",
+                telefono="+584140000110",
+                password_hash="hash_no_usado",
+                es_activo=True,
+                rol="TESORERO",
+            )
+            seed_vacio.add(tesorero_vacio)
+            await seed_vacio.commit()
+            await seed_vacio.refresh(tesorero_vacio)
 
-    # 3. Periodo ya facturado
-    session_ya = _mock_session(
-        _result(None),
-        _result(Recibo(id=1, unidad_id=1, periodo="2026-10", monto_usd=Decimal("10.00"))),
-    )
-    _setup(session_ya)
-    assert (
-        client.post(
-            "/api/finanzas/facturar-periodo",
-            json={"periodo": "2026-10"},
-            headers=HEADERS,
-        ).status_code
-        == 409
-    )
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
 
-    # 4. Sin unidades registradas
-    session_sin_uni = _mock_session(_result(None), _result(None), _result_list([]))
-    _setup(session_sin_uni)
-    assert (
-        client.post(
-            "/api/finanzas/facturar-periodo",
-            json={"periodo": "2026-10"},
-            headers=HEADERS,
-        ).status_code
-        == 400
-    )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # 1. Idempotencia duplicada -> 409
+            _configurar_overrides(factory, tesorero, redis_new=False)
+            assert (
+                await client.post("/api/finanzas/facturar-periodo", json={"periodo": "2026-10"}, headers=HEADERS)
+            ).status_code == 409
 
-    # 5. CUOTA_FIJA sin monto_cuota_fija_usd y unidad sin cuota_fija_usd
-    uni_sin_fija = [Unidad(id=1, identificador="A-01", estructura_id=1, alicuota=Decimal("0.0000"))]
-    session_bad_fija = _mock_session(
-        _result(None),
-        _result(None),
-        _result_list(uni_sin_fija),
-        _result_list([]),
-        _result(None),
-    )
-    _setup(session_bad_fija)
-    assert (
-        client.post(
-            "/api/finanzas/facturar-periodo",
-            json={"periodo": "2026-10", "modalidad": "CUOTA_FIJA"},
-            headers=HEADERS,
-        ).status_code
-        == 400
-    )
+            # 2. Periodo cerrado por Candado Contable -> 409
+            _configurar_overrides(factory, tesorero)
+            assert (
+                await client.post("/api/finanzas/facturar-periodo", json={"periodo": "2026-10"}, headers=HEADERS)
+            ).status_code == 409
 
-    # 6. Modalidad ALICUOTA con suma de alícuotas != 100.0000% -> 400
-    uni_suma_invalida = [
-        Unidad(
-            id=1,
-            identificador="A-01",
-            estructura_id=1,
-            alicuota=Decimal("50.0000"),
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-        Unidad(
-            id=2,
-            identificador="A-02",
-            estructura_id=1,
-            alicuota=Decimal("30.0000"),
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-    ]
-    session_bad_alic = _mock_session(
-        _result(None),
-        _result(None),
-        _result_list(uni_suma_invalida),
-        _result_list([]),
-        _result(None),
-    )
-    _setup(session_bad_alic)
-    res_bad_alic = client.post(
-        "/api/finanzas/facturar-periodo",
-        json={"periodo": "2026-10", "modalidad": "ALICUOTA", "incluir_fondo_reserva": False},
-        headers=HEADERS,
-    )
-    assert res_bad_alic.status_code == 400
-    assert "100.0000%" in res_bad_alic.json()["detail"]
+            # 3. Periodo ya facturado -> 409
+            assert (
+                await client.post("/api/finanzas/facturar-periodo", json={"periodo": "2026-11"}, headers=HEADERS)
+            ).status_code == 409
 
-    # 7. Colisión concurrente IntegrityError sobre uq_recibo_unidad_periodo -> 409 Conflict
-    uni_ok = [
-        Unidad(
-            id=1,
-            identificador="A-01",
-            estructura_id=1,
-            alicuota=Decimal("100.0000"),
-            credito_disponible_usd=Decimal("0.00"),
-        )
-    ]
-    session_ie = _mock_session(
-        _result(None),
-        _result(None),
-        _result_list(uni_ok),
-        _result_list([]),
-        _result(None),
-        _result_list([]),
-    )
-    session_ie.commit.side_effect = IntegrityError("dup", {}, Exception("uq_recibo_unidad_periodo"))
-    _setup(session_ie)
-    res_ie = client.post(
-        "/api/finanzas/facturar-periodo",
-        json={"periodo": "2026-10", "modalidad": "ALICUOTA", "incluir_fondo_reserva": False},
-        headers=HEADERS,
-    )
-    assert res_ie.status_code == 409
-    app.dependency_overrides = {}
+            # 4. Sin unidades registradas -> 400
+            _configurar_overrides(factory_vacio, tesorero_vacio)
+            assert (
+                await client.post("/api/finanzas/facturar-periodo", json={"periodo": "2026-12"}, headers=HEADERS)
+            ).status_code == 400
+
+            # 5. CUOTA_FIJA sin monto_cuota_fija_usd y unidad sin cuota_fija_usd -> 400
+            _configurar_overrides(factory, tesorero)
+            assert (
+                await client.post(
+                    "/api/finanzas/facturar-periodo",
+                    json={"periodo": "2026-12", "modalidad": "CUOTA_FIJA"},
+                    headers=HEADERS,
+                )
+            ).status_code == 400
+
+            # 6. Modalidad ALICUOTA con suma de alícuotas != 100.0000% -> 400
+            async with factory() as upd_db:
+                u_a = await upd_db.get(Unidad, ctx.unidad_a_id)
+                u_b = await upd_db.get(Unidad, ctx.unidad_b_id)
+                assert u_a is not None and u_b is not None
+                u_a.alicuota = Decimal("50.0000")
+                u_b.alicuota = Decimal("30.0000")
+                await upd_db.commit()
+
+            res_bad_alic = await client.post(
+                "/api/finanzas/facturar-periodo",
+                json={"periodo": "2026-12", "modalidad": "ALICUOTA", "incluir_fondo_reserva": False},
+                headers=HEADERS,
+            )
+            assert res_bad_alic.status_code == 400
+            assert "100.0000%" in res_bad_alic.json()["detail"]
+
+            # 7. Colisión concurrente IntegrityError sobre uq_recibo_unidad_periodo -> 409 Conflict
+            async with factory() as fix_db:
+                u_a = await fix_db.get(Unidad, ctx.unidad_a_id)
+                u_b = await fix_db.get(Unidad, ctx.unidad_b_id)
+                assert u_a is not None and u_b is not None
+                u_a.alicuota = Decimal("60.0000")
+                u_b.alicuota = Decimal("40.0000")
+                await fix_db.commit()
+
+            async with factory() as fault_session:
+                monkeypatch.setattr(
+                    fault_session,
+                    "commit",
+                    AsyncMock(side_effect=IntegrityError("dup", {}, Exception("uq_recibo_unidad_periodo"))),
+                )
+                app.dependency_overrides[get_db] = lambda: fault_session
+                res_ie = await client.post(
+                    "/api/finanzas/facturar-periodo",
+                    json={"periodo": "2026-12", "modalidad": "ALICUOTA", "incluir_fondo_reserva": False},
+                    headers=HEADERS,
+                )
+                assert res_ie.status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+        await engine_vacio.dispose()
 
 
-def test_facturar_periodo_cuota_extraordinaria_prorrateada_por_alicuota(client: TestClient) -> None:
-    unidades = [
-        Unidad(
-            id=1,
-            identificador="A-01",
-            estructura_id=1,
-            alicuota=Decimal("50.0000"),
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-        Unidad(
-            id=2,
-            identificador="A-02",
-            estructura_id=1,
-            alicuota=Decimal("30.0000"),
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-        Unidad(
-            id=3,
-            identificador="A-03",
-            estructura_id=1,
-            alicuota=Decimal("20.0000"),
-            credito_disponible_usd=Decimal("0.00"),
-        ),
-    ]
-    session = _mock_session(
-        _result(None),
-        _result(None),
-        _result_list(unidades),
-        _result_list([]),
-        _result(None),
-        _result_list([]),
-    )
-    _setup(session)
+async def test_facturar_periodo_cuota_extraordinaria_prorrateada_por_alicuota() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            u_a = await seed_db.get(Unidad, ctx.unidad_a_id)
+            u_b = await seed_db.get(Unidad, ctx.unidad_b_id)
+            assert u_a is not None and u_b is not None
+            u_a.alicuota = Decimal("50.0000")
+            u_b.alicuota = Decimal("30.0000")
+            seed_db.add(
+                Unidad(
+                    condominio_id=1,
+                    identificador="1-C",
+                    estructura_id=ctx.estructura_id,
+                    alicuota=Decimal("20.0000"),
+                    credito_disponible_usd=Decimal("0.00"),
+                )
+            )
+            await seed_db.commit()
 
-    res = client.post(
-        "/api/finanzas/facturar-periodo",
-        json={
-            "periodo": "2027-01",
-            "modalidad": "ALICUOTA",
-            "incluir_fondo_reserva": False,
-            "cuota_extraordinaria_total_usd": "100.00",
-            "descripcion_cuota_extraordinaria": "Impermeabilización techo",
-        },
-        headers=HEADERS,
-    )
-    assert res.status_code == 201
-    extra_items = [
-        call.args[0]
-        for call in session.add.call_args_list
-        if isinstance(call.args[0], ReciboItem) and call.args[0].tipo_item == "CUOTA_EXTRAORDINARIA"
-    ]
-    montos_extra = sorted(item.monto_usd for item in extra_items)
-    assert montos_extra == [Decimal("20.00"), Decimal("30.00"), Decimal("50.00")]
-    app.dependency_overrides = {}
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
+        _configurar_overrides(factory, tesorero)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            res = await client.post(
+                "/api/finanzas/facturar-periodo",
+                json={
+                    "periodo": "2027-01",
+                    "modalidad": "ALICUOTA",
+                    "incluir_fondo_reserva": False,
+                    "cuota_extraordinaria_total_usd": "100.00",
+                    "descripcion_cuota_extraordinaria": "Impermeabilización techo",
+                },
+                headers=HEADERS,
+            )
+            assert res.status_code == 201
+
+        async with factory() as check_db:
+            res_items = await check_db.execute(select(ReciboItem).where(ReciboItem.tipo_item == "CUOTA_EXTRAORDINARIA"))
+            montos_extra = sorted(item.monto_usd for item in res_items.scalars().all())
+            assert montos_extra == [Decimal("20.00"), Decimal("30.00"), Decimal("50.00")]
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_obtener_desglose_recibo_exito_y_permisos(client: TestClient) -> None:
-    recibo = Recibo(
-        id=7,
-        unidad_id=2,
-        periodo="2026-10",
-        monto_usd=Decimal("35.00"),
-        monto_pagado_usd=Decimal("0.00"),
-        estado="PENDIENTE",
-        bloqueado=False,
-    )
-    unidad = Unidad(id=2, identificador="B-02", estructura_id=1, alicuota=Decimal("25.0000"))
-    items = [
-        ReciboItem(id=1, recibo_id=7, tipo_item="GASTO_COMUN", descripcion="Gasto común", monto_usd=Decimal("45.00")),
-        ReciboItem(
-            id=2,
-            recibo_id=7,
-            tipo_item="ABONO_CREDITO_PREVIO",
-            descripcion="Abono previo",
-            monto_usd=Decimal("-10.00"),
-        ),
-    ]
-    session = _mock_session(_result(recibo), _result(unidad), _result_list(items))
-    _setup(session)
+async def test_obtener_desglose_recibo_exito_y_permisos() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            recibo = Recibo(
+                condominio_id=1,
+                unidad_id=ctx.unidad_a_id,
+                periodo="2026-10",
+                monto_usd=Decimal("35.00"),
+                monto_pagado_usd=Decimal("0.00"),
+                estado="PENDIENTE",
+                bloqueado=False,
+            )
+            seed_db.add(recibo)
+            await seed_db.flush()
+            seed_db.add_all(
+                [
+                    ReciboItem(
+                        condominio_id=1,
+                        recibo_id=recibo.id,
+                        tipo_item="GASTO_COMUN",
+                        descripcion="Gasto común",
+                        monto_usd=Decimal("45.00"),
+                    ),
+                    ReciboItem(
+                        condominio_id=1,
+                        recibo_id=recibo.id,
+                        tipo_item="ABONO_CREDITO_PREVIO",
+                        descripcion="Abono previo",
+                        monto_usd=Decimal("-10.00"),
+                    ),
+                ]
+            )
+            await seed_db.commit()
+            recibo_id = recibo.id
 
-    res = client.get("/api/finanzas/recibos/7/desglose")
-    assert res.status_code == 200
-    body = res.json()
-    assert body["identificador_unidad"] == "B-02"
-    assert Decimal(body["credito_descontado_usd"]) == Decimal("10.00")
-    assert len(body["items"]) == 2
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
+        inquilino = await _cargar_usuario(factory, ctx.inquilino_id)
 
-    # Propietario de otra unidad recibe 403
-    session_403 = _mock_session(_result(recibo), _result(None))
-    _setup(session_403, user=FakeUser(user_id=99, rol="PROPIETARIO"))
-    assert client.get("/api/finanzas/recibos/7/desglose").status_code == 403
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            _configurar_overrides(factory, tesorero)
+            res = await client.get(f"/api/finanzas/recibos/{recibo_id}/desglose")
+            assert res.status_code == 200
+            body = res.json()
+            assert body["identificador_unidad"] == "1-A"
+            assert Decimal(body["credito_descontado_usd"]) == Decimal("10.00")
+            assert len(body["items"]) == 2
 
-    # Recibo inexistente devuelve 404
-    session_404 = _mock_session(_result(None))
-    _setup(session_404)
-    assert client.get("/api/finanzas/recibos/999/desglose").status_code == 404
-    app.dependency_overrides = {}
+            # Ocupante de otra unidad recibe 403
+            _configurar_overrides(factory, inquilino)
+            assert (await client.get(f"/api/finanzas/recibos/{recibo_id}/desglose")).status_code == 403
+
+            # Recibo inexistente devuelve 404
+            _configurar_overrides(factory, tesorero)
+            assert (await client.get("/api/finanzas/recibos/999/desglose")).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 # ==============================================================================
@@ -722,77 +729,78 @@ def test_obtener_desglose_recibo_exito_y_permisos(client: TestClient) -> None:
 # ==============================================================================
 
 
-def test_emitir_y_verificar_certificado_solvencia(client: TestClient) -> None:
-    unidad = Unidad(id=4, identificador="PH-01", estructura_id=1, alicuota=Decimal("10.0000"))
-    contrato = ContratoOcupacion(id=1, usuario_id=44, unidad_id=4, tipo_ocupante="PROPIETARIO", es_activo=True)
-    session = _mock_session(_result(contrato), _result(unidad), _result(Decimal("0.00")))
-    _setup(session, user=FakeUser(user_id=44, rol="PROPIETARIO"))
+async def test_emitir_y_verificar_certificado_solvencia() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
 
-    res = client.post("/api/finanzas/solvencia/4", headers=HEADERS)
-    assert res.status_code == 201
-    cert_data = res.json()
-    assert cert_data["identificador_unidad"] == "PH-01"
-    assert Decimal(cert_data["deuda_verificada_usd"]) == Decimal("0.00")
-    assert cert_data["qr_token"].endswith(cert_data["firma_hmac"])
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            _configurar_overrides(factory, propietario)
+            res = await client.post(f"/api/finanzas/solvencia/{ctx.unidad_a_id}", headers=HEADERS)
+            assert res.status_code == 201
+            cert_data = res.json()
+            assert cert_data["identificador_unidad"] == "1-A"
+            assert Decimal(cert_data["deuda_verificada_usd"]) == Decimal("0.00")
+            assert cert_data["qr_token"].endswith(cert_data["firma_hmac"])
 
-    # Verificar el certificado emitido
-    venc = date.fromisoformat(cert_data["fecha_vencimiento"])
-    firma = generar_firma_solvencia(cert_data["folio"], "PH-01", venc.isoformat(), get_solvency_signing_key())
-    cert_orm = CertificadoSolvencia(
-        id=1,
-        folio=cert_data["folio"],
-        unidad_id=4,
-        emitido_por_id=44,
-        fecha_emision=datetime.now(UTC),
-        fecha_vencimiento=venc,
-        deuda_verificada_usd=Decimal("0.00"),
-        firma_hmac=firma,
-    )
-    session_verif = _mock_session(_result(cert_orm), _result(unidad), _result(Decimal("0.00")))
-    _setup(session_verif)
-    res_verif = client.get(f"/api/finanzas/solvencia/verificar/{cert_data['folio']}?sig={firma}")
-    assert res_verif.status_code == 200
-    assert res_verif.json()["valido"] is True
+            # Verificar el certificado emitido contra SQLite real
+            _configurar_overrides(factory, tesorero)
+            res_verif = await client.get(
+                f"/api/finanzas/solvencia/verificar/{cert_data['folio']}?sig={cert_data['firma_hmac']}"
+            )
+            assert res_verif.status_code == 200
+            assert res_verif.json()["valido"] is True
 
-    # Firma adulterada devuelve 400
-    session_bad_sig = _mock_session(_result(cert_orm), _result(unidad))
-    _setup(session_bad_sig)
-    res_bad = client.get(f"/api/finanzas/solvencia/verificar/{cert_data['folio']}?sig=firma_falsa")
-    assert res_bad.status_code == 400
+            # Firma adulterada devuelve 400
+            res_bad = await client.get(f"/api/finanzas/solvencia/verificar/{cert_data['folio']}?sig=firma_falsa")
+            assert res_bad.status_code == 400
 
-    # Folio no encontrado devuelve 404
-    session_404 = _mock_session(_result(None))
-    _setup(session_404)
-    assert client.get("/api/finanzas/solvencia/verificar/SOLV-NO-EXISTE?sig=abc").status_code == 404
-    app.dependency_overrides = {}
+            # Folio no encontrado devuelve 404
+            assert (await client.get("/api/finanzas/solvencia/verificar/SOLV-NO-EXISTE?sig=abc")).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_emitir_solvencia_con_deuda_pendiente_devuelve_409(client: TestClient) -> None:
-    unidad = Unidad(id=4, identificador="PH-01", estructura_id=1, alicuota=Decimal("10.0000"))
-    session = _mock_session(_result(unidad), _result(Decimal("60.00")))
-    _setup(session)
+async def test_emitir_solvencia_con_deuda_pendiente_devuelve_409() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            seed_db.add(
+                Recibo(
+                    condominio_id=1,
+                    unidad_id=ctx.unidad_a_id,
+                    periodo="2026-10",
+                    monto_usd=Decimal("60.00"),
+                    monto_pagado_usd=Decimal("0.00"),
+                    estado="PENDIENTE",
+                    bloqueado=False,
+                )
+            )
+            await seed_db.commit()
 
-    res = client.post("/api/finanzas/solvencia/4", headers=HEADERS)
-    assert res.status_code == 409
-    assert "60.00 USD" in res.json()["detail"]
+        tesorero = await _cargar_usuario(factory, ctx.tesorero_id)
 
-    # Unidad no encontrada -> 404
-    session_no_u = _mock_session(_result(None))
-    _setup(session_no_u)
-    assert client.post("/api/finanzas/solvencia/999", headers=HEADERS).status_code == 404
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            _configurar_overrides(factory, tesorero)
+            res = await client.post(f"/api/finanzas/solvencia/{ctx.unidad_a_id}", headers=HEADERS)
+            assert res.status_code == 409
+            assert "60.00 USD" in res.json()["detail"]
 
-    # Idempotencia duplicada -> 409
-    _setup(_mock_session(), redis_new=False)
-    assert client.post("/api/finanzas/solvencia/4", headers=HEADERS).status_code == 409
-    app.dependency_overrides = {}
+            # Unidad no encontrada -> 404
+            assert (await client.post("/api/finanzas/solvencia/999", headers=HEADERS)).status_code == 404
+
+            # Idempotencia duplicada -> 409
+            _configurar_overrides(factory, tesorero, redis_new=False)
+            assert (await client.post(f"/api/finanzas/solvencia/{ctx.unidad_a_id}", headers=HEADERS)).status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None:
     """Ataque unitario directo a helpers de facturacion_lph.py para cobertura de mutantes."""
-    import pytest
-
-    from src.schemas import FacturarPeriodoRequest
-
     u1 = Unidad(
         id=1,
         identificador="A-01",
@@ -956,97 +964,141 @@ def test_facturacion_lph_nucleo_helpers_cuota_fija_variables_y_recibos() -> None
 
 async def test_cargar_contexto_facturacion_respaldo_diez_por_ciento() -> None:
     """Sin fondo RESERVA_LEGAL activo, incluir_fondo_reserva=True exige existencia del fondo (ErrorFinanciero)."""
-    import pytest
+    engine, factory = await create_sqlite_fk_factory()
+    try:
+        async with factory() as seed_db:
+            torre = Estructura(condominio_id=1, nombre="Torre Única", tipo="TORRE")
+            seed_db.add(torre)
+            await seed_db.flush()
+            u = Unidad(condominio_id=1, identificador="A-01", estructura_id=torre.id, alicuota=Decimal("100.0000"))
+            egreso = Egreso(
+                condominio_id=1,
+                periodo="2026-10",
+                categoria="MANT",
+                descripcion="Bomba",
+                monto=Decimal("200.00"),
+                moneda="USD",
+                monto_usd=Decimal("200.00"),
+                tasa_cambio=Decimal("36.5000"),
+                es_gasto_comun=True,
+            )
+            seed_db.add_all([u, egreso])
+            await seed_db.commit()
 
-    from src.schemas import FacturarPeriodoRequest
+        async with factory() as session:
+            req_con_fondo = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=True)
+            with pytest.raises(ErrorFinanciero, match="Fondo de Reserva Legal"):
+                await cargar_contexto_facturacion(session, req_con_fondo)
 
-    u = Unidad(id=1, identificador="A-01", estructura_id=1, alicuota=Decimal("100.0000"))
-    egreso = Egreso(
-        id=1,
-        periodo="2026-10",
-        categoria="MANT",
-        descripcion="Bomba",
-        monto=Decimal("200.00"),
-        moneda="USD",
-        monto_usd=Decimal("200.00"),
-        tasa_cambio=Decimal("36.5000"),
-        es_gasto_comun=True,
-    )
-    session_sin_fondo = _mock_session(_result_list([u]), _result_list([egreso]), _result(None))
-    req_con_fondo = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=True)
-    with pytest.raises(ErrorFinanciero, match="Fondo de Reserva Legal"):
-        await cargar_contexto_facturacion(session_sin_fondo, req_con_fondo)
-
-    session_sin_recargo = _mock_session(_result_list([u]), _result_list([egreso]), _result(None))
-    req_sin_fondo = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=False)
-    unidades, total_eg, fondo, recargo = await cargar_contexto_facturacion(session_sin_recargo, req_sin_fondo)
-    assert len(unidades) == 1
-    assert total_eg == Decimal("200.00")
-    assert fondo is None
-    assert recargo == Decimal("0.00")
+            req_sin_fondo = FacturarPeriodoRequest(periodo="2026-10", modalidad="ALICUOTA", incluir_fondo_reserva=False)
+            unidades, total_eg, fondo, recargo = await cargar_contexto_facturacion(session, req_sin_fondo)
+            assert len(unidades) == 1
+            assert total_eg == Decimal("200.00")
+            assert fondo is None
+            assert recargo == Decimal("0.00")
+    finally:
+        await engine.dispose()
 
 
 async def test_persistir_lote_facturacion_actualiza_fondos_y_recibos() -> None:
     """Verifica actualización de fondo según modalidad, flush, recibo_id en ítems y totales netos."""
-    u1 = Unidad(
-        id=1,
-        identificador="A-01",
-        estructura_id=1,
-        alicuota=Decimal("100.0000"),
-        credito_disponible_usd=Decimal("10.00"),
-    )
-    fondo_fija = FondoCondominio(
-        id=1,
-        nombre="Reserva",
-        tipo="RESERVA_LEGAL",
-        porcentaje_recargo=Decimal("10.00"),
-        saldo_actual_usd=Decimal("100.00"),
-        es_activo=True,
-    )
-    session_fija = _mock_session(_result_list([]))
-    tot_bruto, tot_cred, tot_neto = await persistir_lote_facturacion(
-        session_fija,
-        [u1],
-        "2026-10",
-        "CUOTA_FIJA",
-        {1: [("CUOTA_FIJA", "Cuota fija mensual (2026-10)", Decimal("40.00"))]},
-        fondo_fija,
-        Decimal("5.00"),
-        Decimal("12.00"),
-    )
-    assert (tot_bruto, tot_cred, tot_neto) == (Decimal("40.00"), Decimal("10.00"), Decimal("30.00"))
-    assert fondo_fija.saldo_actual_usd == Decimal("112.00")
-    session_fija.flush.assert_awaited_once()
-    session_fija.commit.assert_awaited_once()
-    items_fija_add = [c.args[0] for c in session_fija.add.call_args_list if isinstance(c.args[0], ReciboItem)]
-    assert len(items_fija_add) == 2
-    assert all(it.recibo_id == 1 for it in items_fija_add)
+    engine, factory = await create_sqlite_fk_factory()
+    try:
+        async with factory() as seed_db:
+            torre = Estructura(condominio_id=1, nombre="Torre Única", tipo="TORRE")
+            seed_db.add(torre)
+            await seed_db.flush()
+            u1 = Unidad(
+                condominio_id=1,
+                identificador="A-01",
+                estructura_id=torre.id,
+                alicuota=Decimal("100.0000"),
+                credito_disponible_usd=Decimal("10.00"),
+            )
+            fondo_fija = FondoCondominio(
+                condominio_id=1,
+                nombre="Reserva",
+                tipo="RESERVA_LEGAL",
+                porcentaje_recargo=Decimal("10.00"),
+                saldo_actual_usd=Decimal("100.00"),
+                es_activo=True,
+            )
+            seed_db.add_all([u1, fondo_fija])
+            await seed_db.commit()
+            torre_id = torre.id
+            u1_id = u1.id
+            fondo_fija_id = fondo_fija.id
 
-    u2 = Unidad(
-        id=2,
-        identificador="A-02",
-        estructura_id=1,
-        alicuota=Decimal("100.0000"),
-        credito_disponible_usd=Decimal("0.00"),
-    )
-    fondo_al = FondoCondominio(
-        id=2,
-        nombre="Reserva 2",
-        tipo="RESERVA_LEGAL",
-        porcentaje_recargo=Decimal("10.00"),
-        saldo_actual_usd=Decimal("50.00"),
-        es_activo=True,
-    )
-    session_al = _mock_session(_result_list([]))
-    b2, c2, n2 = await persistir_lote_facturacion(
-        session_al,
-        [u2],
-        "2026-11",
-        "ALICUOTA",
-        {2: [("GASTO_COMUN", "Cuota parte", Decimal("60.00"))]},
-        fondo_al,
-        Decimal("6.00"),
-        Decimal("99.00"),
-    )
-    assert (b2, c2, n2) == (Decimal("60.00"), Decimal("0.00"), Decimal("60.00"))
-    assert fondo_al.saldo_actual_usd == Decimal("56.00")
+        async with factory() as session_fija:
+            u1_db = await session_fija.get(Unidad, u1_id)
+            fondo_fija_db = await session_fija.get(FondoCondominio, fondo_fija_id)
+            assert u1_db is not None and fondo_fija_db is not None
+            tot_bruto, tot_cred, tot_neto = await persistir_lote_facturacion(
+                session_fija,
+                [u1_db],
+                "2026-10",
+                "CUOTA_FIJA",
+                {u1_db.id: [("CUOTA_FIJA", "Cuota fija mensual (2026-10)", Decimal("40.00"))]},
+                fondo_fija_db,
+                Decimal("5.00"),
+                Decimal("12.00"),
+            )
+            assert (tot_bruto, tot_cred, tot_neto) == (Decimal("40.00"), Decimal("10.00"), Decimal("30.00"))
+
+        async with factory() as check_db:
+            fondo_chk = await check_db.get(FondoCondominio, fondo_fija_id)
+            assert fondo_chk is not None
+            assert fondo_chk.saldo_actual_usd == Decimal("112.00")
+            res_rec = await check_db.execute(
+                select(Recibo).where(Recibo.unidad_id == u1_id, Recibo.periodo == "2026-10")
+            )
+            rec_fija = res_rec.scalars().first()
+            assert rec_fija is not None
+            res_items = await check_db.execute(select(ReciboItem).where(ReciboItem.recibo_id == rec_fija.id))
+            items_fija = list(res_items.scalars().all())
+            assert len(items_fija) == 2
+            assert all(it.recibo_id == rec_fija.id for it in items_fija)
+
+        async with factory() as seed_al_db:
+            u2 = Unidad(
+                condominio_id=1,
+                identificador="A-02",
+                estructura_id=torre_id,
+                alicuota=Decimal("100.0000"),
+                credito_disponible_usd=Decimal("0.00"),
+            )
+            fondo_al = FondoCondominio(
+                condominio_id=1,
+                nombre="Reserva 2",
+                tipo="RESERVA_LEGAL",
+                porcentaje_recargo=Decimal("10.00"),
+                saldo_actual_usd=Decimal("50.00"),
+                es_activo=True,
+            )
+            seed_al_db.add_all([u2, fondo_al])
+            await seed_al_db.commit()
+            u2_id = u2.id
+            fondo_al_id = fondo_al.id
+
+        async with factory() as session_al:
+            u2_db = await session_al.get(Unidad, u2_id)
+            fondo_al_db = await session_al.get(FondoCondominio, fondo_al_id)
+            assert u2_db is not None and fondo_al_db is not None
+            b2, c2, n2 = await persistir_lote_facturacion(
+                session_al,
+                [u2_db],
+                "2026-11",
+                "ALICUOTA",
+                {u2_db.id: [("GASTO_COMUN", "Cuota parte", Decimal("60.00"))]},
+                fondo_al_db,
+                Decimal("6.00"),
+                Decimal("99.00"),
+            )
+            assert (b2, c2, n2) == (Decimal("60.00"), Decimal("0.00"), Decimal("60.00"))
+
+        async with factory() as check_al_db:
+            fondo_al_chk = await check_al_db.get(FondoCondominio, fondo_al_id)
+            assert fondo_al_chk is not None
+            assert fondo_al_chk.saldo_actual_usd == Decimal("56.00")
+    finally:
+        await engine.dispose()

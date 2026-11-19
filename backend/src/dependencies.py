@@ -151,6 +151,31 @@ async def _resolver_override_usuario(request: Request, db: AsyncSession) -> Usua
     return cast(Usuario, candidato)
 
 
+def _extraer_user_condo(user: Usuario, fallback: int) -> int:
+    """Obtiene el condominio_id entero del usuario o retorna el respaldo del token."""
+    raw = getattr(user, "condominio_id", fallback)
+    return int(raw) if raw else fallback
+
+
+def _validar_usuario_en_tenant(user: Usuario | None, claim_condo: int) -> tuple[Usuario, int] | None:
+    """Verifica que el usuario exista, esté activo y pertenezca al condominio del claim."""
+    if user is None or getattr(user, "es_activo", False) is not True:
+        return None
+    user_condo = _extraer_user_condo(user, claim_condo)
+    if user_condo != claim_condo:
+        return None
+    return user, user_condo
+
+
+async def _sesion_activa_valida(redis_conn: aioredis.Redis, user: Usuario, sid: Any) -> bool:
+    """Comprueba de forma no bloqueante que la sesión no haya sido revocada en Redis."""
+    try:
+        await _validar_sesion_no_revocada(redis_conn, user, str(sid or ""))
+        return True
+    except HTTPException:
+        return False
+
+
 async def _cargar_usuario_activo_desde_payload(
     db: AsyncSession,
     redis_conn: aioredis.Redis,
@@ -160,18 +185,15 @@ async def _cargar_usuario_activo_desde_payload(
     if not correo:
         return None
     claim_condo = _extraer_claim_condominio(payload)
+    # Fija el tenant antes del SELECT para cumplir la política RLS en PostgreSQL
     await bind_rls_tenant(db, claim_condo)
     res = await db.execute(select(Usuario).where(Usuario.correo == str(correo)))
-    user = res.scalars().first()
-    if not user or getattr(user, "es_activo", False) is not True:
+    validado = _validar_usuario_en_tenant(res.scalars().first(), claim_condo)
+    if validado is None:
         return None
-    user_condo = int(getattr(user, "condominio_id", claim_condo) or claim_condo)
-    if user_condo != claim_condo:
-        return None
+    user, user_condo = validado
     await bind_rls_tenant(db, user_condo)
-    try:
-        await _validar_sesion_no_revocada(redis_conn, user, str(payload.get("sid") or ""))
-    except HTTPException:
+    if not await _sesion_activa_valida(redis_conn, user, payload.get("sid")):
         return None
     return user
 
@@ -303,6 +325,43 @@ async def _claim_idempotency_slot(
     )
 
 
+@dataclass(frozen=True)
+class _PoliticaIdempotencia:
+    """Configuración inmutable de autorización y hashing para la guardia idempotente."""
+
+    scope_template: str
+    roles: tuple[str, ...] | None
+    require_active: bool
+    hash_body: bool
+
+
+@dataclass(frozen=True)
+class _ContextoIdempotencia:
+    """Dependencias de petición inyectadas para ejecutar la guardia de idempotencia."""
+
+    request: Request
+    usuario: Usuario
+    idempotency_key: str
+    redis_conn: aioredis.Redis
+
+
+async def _resolver_guardia_idempotencia(
+    politica: _PoliticaIdempotencia,
+    ctx: _ContextoIdempotencia,
+) -> None:
+    """Valida RBAC/usuario activo y reclama el slot idempotente en Redis."""
+    if politica.roles is not None:
+        verificar_roles(ctx.usuario, politica.roles)
+    elif politica.require_active:
+        verificar_usuario_activo(ctx.usuario)
+    condo_id = _extraer_user_condo(ctx.usuario, DEFAULT_CONDOMINIO_ID)
+    uid_raw = getattr(ctx.usuario, "id", 0)
+    usuario_id = int(uid_raw) if uid_raw else 0
+    scope = politica.scope_template.format(**ctx.request.path_params)
+    redis_key = build_scoped_idempotency_key(condo_id, usuario_id, scope, ctx.idempotency_key)
+    await _claim_idempotency_slot(ctx.request, ctx.redis_conn, redis_key, hash_body=politica.hash_body)
+
+
 def exigir_idempotencia(
     scope_template: str,
     *,
@@ -311,22 +370,29 @@ def exigir_idempotencia(
     hash_body: bool = True,
 ) -> Callable[..., Awaitable[None]]:
     """Dependencia FastAPI que valida RBAC/activo y adquiere idemp:{condo}:{user}:{scope}:{key}."""
+    politica = _PoliticaIdempotencia(
+        scope_template=scope_template,
+        roles=roles,
+        require_active=require_active,
+        hash_body=hash_body,
+    )
 
+    # FastAPI resuelve Depends/Header inspeccionando directamente la firma del closure _dependency
     async def _dependency(
         request: Request,
         usuario: Usuario = Depends(get_current_user),
         idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
         redis_conn: aioredis.Redis = Depends(get_redis_client),
     ) -> None:
-        if roles is not None:
-            verificar_roles(usuario, roles)
-        elif require_active:
-            verificar_usuario_activo(usuario)
-        condo_id = int(getattr(usuario, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
-        usuario_id = int(getattr(usuario, "id", 0) or 0)
-        scope = scope_template.format(**request.path_params)
-        redis_key = build_scoped_idempotency_key(condo_id, usuario_id, scope, idempotency_key)
-        await _claim_idempotency_slot(request, redis_conn, redis_key, hash_body=hash_body)
+        await _resolver_guardia_idempotencia(
+            politica,
+            _ContextoIdempotencia(
+                request=request,
+                usuario=usuario,
+                idempotency_key=idempotency_key,
+                redis_conn=redis_conn,
+            ),
+        )
 
     return _dependency
 

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -69,22 +70,29 @@ async def _cargar_opciones_y_votos(
     return list(res_op.scalars().all()), list(res_votos.scalars().all())
 
 
-def _calcular_metricas_consulta(
+def _acumular_votos_por_opcion(
     opciones: list[OpcionConsulta],
     votos: list[VotoConsulta],
-    quorum_minimo: Decimal,
-    regla_quorum: str | None = None,
-) -> tuple[Decimal, Decimal, list[OpcionConsultaResultadoResponse]]:
+) -> tuple[dict[int, int], dict[int, Decimal]]:
     conteo_por_opcion: dict[int, int] = {op.id: 0 for op in opciones}
     alicuota_por_opcion: dict[int, Decimal] = {op.id: Decimal("0.0000") for op in opciones}
-    aprobatorias_ids = {op.id for op in opciones if op.es_opcion_aprobatoria}
-
     for v in votos:
         alic = Decimal(str(v.alicuota_capturada)).quantize(CUATRO_DECIMALES)
         conteo_por_opcion[v.opcion_id] = conteo_por_opcion.get(v.opcion_id, 0) + 1
         alicuota_por_opcion[v.opcion_id] = (alicuota_por_opcion.get(v.opcion_id, Decimal("0.0000")) + alic).quantize(
             CUATRO_DECIMALES
         )
+    return conteo_por_opcion, alicuota_por_opcion
+
+
+def _calcular_metricas_consulta(
+    opciones: list[OpcionConsulta],
+    votos: list[VotoConsulta],
+    quorum_minimo: Decimal,
+    regla_quorum: str | None = None,
+) -> tuple[Decimal, Decimal, list[OpcionConsultaResultadoResponse]]:
+    conteo_por_opcion, alicuota_por_opcion = _acumular_votos_por_opcion(opciones, votos)
+    aprobatorias_ids = {op.id for op in opciones if op.es_opcion_aprobatoria}
 
     _, participacion_total, alicuota_aprobatoria = evaluar_escrutinio_consulta(
         quorum_minimo_alicuota=quorum_minimo,
@@ -117,6 +125,17 @@ async def _unidades_usuario(db: AsyncSession, usuario_id: int) -> set[int]:
     return {int(uid) for uid in res.scalars().all()}
 
 
+def _buscar_voto_propio(
+    votos: list[VotoConsulta],
+    usuario_id: int,
+    unidades_propias: set[int],
+) -> VotoConsulta | None:
+    return next(
+        (v for v in votos if v.usuario_id == usuario_id or v.unidad_id in unidades_propias),
+        None,
+    )
+
+
 async def _construir_mi_voto(
     db: AsyncSession,
     votos: list[VotoConsulta],
@@ -124,10 +143,7 @@ async def _construir_mi_voto(
     usuario_id: int,
     unidades_propias: set[int],
 ) -> VotoReciboResumenResponse | None:
-    voto_propio = next(
-        (v for v in votos if v.usuario_id == usuario_id or v.unidad_id in unidades_propias),
-        None,
-    )
+    voto_propio = _buscar_voto_propio(votos, usuario_id, unidades_propias)
     if not voto_propio:
         return None
     res_u = await db.execute(select(Unidad.identificador).where(Unidad.id == voto_propio.unidad_id))
@@ -359,6 +375,25 @@ async def _validar_derecho_voto_unidad(
     return unidad, contrato
 
 
+def _normalizar_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
+def _validar_ventana_votacion(consulta: ConsultaComunitaria, ahora: datetime) -> None:
+    if ahora < _normalizar_utc(consulta.fecha_apertura):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La consulta aún no inicia su periodo de votación.",
+        )
+    if ahora > _normalizar_utc(consulta.fecha_cierre):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El plazo de votación de esta consulta ya venció.",
+        )
+
+
 async def _validar_consulta_abierta_en_plazo(db: AsyncSession, consulta_id: int) -> ConsultaComunitaria:
     """Bloquea y valida que la consulta exista, siga abierta y esté dentro del plazo de votación."""
     res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id).with_for_update())
@@ -370,27 +405,102 @@ async def _validar_consulta_abierta_en_plazo(db: AsyncSession, consulta_id: int)
             status_code=status.HTTP_409_CONFLICT,
             detail="La consulta ya se encuentra cerrada y no admite nuevos votos.",
         )
-
-    ahora = datetime.now(UTC)
-    apertura_utc = (
-        consulta.fecha_apertura
-        if consulta.fecha_apertura.tzinfo is not None
-        else consulta.fecha_apertura.replace(tzinfo=UTC)
-    )
-    if ahora < apertura_utc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="La consulta aún no inicia su periodo de votación.",
-        )
-    cierre_utc = (
-        consulta.fecha_cierre if consulta.fecha_cierre.tzinfo is not None else consulta.fecha_cierre.replace(tzinfo=UTC)
-    )
-    if ahora > cierre_utc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El plazo de votación de esta consulta ya venció.",
-        )
+    _validar_ventana_votacion(consulta, datetime.now(UTC))
     return consulta
+
+
+@dataclass(frozen=True)
+class _MetadatosVoto:
+    alicuota_capturada: Decimal
+    fecha_voto: datetime
+    voto_jti: str
+    ip_hash: str
+    firma_hmac: str
+    mensaje_verificacion: str
+
+
+async def _obtener_opcion_consulta_o_404(
+    db: AsyncSession,
+    consulta_id: int,
+    opcion_id: int,
+) -> OpcionConsulta:
+    res_op = await db.execute(
+        select(OpcionConsulta).where(
+            OpcionConsulta.id == opcion_id,
+            OpcionConsulta.consulta_id == consulta_id,
+        )
+    )
+    opcion = res_op.scalars().first()
+    if not opcion:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opción de consulta no encontrada.")
+    return opcion
+
+
+async def _asegurar_unidad_no_voto(db: AsyncSession, consulta_id: int, unidad_id: int) -> None:
+    res_voto_previo = await db.execute(
+        select(VotoConsulta).where(
+            VotoConsulta.consulta_id == consulta_id,
+            VotoConsulta.unidad_id == unidad_id,
+        )
+    )
+    if res_voto_previo.scalars().first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La unidad inmobiliaria ya emitió su voto en esta consulta.",
+        )
+
+
+def _construir_metadatos_voto(
+    consulta_id: int,
+    unidad: Unidad,
+    opcion_id: int,
+    ip_cliente: str,
+) -> _MetadatosVoto:
+    alicuota_capturada = Decimal(str(unidad.alicuota or Decimal("0.0000"))).quantize(CUATRO_DECIMALES)
+    fecha_voto = datetime.now(UTC)
+    fecha_voto_iso = fecha_voto.isoformat()
+    voto_jti = str(uuid.uuid4())
+    secret_key = get_vote_signing_key()
+    ip_hash = calcular_ip_hash_voto(ip_cliente, consulta_id, secret_key)
+    firma_hmac = generar_firma_voto_consulta(
+        consulta_id=consulta_id,
+        unidad_id=unidad.id,
+        opcion_id=opcion_id,
+        alicuota_capturada=alicuota_capturada,
+        fecha_voto_iso=fecha_voto_iso,
+        secret_key=secret_key,
+        jti=voto_jti,
+    )
+    mensaje_verificacion = construir_mensaje_voto_consulta(
+        consulta_id=consulta_id,
+        unidad_id=unidad.id,
+        opcion_id=opcion_id,
+        alicuota_capturada=alicuota_capturada,
+        fecha_voto_iso=fecha_voto_iso,
+        jti=voto_jti,
+    )
+    return _MetadatosVoto(
+        alicuota_capturada=alicuota_capturada,
+        fecha_voto=fecha_voto,
+        voto_jti=voto_jti,
+        ip_hash=ip_hash,
+        firma_hmac=firma_hmac,
+        mensaje_verificacion=mensaje_verificacion,
+    )
+
+
+async def _persistir_voto_o_409(db: AsyncSession, voto: VotoConsulta) -> VotoConsulta:
+    db.add(voto)
+    try:
+        await db.commit()
+        await db.refresh(voto)
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La unidad inmobiliaria ya emitió su voto en esta consulta.",
+        ) from exc
+    return voto
 
 
 @router.post(
@@ -416,87 +526,36 @@ async def votar_en_consulta(
     verificar_usuario_activo(usuario)
 
     consulta = await _validar_consulta_abierta_en_plazo(db, consulta_id)
-
-    res_op = await db.execute(
-        select(OpcionConsulta).where(
-            OpcionConsulta.id == datos.opcion_id,
-            OpcionConsulta.consulta_id == consulta_id,
-        )
-    )
-    opcion = res_op.scalars().first()
-    if not opcion:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opción de consulta no encontrada.")
-
+    opcion = await _obtener_opcion_consulta_o_404(db, consulta_id, datos.opcion_id)
     unidad, _ = await _validar_derecho_voto_unidad(db, usuario.id, datos.unidad_id)
+    await _asegurar_unidad_no_voto(db, consulta_id, unidad.id)
 
-    res_voto_previo = await db.execute(
-        select(VotoConsulta).where(
-            VotoConsulta.consulta_id == consulta_id,
-            VotoConsulta.unidad_id == unidad.id,
-        )
-    )
-    if res_voto_previo.scalars().first() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="La unidad inmobiliaria ya emitió su voto en esta consulta.",
-        )
-
-    alicuota_capturada = Decimal(str(unidad.alicuota or Decimal("0.0000"))).quantize(CUATRO_DECIMALES)
-    fecha_voto = datetime.now(UTC)
-    fecha_voto_iso = fecha_voto.isoformat()
-    voto_jti = str(uuid.uuid4())
-    secret_key = get_vote_signing_key()
     ip_cliente = request.client.host if request.client else "127.0.0.1"
-    ip_hash = calcular_ip_hash_voto(ip_cliente, consulta_id, secret_key)
-    firma_hmac = generar_firma_voto_consulta(
-        consulta_id=consulta_id,
-        unidad_id=unidad.id,
-        opcion_id=opcion.id,
-        alicuota_capturada=alicuota_capturada,
-        fecha_voto_iso=fecha_voto_iso,
-        secret_key=secret_key,
-        jti=voto_jti,
-    )
-    mensaje_verificacion = construir_mensaje_voto_consulta(
-        consulta_id=consulta_id,
-        unidad_id=unidad.id,
-        opcion_id=opcion.id,
-        alicuota_capturada=alicuota_capturada,
-        fecha_voto_iso=fecha_voto_iso,
-        jti=voto_jti,
-    )
-
+    meta = _construir_metadatos_voto(consulta_id, unidad, opcion.id, ip_cliente)
     condo_id = int(getattr(unidad, "condominio_id", DEFAULT_CONDOMINIO_ID) or DEFAULT_CONDOMINIO_ID)
     prev_hash, rec_hash = await sellar_cadena_worm(
         db,
         "votos_consulta",
         condo_id,
-        f"{voto_jti}|{consulta_id}|{unidad.id}|{opcion.id}|{firma_hmac}",
+        f"{meta.voto_jti}|{consulta_id}|{unidad.id}|{opcion.id}|{meta.firma_hmac}",
     )
-    voto = VotoConsulta(
-        condominio_id=condo_id,
-        jti=voto_jti,
-        consulta_id=consulta_id,
-        unidad_id=unidad.id,
-        usuario_id=usuario.id,
-        opcion_id=opcion.id,
-        alicuota_capturada=alicuota_capturada,
-        fecha_voto=fecha_voto,
-        ip_hash=ip_hash,
-        firma_hmac=firma_hmac,
-        prev_hash=prev_hash,
-        record_hash=rec_hash,
+    voto = await _persistir_voto_o_409(
+        db,
+        VotoConsulta(
+            condominio_id=condo_id,
+            jti=meta.voto_jti,
+            consulta_id=consulta_id,
+            unidad_id=unidad.id,
+            usuario_id=usuario.id,
+            opcion_id=opcion.id,
+            alicuota_capturada=meta.alicuota_capturada,
+            fecha_voto=meta.fecha_voto,
+            ip_hash=meta.ip_hash,
+            firma_hmac=meta.firma_hmac,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
+        ),
     )
-    db.add(voto)
-    try:
-        await db.commit()
-        await db.refresh(voto)
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="La unidad inmobiliaria ya emitió su voto en esta consulta.",
-        ) from exc
 
     opciones, votos = await _cargar_opciones_y_votos(db, consulta_id)
     quorum_min = Decimal(str(consulta.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
@@ -512,13 +571,13 @@ async def votar_en_consulta(
         usuario_id=usuario.id,
         opcion_id=opcion.id,
         opcion_etiqueta=opcion.etiqueta,
-        alicuota_capturada=alicuota_capturada,
+        alicuota_capturada=meta.alicuota_capturada,
         participacion_total_alicuota=participacion_total,
         quorum_minimo_alicuota=quorum_min,
-        fecha_voto=fecha_voto,
-        ip_hash=ip_hash,
-        firma_hmac=firma_hmac,
-        mensaje_verificacion=mensaje_verificacion,
+        fecha_voto=meta.fecha_voto,
+        ip_hash=meta.ip_hash,
+        firma_hmac=meta.firma_hmac,
+        mensaje_verificacion=meta.mensaje_verificacion,
     )
 
 
@@ -549,14 +608,47 @@ def _validar_plazo_cierre_consulta(
     participacion: Decimal,
     ahora: datetime,
 ) -> None:
-    cierre_utc = (
-        consulta.fecha_cierre if consulta.fecha_cierre.tzinfo is not None else consulta.fecha_cierre.replace(tzinfo=UTC)
-    )
-    if ahora < cierre_utc and participacion < Decimal("100.0000"):
+    if ahora < _normalizar_utc(consulta.fecha_cierre) and participacion < Decimal("100.0000"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="No se puede cerrar la consulta antes de su fecha de cierre mientras falten unidades por votar.",
         )
+
+
+async def _obtener_consulta_abierta_para_cierre(db: AsyncSession, consulta_id: int) -> ConsultaComunitaria:
+    res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id).with_for_update())
+    consulta = res_c.scalars().first()
+    if not consulta:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consulta comunitaria no encontrada.")
+    if consulta.estado != "ABIERTA":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La consulta ya fue cerrada previamente.",
+        )
+    return consulta
+
+
+def _resolver_estado_final_consulta(
+    consulta: ConsultaComunitaria,
+    opciones: list[OpcionConsulta],
+    opciones_resp: list[OpcionConsultaResultadoResponse],
+    quorum_min: Decimal,
+) -> str:
+    aprobatorias_ids = {op.id for op in opciones if op.es_opcion_aprobatoria}
+    alicuotas_map = {op.id: op.alicuota_acumulada for op in opciones_resp}
+    estado_final, _, _ = evaluar_escrutinio_consulta(
+        quorum_min, aprobatorias_ids, alicuotas_map, regla_quorum=consulta.regla_quorum
+    )
+    return estado_final
+
+
+def _calcular_hash_global_escrutinio(consulta_id: int, votos: list[VotoConsulta]) -> str:
+    firmas_concat = "|".join(v.firma_hmac for v in votos) or f"SIN_VOTOS|{consulta_id}"
+    return hmac.new(
+        get_vote_signing_key().encode("utf-8"),
+        firmas_concat.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 @router.post(
@@ -577,16 +669,7 @@ async def cerrar_consulta(
     """Cierra el escrutinio de la consulta, determina su estado legal y asienta el acta en BitacoraActa."""
     verificar_roles(usuario, _ROLES_GOBERNANZA)
 
-    res_c = await db.execute(select(ConsultaComunitaria).where(ConsultaComunitaria.id == consulta_id).with_for_update())
-    consulta = res_c.scalars().first()
-    if not consulta:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consulta comunitaria no encontrada.")
-    if consulta.estado != "ABIERTA":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="La consulta ya fue cerrada previamente.",
-        )
-
+    consulta = await _obtener_consulta_abierta_para_cierre(db, consulta_id)
     opciones, votos = await _cargar_opciones_y_votos(db, consulta_id)
     quorum_min = Decimal(str(consulta.quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES)
     participacion, aprobatoria, opciones_resp = _calcular_metricas_consulta(
@@ -594,18 +677,8 @@ async def cerrar_consulta(
     )
     ahora = datetime.now(UTC)
     _validar_plazo_cierre_consulta(consulta, participacion, ahora)
-    aprobatorias_ids = {op.id for op in opciones if op.es_opcion_aprobatoria}
-    alicuotas_map = {op.id: op.alicuota_acumulada for op in opciones_resp}
-    estado_final, _, _ = evaluar_escrutinio_consulta(
-        quorum_min, aprobatorias_ids, alicuotas_map, regla_quorum=consulta.regla_quorum
-    )
-
-    firmas_concat = "|".join(v.firma_hmac for v in votos) or f"SIN_VOTOS|{consulta.id}"
-    hash_global = hmac.new(
-        get_vote_signing_key().encode("utf-8"),
-        firmas_concat.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+    estado_final = _resolver_estado_final_consulta(consulta, opciones, opciones_resp, quorum_min)
+    hash_global = _calcular_hash_global_escrutinio(consulta.id, votos)
 
     contenido_acta = _generar_texto_acta_cierre(
         consulta, estado_final, participacion, aprobatoria, opciones_resp, len(votos), hash_global

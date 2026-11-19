@@ -66,6 +66,16 @@ export class Actor {
   }
 }
 
+export async function waitForPaintSettled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    await Promise.allSettled(document.getAnimations().map((anim) => anim.finished));
+  });
+}
+
 export async function waitForDialogSettled(page: Page, selector: string): Promise<void> {
   const locator = page.locator(selector);
   await locator.waitFor({ state: 'visible' });

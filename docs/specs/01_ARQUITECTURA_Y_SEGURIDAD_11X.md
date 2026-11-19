@@ -3,6 +3,9 @@
 **Estado:** Activo y Certificado en Backend y Frontend (Hitos 1 al 7 Completados)  
 **Estándar:** QA Testing Blueprints Nivel 11X
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** Esta especificación fundacional se complementa con el modelo **Single-Condo + PostgreSQL 17 RLS real** (`0010`, `ENABLE`/`FORCE ROW LEVEL SECURITY` en 27 tablas bajo rol `condominio_app_runtime`), derivación de subclaves **`HKDF-SHA256`** y `PBKDF2 >= 600_000` iteraciones, KeyDB fail-closed e idempotencia con *response replay*, complejidad backend **Radon Grado A**, Worker AVIF/SMTP (`BLMOVE` + DLQ), tokenización **`OKLCH` + `light-dark()`**, Screenplay E2E WCAG 2.2 AA, gobernanza **Thin-Repo `v3.1.0`** (`@sinfallas/mcp-qa-11x` + FINOS CALM `1.2`) y distribución Docker Hub multi-arch. Ver [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md), [Spec 12](./12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Topología de Servicios en Contenedores

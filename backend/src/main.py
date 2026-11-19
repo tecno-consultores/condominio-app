@@ -4,6 +4,7 @@ import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, Response, status
@@ -39,10 +40,11 @@ _DOCS_CSP = (
     "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
     "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
     "img-src 'self' data: https://fastapi.tiangolo.com; "
-    "frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 )
 _PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 _FETCH_METADATA_VARY = ("Sec-Fetch-Dest", "Sec-Fetch-Mode", "Sec-Fetch-Site")
+_INVALID_HOST_CHARS = frozenset({" ", "\r", "\n", "\x00", "/", "@", "\\"})
 
 
 def _es_produccion() -> bool:
@@ -72,34 +74,50 @@ app = FastAPI(
 )
 
 
-def _extract_host_from_header(raw_host: str) -> str | None:
-    clean = raw_host.strip()
-    if not clean or any(ch in clean for ch in (" ", "\r", "\n", "\x00", "/", "@", "\\")):
-        return None
+def _parse_valid_host_url(clean: str) -> str | None:
     try:
         parsed = urlparse(f"http://{clean}")
     except ValueError:
         return None
-    if parsed.username or parsed.password or parsed.path or parsed.query or not parsed.hostname:
+    has_extra = any((parsed.username, parsed.password, parsed.path, parsed.query))
+    if has_extra or not parsed.hostname:
         return None
     return parsed.hostname.lower()
+
+
+def _extract_host_from_header(raw_host: str) -> str | None:
+    clean = raw_host.strip()
+    if not clean or not _INVALID_HOST_CHARS.isdisjoint(clean):
+        return None
+    return _parse_valid_host_url(clean)
+
+
+def _parse_allowed_hosts_env(raw_hosts: str) -> set[str]:
+    parsed_hosts: set[str] = set()
+    for item in raw_hosts.split(","):
+        host = _extract_host_from_header(item)
+        if host:
+            parsed_hosts.add(host)
+    return parsed_hosts
+
+
+def _extract_origin_host(origin: str) -> str | None:
+    clean_origin = origin.strip()
+    if not clean_origin:
+        return None
+    hostname = urlparse(clean_origin).hostname
+    return hostname.lower() if hostname else None
 
 
 def _allowed_hosts_set() -> set[str]:
     raw_hosts = os.getenv("ALLOWED_HOSTS", "").strip()
     if raw_hosts:
-        parsed_hosts: set[str] = set()
-        for item in raw_hosts.split(","):
-            host = _extract_host_from_header(item)
-            if host:
-                parsed_hosts.add(host)
-        return parsed_hosts
+        return _parse_allowed_hosts_env(raw_hosts)
     hosts = set(_DEFAULT_ALLOWED_HOSTS)
     for origin in os.getenv("ALLOWED_ORIGINS", "").split(","):
-        if origin.strip():
-            hostname = urlparse(origin.strip()).hostname
-            if hostname:
-                hosts.add(hostname.lower())
+        host = _extract_origin_host(origin)
+        if host:
+            hosts.add(host)
     return hosts
 
 
@@ -122,15 +140,18 @@ def _extract_metrics_token(request: Request) -> str:
     return ""
 
 
+def _extract_client_host(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
 def _is_metrics_authorized(request: Request) -> bool:
     expected = os.getenv("METRICS_AUTH_TOKEN", "").strip()
-    provided = _extract_metrics_token(request)
-    if _es_produccion():
-        return bool(expected) and bool(provided) and hmac.compare_digest(provided, expected)
     if expected:
+        provided = _extract_metrics_token(request)
         return bool(provided) and hmac.compare_digest(provided, expected)
-    direct_host = request.client.host if request.client else None
-    return is_trusted_proxy_ip(direct_host)
+    if _es_produccion():
+        return False
+    return is_trusted_proxy_ip(_extract_client_host(request))
 
 
 def _requires_cookie_csrf_check(request: Request) -> bool:
@@ -145,18 +166,34 @@ def _requires_cookie_csrf_check(request: Request) -> bool:
     return has_access_cookie or has_refresh_cookie
 
 
+def _session_id_from_payload(payload: dict[str, Any]) -> str | None:
+    raw_sid = payload.get("sid") or payload.get("sub")
+    if not raw_sid:
+        return None
+    return str(raw_sid).strip() or None
+
+
+def _session_id_from_token(raw_cookie: str) -> str | None:
+    token = raw_cookie.removeprefix("Bearer ").strip()
+    if not token:
+        return None
+    payload = decode_token_unverified_exp(token)
+    return _session_id_from_payload(payload) if payload else None
+
+
 def _extract_cookie_session_id_for_csrf(request: Request) -> str | None:
     for cookie_name in ("access_token", "refresh_token"):
-        token = request.cookies.get(cookie_name, "").removeprefix("Bearer ").strip()
-        if not token:
-            continue
-        payload = decode_token_unverified_exp(token)
-        if not payload:
-            continue
-        session_id = str(payload.get("sid") or payload.get("sub") or "").strip()
+        session_id = _session_id_from_token(request.cookies.get(cookie_name, ""))
         if session_id:
             return session_id
     return None
+
+
+def _is_valid_cookie_csrf(request: Request) -> bool:
+    session_id = _extract_cookie_session_id_for_csrf(request)
+    if session_id is None:
+        return request.url.path == "/api/auth/logout"
+    return validate_csrf_token(request.headers.get("x-csrf-token", ""), session_id)
 
 
 @app.middleware("http")
@@ -165,15 +202,11 @@ async def csrf_protection_middleware(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     """Valida X-CSRF-Token HMAC-SHA256 siempre que existan cookies HttpOnly de sesión."""
-    if _requires_cookie_csrf_check(request):
-        session_id = _extract_cookie_session_id_for_csrf(request)
-        if session_id is None and request.url.path == "/api/auth/logout":
-            return await call_next(request)
-        if not session_id or not validate_csrf_token(request.headers.get("x-csrf-token", ""), session_id):
-            return JSONResponse(
-                status_code=status.HTTP_403_FORBIDDEN,
-                content={"detail": "Token CSRF inválido o ausente."},
-            )
+    if _requires_cookie_csrf_check(request) and not _is_valid_cookie_csrf(request):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": "Token CSRF inválido o ausente."},
+        )
     return await call_next(request)
 
 
@@ -189,16 +222,25 @@ def _is_allowed_fetch_metadata(request: Request) -> bool:
     return request.method in {"GET", "HEAD"} and sec_fetch_dest not in {"object", "embed"}
 
 
+def _parse_vary_items(raw_vary: str) -> list[str]:
+    return [item.strip() for item in raw_vary.split(",") if item.strip()]
+
+
 def _merge_vary_header(response: Response) -> None:
     """Preserva Vary existente e incorpora cabeceras Fetch Metadata para caches intermedias."""
-    existing_raw = response.headers.get("Vary", "")
-    existing_items = [item.strip() for item in existing_raw.split(",") if item.strip()]
+    existing_items = _parse_vary_items(response.headers.get("Vary", ""))
     existing_lower = {item.lower() for item in existing_items}
-    for header_name in _FETCH_METADATA_VARY:
-        if header_name.lower() not in existing_lower:
-            existing_items.append(header_name)
-            existing_lower.add(header_name.lower())
-    response.headers["Vary"] = ", ".join(existing_items)
+    missing = [h for h in _FETCH_METADATA_VARY if h.lower() not in existing_lower]
+    response.headers["Vary"] = ", ".join(existing_items + missing)
+
+
+def _is_https_request(request: Request) -> bool:
+    if should_use_secure_cookie() or request.url.scheme == "https":
+        return True
+    if not is_trusted_proxy_ip(_extract_client_host(request)):
+        return False
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return forwarded_proto == "https"
 
 
 def _apply_security_headers(request: Request, response: Response) -> Response:
@@ -212,13 +254,7 @@ def _apply_security_headers(request: Request, response: Response) -> Response:
     response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = _PERMISSIONS_POLICY
     _merge_vary_header(response)
-    direct_host = request.client.host if request.client else None
-    forwarded_proto = (
-        request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if is_trusted_proxy_ip(direct_host)
-        else ""
-    )
-    if should_use_secure_cookie() or request.url.scheme == "https" or forwarded_proto == "https":
+    if _is_https_request(request):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
@@ -267,16 +303,20 @@ async def security_headers_middleware(
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
 
+def _extraer_metodos_ops(ops_ruta: dict[str, Any]) -> set[str]:
+    return {metodo.upper() for metodo in ops_ruta if metodo.lower() in _METODOS_OPENAPI}
+
+
 def _metodos_permitidos(path: str) -> set[str]:
     """Métodos HTTP documentados para un path, priorizando coincidencia exacta antes que plantillas."""
     paths = app.openapi().get("paths", {})
     if path in paths:
-        return {metodo.upper() for metodo in paths[path] if metodo.lower() in _METODOS_OPENAPI}
+        return _extraer_metodos_ops(paths[path])
     permitidos: set[str] = set()
     for plantilla, ops_ruta in paths.items():
         patron = re.sub(r"\{[^}]+\}", r"[^/]+", plantilla)
         if re.fullmatch(patron, path):
-            permitidos.update(metodo.upper() for metodo in ops_ruta if metodo.lower() in _METODOS_OPENAPI)
+            permitidos.update(_extraer_metodos_ops(ops_ruta))
     return permitidos
 
 

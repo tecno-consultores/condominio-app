@@ -112,24 +112,38 @@ def _validar_password_bootstrap(password: str) -> str:
     return password
 
 
-def _validar_config(cfg: BootstrapConfig) -> BootstrapConfig:
+def _normalizar_texto_opcional(valor: str | None) -> str | None:
+    """Normaliza una cadena opcional recortando espacios y convirtiendo vacío en None."""
+    if valor is None:
+        return None
+    limpio = valor.strip()
+    return limpio if limpio else None
+
+
+def _validar_campos_obligatorios(cfg: BootstrapConfig) -> tuple[str, str, str]:
+    """Valida tenant y presencia de nombre, cédula y teléfono obligatorios."""
     if cfg.condominio_id < 1:
         raise ValueError("condominio_id debe ser mayor o igual a 1.")
-    nombre = cfg.nombre.strip()
-    cedula = cfg.cedula.strip()
-    telefono = cfg.telefono.strip()
-    if not nombre or not cedula or not telefono:
+    campos = (cfg.nombre.strip(), cfg.cedula.strip(), cfg.telefono.strip())
+    if not all(campos):
         raise ValueError("nombre, cedula y telefono son obligatorios.")
+    return campos
+
+
+def _validar_en_catalogo(valor: str, permitidos: tuple[str, ...], etiqueta: str) -> str:
+    """Normaliza en mayúsculas y verifica pertenencia a un catálogo cerrado."""
+    normalizado = valor.strip().upper()
+    if normalizado not in permitidos:
+        raise ValueError(f"{etiqueta} inválido: {normalizado}")
+    return normalizado
+
+
+def _validar_config(cfg: BootstrapConfig) -> BootstrapConfig:
+    nombre, cedula, telefono = _validar_campos_obligatorios(cfg)
     correo_norm = _validar_correo(cfg.correo.strip().lower()).lower()
     password_val = _validar_password_bootstrap(cfg.password)
-    rol_norm = cfg.rol.strip().upper()
-    if rol_norm not in ROLES_BOOTSTRAP_PERMITIDOS:
-        raise ValueError(f"Rol de bootstrap inválido: {rol_norm}")
-    tipo_norm = cfg.estructura_tipo.strip().upper()
-    if tipo_norm not in TIPOS_ESTRUCTURA_PERMITIDOS:
-        raise ValueError(f"Tipo de estructura inválido: {tipo_norm}")
-    unidad_norm = cfg.unidad_inicial.strip() if cfg.unidad_inicial else None
-    est_norm = cfg.estructura_nombre.strip() if cfg.estructura_nombre else None
+    rol_norm = _validar_en_catalogo(cfg.rol, ROLES_BOOTSTRAP_PERMITIDOS, "Rol de bootstrap")
+    tipo_norm = _validar_en_catalogo(cfg.estructura_tipo, TIPOS_ESTRUCTURA_PERMITIDOS, "Tipo de estructura")
     return BootstrapConfig(
         condominio_id=cfg.condominio_id,
         nombre=nombre,
@@ -138,9 +152,9 @@ def _validar_config(cfg: BootstrapConfig) -> BootstrapConfig:
         telefono=telefono,
         password=password_val,
         rol=rol_norm,
-        estructura_nombre=est_norm,
+        estructura_nombre=_normalizar_texto_opcional(cfg.estructura_nombre),
         estructura_tipo=tipo_norm,
-        unidad_inicial=unidad_norm or None,
+        unidad_inicial=_normalizar_texto_opcional(cfg.unidad_inicial),
         allow_update_existing=cfg.allow_update_existing,
     )
 
@@ -166,6 +180,25 @@ async def _buscar_usuario_existente(
     return user_correo or user_cedula
 
 
+async def _obtener_o_crear_estructura(session: AsyncSession, cfg: BootstrapConfig) -> Estructura:
+    """Obtiene la estructura inicial del condominio o la crea si aún no existe."""
+    est_nombre = cfg.estructura_nombre or "Torre Principal"
+    res_est = await session.execute(
+        select(Estructura).where(
+            Estructura.condominio_id == cfg.condominio_id,
+            Estructura.nombre == est_nombre,
+            Estructura.tipo == cfg.estructura_tipo,
+        )
+    )
+    estructura = res_est.scalars().first()
+    if estructura is not None:
+        return estructura
+    estructura = Estructura(condominio_id=cfg.condominio_id, nombre=est_nombre, tipo=cfg.estructura_tipo)
+    session.add(estructura)
+    await session.flush()
+    return estructura
+
+
 async def _asegurar_estructura_y_unidad(
     session: AsyncSession,
     cfg: BootstrapConfig,
@@ -179,20 +212,7 @@ async def _asegurar_estructura_y_unidad(
             raise ValueError("La unidad inicial pertenece a otro condominio_id.")
         return unidad
 
-    est_nombre = cfg.estructura_nombre or "Torre Principal"
-    res_est = await session.execute(
-        select(Estructura).where(
-            Estructura.condominio_id == cfg.condominio_id,
-            Estructura.nombre == est_nombre,
-            Estructura.tipo == cfg.estructura_tipo,
-        )
-    )
-    estructura = res_est.scalars().first()
-    if estructura is None:
-        estructura = Estructura(condominio_id=cfg.condominio_id, nombre=est_nombre, tipo=cfg.estructura_tipo)
-        session.add(estructura)
-        await session.flush()
-
+    estructura = await _obtener_o_crear_estructura(session, cfg)
     unidad = Unidad(
         condominio_id=cfg.condominio_id,
         identificador=cfg.unidad_inicial,
@@ -250,71 +270,101 @@ async def _asegurar_contrato_inicial(
     return True
 
 
+def _activar_y_asignar_rol(user: Usuario, rol: str) -> bool:
+    """Activa un usuario Fantasma y sincroniza su rol administrativo."""
+    changed = False
+    if not user.es_activo:
+        user.es_activo = True
+        changed = True
+    if user.rol != rol:
+        user.rol = rol
+        changed = True
+    return changed
+
+
+def _sincronizar_campo_usuario(user: Usuario, campo: str, valor: str) -> bool:
+    """Actualiza un atributo textual del usuario si difiere del valor configurado."""
+    if getattr(user, campo) == valor:
+        return False
+    setattr(user, campo, valor)
+    return True
+
+
+def _actualizar_perfil_usuario(user: Usuario, cfg: BootstrapConfig) -> bool:
+    """Sincroniza nombre, teléfono y contraseña cuando allow_update_existing está habilitado."""
+    if not cfg.allow_update_existing:
+        return False
+    nombre_changed = _sincronizar_campo_usuario(user, "nombre", cfg.nombre)
+    telefono_changed = _sincronizar_campo_usuario(user, "telefono", cfg.telefono)
+    pwd_changed = False
+    if not verify_password(cfg.password, user.password_hash):
+        user.password_hash = get_password_hash(cfg.password)
+        pwd_changed = True
+    return any((nombre_changed, telefono_changed, pwd_changed))
+
+
 def _aplicar_actualizacion_usuario(user: Usuario, cfg: BootstrapConfig) -> bool:
     if not user.es_activo and user.rol != "FANTASMA":
         raise ValueError(
             "No se permite reactivar mediante bootstrap una cuenta revocada o deshabilitada administrativamente."
         )
-    changed = False
-    if not user.es_activo:
-        user.es_activo = True
-        changed = True
-    if user.rol != cfg.rol:
-        user.rol = cfg.rol
-        changed = True
-    if not cfg.allow_update_existing:
-        return changed
-    if user.nombre != cfg.nombre:
-        user.nombre = cfg.nombre
-        changed = True
-    if user.telefono != cfg.telefono:
-        user.telefono = cfg.telefono
-        changed = True
-    if not verify_password(cfg.password, user.password_hash):
-        user.password_hash = get_password_hash(cfg.password)
-        changed = True
-    return changed
+    base_changed = _activar_y_asignar_rol(user, cfg.rol)
+    perfil_changed = _actualizar_perfil_usuario(user, cfg)
+    return any((base_changed, perfil_changed))
+
+
+async def _crear_o_actualizar_usuario(
+    session: AsyncSession,
+    cfg: BootstrapConfig,
+) -> tuple[Usuario, bool, bool]:
+    """Busca el usuario inicial o lo crea/actualiza de forma idempotente."""
+    user = await _buscar_usuario_existente(session, cfg.correo, cfg.cedula)
+    if user is not None:
+        return user, False, _aplicar_actualizacion_usuario(user, cfg)
+    user = Usuario(
+        condominio_id=cfg.condominio_id,
+        nombre=cfg.nombre,
+        cedula=cfg.cedula,
+        correo=cfg.correo,
+        telefono=cfg.telefono,
+        password_hash=get_password_hash(cfg.password),
+        es_activo=True,
+        rol=cfg.rol,
+    )
+    session.add(user)
+    await session.flush()
+    return user, True, False
+
+
+async def _cerrar_transaccion_bootstrap(
+    session: AsyncSession,
+    created: bool,
+    updated: bool,
+) -> Literal["created", "updated", "unchanged"]:
+    """Confirma o revierte la transacción según si hubo mutaciones en el bootstrap."""
+    if created:
+        await session.commit()
+        return "created"
+    if updated:
+        await session.commit()
+        return "updated"
+    await session.rollback()
+    return "unchanged"
 
 
 async def _persistir_bootstrap(session: AsyncSession, cfg: BootstrapConfig) -> BootstrapResult:
-    user = await _buscar_usuario_existente(session, cfg.correo, cfg.cedula)
-    created = False
-    changed = False
-
-    if user is None:
-        user = Usuario(
-            condominio_id=cfg.condominio_id,
-            nombre=cfg.nombre,
-            cedula=cfg.cedula,
-            correo=cfg.correo,
-            telefono=cfg.telefono,
-            password_hash=get_password_hash(cfg.password),
-            es_activo=True,
-            rol=cfg.rol,
-        )
-        session.add(user)
-        await session.flush()
-        created = True
-    else:
-        changed = _aplicar_actualizacion_usuario(user, cfg)
-
+    user, created, changed = await _crear_o_actualizar_usuario(session, cfg)
     unidad = await _asegurar_estructura_y_unidad(session, cfg)
     contrato_creado = await _asegurar_contrato_inicial(session, user, unidad, cfg.condominio_id)
 
     usuario_id = user.id
     correo_usuario = user.correo
     rol_usuario = user.rol
-    unidad_id = unidad.id if unidad is not None else None
-
-    if created or changed or contrato_creado:
-        await session.commit()
-        status: Literal["created", "updated", "unchanged"] = "created" if created else "updated"
-    else:
-        await session.rollback()
-        status = "unchanged"
+    unidad_id = None if unidad is None else unidad.id
+    status_res = await _cerrar_transaccion_bootstrap(session, created, any((changed, contrato_creado)))
 
     return BootstrapResult(
-        status=status,
+        status=status_res,
         usuario_id=usuario_id,
         correo=correo_usuario,
         rol=rol_usuario,
@@ -389,16 +439,29 @@ async def _execute_cli_bootstrap(cfg: BootstrapConfig) -> BootstrapResult:
         await engine.dispose()
 
 
+def _resolver_argv_efectivo(argv: Sequence[str] | None) -> list[str]:
+    """Devuelve los argumentos CLI efectivos sin mutar sys.argv."""
+    return list(sys.argv[1:] if argv is None else argv)
+
+
+def _debe_omitir_bootstrap(args: argparse.Namespace) -> bool:
+    """Determina si --from-env debe omitirse por ausencia de BOOTSTRAP_ADMIN_CORREO."""
+    if not args.from_env:
+        return False
+    correo = args.correo or os.getenv("BOOTSTRAP_ADMIN_CORREO", "").strip()
+    return not correo
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Punto de entrada CLI seguro (cumple contrato QA-CLI-TTY-01 sin lectura bloqueante)."""
-    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    effective_argv = _resolver_argv_efectivo(argv)
     parser = _build_cli_parser()
     if not effective_argv:
         parser.print_help()
         return 0
 
     args = parser.parse_args(effective_argv)
-    if args.from_env and not (args.correo or os.getenv("BOOTSTRAP_ADMIN_CORREO", "").strip()):
+    if _debe_omitir_bootstrap(args):
         print(json.dumps({"status": "skipped", "reason": "BOOTSTRAP_ADMIN_CORREO no definido"}, ensure_ascii=False))
         return 0
 

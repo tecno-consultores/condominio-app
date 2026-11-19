@@ -6,6 +6,7 @@ import { installCondominioApiMock } from './fixtures/condominioApiMock';
 import { Actor, BrowseTheWeb } from './screenplay/core';
 import {
   CurrentPathname,
+  ElementAttribute,
   IsElementVisible,
   TextOfElement,
   ViewportGeometryAudit,
@@ -14,17 +15,27 @@ import {
 import {
   ActivateFirstPendingResident,
   ApprovePendingPayment,
+  AttemptConsultationVote,
   Authenticate,
+  CloseModal,
   CompleteFirstDailyTask,
+  CopySecretToken,
   EmitBillingAndInspectBreakdown,
   ExecuteMonthlyClosing,
   IssueAndVerifySolvency,
   IssueVisitorQrPass,
+  Logout,
+  LogoutFromMobileTopBar,
   NavigateTo,
+  NavigateViaMobileDrawer,
+  OpenMobileNavDrawer,
   RegisterNewResident,
   ReportAndSupportIncident,
   ReportPayment,
+  RequestAmenityReservation,
   RequestAndCancelAmenity,
+  ResizeViewport,
+  ReturnHomeFromNotFound,
   VerifyQrPassAtGatehouse,
   VoteInConsultation,
 } from './screenplay/tasks';
@@ -60,8 +71,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     await residente.attemptsTo(NavigateTo.path('/dashboard'));
     expect(await residente.asks(CurrentPathname.value())).toBe('/espera-aprobacion');
 
-    await page.getByRole('button', { name: 'Cerrar sesión' }).click();
-    await page.waitForURL('**/login');
+    await residente.attemptsTo(Logout.viaAccessibleButton('Cerrar sesión'));
 
     const presidente = Actor.named('Presidente').whoCan(BrowseTheWeb.using(page));
     await presidente.attemptsTo(
@@ -95,12 +105,14 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
       EmitBillingAndInspectBreakdown.forDefaultPeriod(),
     );
     expect(await tesorero.asks(IsElementVisible.matching('#modal-recibo-desglose'))).toBe(true);
-    await page.locator('#btn-close-desglose').click();
+    await tesorero.attemptsTo(CloseModal.byButton('#btn-close-desglose', '#modal-recibo-desglose'));
 
     await tesorero.attemptsTo(IssueAndVerifySolvency.forActiveUnit());
     expect(await tesorero.asks(TextOfElement.matching('#qr-solvencia-badge'))).toContain('SOLV-');
-    await page.locator('#btn-copy-solvency-token').click();
-    await expect(page.locator('#btn-copy-solvency-token')).toHaveAttribute('data-copied', '');
+    await tesorero.attemptsTo(CopySecretToken.viaButton('#btn-copy-solvency-token'));
+    expect(
+      await tesorero.asks(ElementAttribute.of('#btn-copy-solvency-token', 'data-copied')),
+    ).toBe('');
     await tesorero.attemptsTo(ExecuteMonthlyClosing.now());
     expect(await tesorero.asks(TextOfElement.matching('.banner--success'))).toContain('Candado');
     await assertNoOcclusionOrOverflow(tesorero, true);
@@ -130,9 +142,9 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     await votante.attemptsTo(VoteInConsultation.firstOpenOption());
     expect(await votante.asks(IsElementVisible.matching('#modal-vote-receipt'))).toBe(true);
     expect(await votante.asks(TextOfElement.matching('#receipt-firma-hmac'))).toContain('hmac_');
-    await page.locator('#btn-copy-vote-hmac').click();
-    await expect(page.locator('#btn-copy-vote-hmac')).toHaveAttribute('data-copied', '');
-    await page.locator('#btn-close-vote-receipt').click();
+    await votante.attemptsTo(CopySecretToken.viaButton('#btn-copy-vote-hmac'));
+    expect(await votante.asks(ElementAttribute.of('#btn-copy-vote-hmac', 'data-copied'))).toBe('');
+    await votante.attemptsTo(CloseModal.byButton('#btn-close-vote-receipt', '#modal-vote-receipt'));
     await assertNoOcclusionOrOverflow(votante, true);
   });
 
@@ -143,7 +155,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     const actor = Actor.named('ResidenteAccesos').whoCan(BrowseTheWeb.using(page));
 
     await actor.attemptsTo(IssueVisitorQrPass.forVisitor('Elena Tecnica', 'V-18222333'));
-    const tokenText = (await page.locator('code.token-value').first().innerText()).trim();
+    const tokenText = await actor.asks(TextOfElement.matching('code.token-value'));
     expect(tokenText).toContain('hmac_');
     await assertNoOcclusionOrOverflow(actor, true);
 
@@ -162,7 +174,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     // Reserva y cancelación Hito 17.4
     await conserje.attemptsTo(RequestAndCancelAmenity.withReason('Asamblea de piso 2'));
     expect(
-      await page.locator('#reservation-card-1, .reservation-card').first().innerText(),
+      await conserje.asks(TextOfElement.matching('#reservation-card-1, .reservation-card')),
     ).toContain('CANCELADA');
     await assertNoOcclusionOrOverflow(conserje, true);
 
@@ -172,9 +184,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
       strictSolvencyBlock: true,
     });
     const moroso = Actor.named('Moroso').whoCan(BrowseTheWeb.using(page));
-    await moroso.attemptsTo(NavigateTo.path('/reservas/areas'));
-    await page.locator('#input-reserva-motivo').fill('Celebracion familiar bloqueada');
-    await page.locator('#btn-submit-reserva').click();
+    await moroso.attemptsTo(RequestAmenityReservation.withReason('Celebracion familiar bloqueada'));
     expect(await moroso.asks(TextOfElement.matching('.alert--error, [role="alert"]'))).toContain(
       'solvente',
     );
@@ -184,7 +194,6 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
   test('5. Hito 22: Cajón móvil < 768px, logout móvil, ruta 404 y resiliencia de Dashboard', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 375, height: 667 });
     await installCondominioApiMock(page, {
       initialProfile: 'PROPIETARIO',
       omitDailyRate: true,
@@ -192,7 +201,7 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     });
     const movil = Actor.named('ResidenteMovil').whoCan(BrowseTheWeb.using(page));
 
-    await movil.attemptsTo(NavigateTo.path('/dashboard'));
+    await movil.attemptsTo(ResizeViewport.to(375, 667), NavigateTo.path('/dashboard'));
     expect(await movil.asks(TextOfElement.matching('#daily-rate-badge'))).toContain(
       'Tasa BCV pendiente hoy',
     );
@@ -202,20 +211,39 @@ test.describe('Flujos E2E Autenticados y Geometría Anti-JSDOM (Hito 8)', () => 
     await assertNoOcclusionOrOverflow(movil, true);
 
     // Drawer móvil en Top Layer y acceso a ruta secundaria
-    await page.locator('#btn-mobile-menu').click();
-    const drawer = page.locator('#mobile-nav-drawer');
-    await expect(drawer).toBeVisible();
-    await drawer.getByRole('button', { name: 'Cartas Consulta' }).click();
-    await page.waitForURL('**/consultas');
+    await movil.attemptsTo(OpenMobileNavDrawer.now());
+    expect(await movil.asks(IsElementVisible.matching('#mobile-nav-drawer'))).toBe(true);
+    await movil.attemptsTo(NavigateViaMobileDrawer.toLabel('Cartas Consulta', '**/consultas'));
+    expect(await movil.asks(CurrentPathname.value())).toBe('/consultas');
 
     // Ruta desconocida -> #not-found-card
-    await page.goto('/ruta-inexistente-404', { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#not-found-card')).toBeVisible();
-    await page.locator('#btn-go-home').click();
-    await page.waitForURL('**/dashboard');
+    await movil.attemptsTo(NavigateTo.path('/ruta-inexistente-404'));
+    expect(await movil.asks(IsElementVisible.matching('#not-found-card'))).toBe(true);
+    await movil.attemptsTo(ReturnHomeFromNotFound.now());
+    expect(await movil.asks(CurrentPathname.value())).toBe('/dashboard');
 
     // Botón móvil de salida visible en barra superior
-    await page.locator('#btn-mobile-logout').click();
-    await page.waitForURL('**/login');
+    await movil.attemptsTo(LogoutFromMobileTopBar.now());
+    expect(await movil.asks(CurrentPathname.value())).toBe('/login');
+  });
+
+  test('6. Hito 23: Contención RBAC 403 en votación de Inquilino y error 404 en Tasa BCV', async ({
+    page,
+  }) => {
+    await installCondominioApiMock(page, { initialProfile: 'INQUILINO' });
+    const inquilino = Actor.named('InquilinoRBAC').whoCan(BrowseTheWeb.using(page));
+
+    await inquilino.attemptsTo(AttemptConsultationVote.onConsultation(1));
+    expect(await inquilino.asks(TextOfElement.matching('.banner--error'))).toContain('propietario');
+
+    await installCondominioApiMock(page, {
+      initialProfile: 'PROPIETARIO',
+      omitDailyRate: true,
+    });
+    const residente = Actor.named('ResidenteSinTasa').whoCan(BrowseTheWeb.using(page));
+    await residente.attemptsTo(NavigateTo.path('/dashboard'));
+    expect(await residente.asks(TextOfElement.matching('#daily-rate-badge'))).toContain(
+      'Tasa BCV pendiente hoy',
+    );
   });
 });

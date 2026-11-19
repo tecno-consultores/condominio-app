@@ -1,4 +1,8 @@
+"""Contratos Pydantic de entrada, salida y validación de dominio para la API."""
+
 import math
+import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from datetime import date as date_type
 from decimal import Decimal
@@ -6,6 +10,37 @@ from typing import Annotated, Any, Literal
 
 import email_validator
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
+
+_CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+_ESQUEMAS_URL_PROHIBIDOS: tuple[str, ...] = ("javascript:", "data:", "vbscript:", "file:")
+_PREFIJOS_URL_RELATIVA_PROHIBIDOS: tuple[str, ...] = ("//", "/\\")
+
+
+@dataclass(frozen=True)
+class _ReglasUrlSegura:
+    """Política parametrizada de esquemas permitidos y mensajes de rechazo Anti-XSS/LFI."""
+
+    prefijos_permitidos: tuple[str, ...]
+    msg_control: str
+    msg_protocolo_relativo: str
+    msg_esquema_peligroso: str
+    msg_prefijo_invalido: str
+
+
+_REGLAS_URL_EVIDENCIA = _ReglasUrlSegura(
+    prefijos_permitidos=("https://", "http://", "s3://", "/"),
+    msg_control="La URL contiene caracteres de control no permitidos.",
+    msg_protocolo_relativo="URL relativa al protocolo ('//') no permitida por seguridad.",
+    msg_esquema_peligroso="Esquema de URL no permitido por seguridad (Anti-XSS/LFI).",
+    msg_prefijo_invalido="La URL de evidencia debe iniciar con https://, http://, s3:// o ruta relativa '/'.",
+)
+_REGLAS_ENLACE_EXTERNO = _ReglasUrlSegura(
+    prefijos_permitidos=("https://", "http://"),
+    msg_control="El enlace externo contiene caracteres de control no permitidos.",
+    msg_protocolo_relativo="Enlace externo peligroso rechazado por seguridad (Anti-XSS).",
+    msg_esquema_peligroso="Enlace externo peligroso rechazado por seguridad (Anti-XSS).",
+    msg_prefijo_invalido="El enlace externo debe iniciar con https:// o http://.",
+)
 
 
 def _coercer_entero_json_exacto(valor: Any) -> Any:
@@ -25,31 +60,68 @@ def _validar_correo(valor: str) -> str:
     return valor
 
 
+def _validar_url_con_reglas(limpio: str, reglas: _ReglasUrlSegura) -> str:
+    """Aplica validaciones Anti-XSS/LFI y de esquema permitido sobre una URL recortada."""
+    if limpio.startswith(_PREFIJOS_URL_RELATIVA_PROHIBIDOS):
+        raise ValueError(reglas.msg_protocolo_relativo)
+    minus = limpio.lower()
+    if minus.startswith(_ESQUEMAS_URL_PROHIBIDOS):
+        raise ValueError(reglas.msg_esquema_peligroso)
+    if not minus.startswith(reglas.prefijos_permitidos):
+        raise ValueError(reglas.msg_prefijo_invalido)
+    return limpio
+
+
+def _validar_url_opcional(valor: str | None, reglas: _ReglasUrlSegura) -> str | None:
+    """Normaliza una URL opcional retornando None si es vacía o validándola contra la política."""
+    if valor is None:
+        return None
+    if _CTRL_CHAR_RE.search(valor) is not None:
+        raise ValueError(reglas.msg_control)
+    limpio = valor.strip()
+    if not limpio:
+        return None
+    return _validar_url_con_reglas(limpio, reglas)
+
+
 def _validar_url_evidencia_segura(valor: str) -> str:
     """Bloquea esquemas peligrosos (XSS/LFI), protocol-relative '//' y caracteres de control en URLs."""
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in valor):
-        raise ValueError("La URL contiene caracteres de control no permitidos.")
+    if _CTRL_CHAR_RE.search(valor) is not None:
+        raise ValueError(_REGLAS_URL_EVIDENCIA.msg_control)
     limpio = valor.strip()
     if not limpio:
         raise ValueError("La URL de evidencia no puede estar vacía.")
-    if limpio.startswith(("//", "/\\")):
-        raise ValueError("URL relativa al protocolo ('//') no permitida por seguridad.")
-    minus = limpio.lower()
-    if minus.startswith(("javascript:", "data:", "vbscript:", "file:")):
-        raise ValueError("Esquema de URL no permitido por seguridad (Anti-XSS/LFI).")
-    if not (minus.startswith(("https://", "http://", "s3://", "/"))):
-        raise ValueError("La URL de evidencia debe iniciar con https://, http://, s3:// o ruta relativa '/'.")
-    return limpio
+    return _validar_url_con_reglas(limpio, _REGLAS_URL_EVIDENCIA)
 
 
 CorreoValido = Annotated[str, Field(json_schema_extra={"format": "email"}), AfterValidator(_validar_correo)]
 UrlEvidenciaSegura = Annotated[str, Field(min_length=1), AfterValidator(_validar_url_evidencia_segura)]
 EnteroEstricto = Annotated[int, BeforeValidator(_coercer_entero_json_exacto), Field(strict=True)]
+_PeriodoFiscal = Annotated[str, Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
+_TextoNoVacio = Annotated[str, Field(min_length=1)]
+_MontoUsdPositivo = Annotated[Decimal, Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.99"))]
+_IdPositivo = Annotated[EnteroEstricto, Field(gt=0)]
+_MontoAreaSocial = Annotated[Decimal, Field(ge=Decimal("0.00"), le=Decimal("99999999.99"), allow_inf_nan=False)]
 
 
-class UsuarioBase(BaseModel):
+class _SchemaEstricto(BaseModel):
+    """Base Pydantic de entrada que rechaza propiedades adicionales no declaradas."""
+
     model_config = ConfigDict(extra="forbid")
 
+
+class _SchemaORM(BaseModel):
+    """Base Pydantic de salida habilitada para hidratación directa desde modelos ORM."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==============================================================================
+# ESQUEMAS DE IDENTIDAD, USUARIOS Y AUTENTICACIÓN
+# ==============================================================================
+
+
+class UsuarioBase(_SchemaEstricto):
     nombre: str = Field(min_length=1, max_length=120)
     cedula: str = Field(min_length=1, max_length=30)
     correo: CorreoValido
@@ -70,34 +142,30 @@ class UsuarioResponse(UsuarioBase):
     rol: str
 
 
+# ==============================================================================
+# ESQUEMAS DE FINANZAS, RECIBOS, PAGOS Y EGRESOS
+# ==============================================================================
+
 Moneda = Literal["USD", "VES"]
 
 
-class TasaCambioCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class TasaCambioCreate(_SchemaEstricto):
     fecha: date_type | None = None
     tasa_usd_ves: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.9999"))
 
 
-class TasaCambioResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class TasaCambioResponse(_SchemaORM):
     fecha: date_type
     tasa_usd_ves: Decimal
 
 
-class ReciboCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ReciboCreate(_SchemaEstricto):
     unidad_id: EnteroEstricto
-    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
-    monto_usd: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.99"))
+    periodo: _PeriodoFiscal
+    monto_usd: _MontoUsdPositivo
 
 
-class ReciboResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class ReciboResponse(_SchemaORM):
     id: int
     unidad_id: int
     periodo: str
@@ -107,20 +175,16 @@ class ReciboResponse(BaseModel):
     bloqueado: bool
 
 
-class PagoReportar(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class PagoReportar(_SchemaEstricto):
     recibo_id: EnteroEstricto
-    monto: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.99"))
+    monto: _MontoUsdPositivo
     moneda: Moneda
     metodo_pago: str
     numero_referencia: str | None = None
     url_comprobante: UrlEvidenciaSegura | None = None
 
 
-class PagoResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class PagoResponse(_SchemaORM):
     id: int
     recibo_id: int
     usuario_id: int
@@ -134,30 +198,28 @@ class PagoResponse(BaseModel):
     estado: str
 
 
-class PagoRechazo(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    motivo: str = Field(min_length=1)
+class PagoRechazo(_SchemaEstricto):
+    motivo: _TextoNoVacio
 
 
-class EgresoCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
-    categoria: str = Field(min_length=1)
-    descripcion: str = Field(min_length=1)
-    monto: Decimal = Field(gt=0, allow_inf_nan=False, le=Decimal("9999999999.99"))
+class EgresoCreate(_SchemaEstricto):
+    periodo: _PeriodoFiscal
+    categoria: _TextoNoVacio
+    descripcion: _TextoNoVacio
+    monto: _MontoUsdPositivo
     moneda: Moneda
     url_factura: UrlEvidenciaSegura | None = None
     incidencia_id: EnteroEstricto | None = None
     es_gasto_comun: bool = True
 
 
-class CierreMensualRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class CierreMensualRequest(_SchemaEstricto):
+    periodo: _PeriodoFiscal
 
-    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
 
+# ==============================================================================
+# ESQUEMAS DE ADMINISTRACIÓN, ESTRUCTURAS Y ALÍCUOTAS
+# ==============================================================================
 
 TipoEstructura = Literal["EDIFICIO", "TORRE", "BLOQUE", "MANZANA", "CALLE"]
 TipoOcupante = Literal["PROPIETARIO", "INQUILINO"]
@@ -175,27 +237,35 @@ CargoJunta = Literal["PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "
 FrecuenciaTarea = Literal["UNICA", "DIARIA", "SEMANAL", "MENSUAL"]
 
 
-class EstructuraGenerarRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    nombre: str = Field(min_length=1)
+class EstructuraGenerarRequest(_SchemaEstricto):
+    nombre: _TextoNoVacio
     tipo: TipoEstructura
     identificadores: list[str] = Field(min_length=1)
 
 
-class UnidadPublicaResponse(BaseModel):
+class UnidadPublicaResponse(_SchemaORM):
     """DTO público mínimo para registro de vecinos sin exponer saldos ni alícuotas."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: int
     identificador: str
     estructura_id: int
 
 
-class UnidadResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+def _normalizar_unidad_objeto(data: Any) -> dict[str, Any]:
+    """Serializa un objeto Unidad en memoria rellenando decimales nulos con valores seguros."""
+    alicuota_raw = getattr(data, "alicuota", None)
+    credito_raw = getattr(data, "credito_disponible_usd", None)
+    return {
+        "id": getattr(data, "id", 0),
+        "identificador": getattr(data, "identificador", ""),
+        "estructura_id": getattr(data, "estructura_id", 1),
+        "alicuota": Decimal("0.0000") if alicuota_raw is None else alicuota_raw,
+        "cuota_fija_usd": getattr(data, "cuota_fija_usd", None),
+        "credito_disponible_usd": Decimal("0.00") if credito_raw is None else credito_raw,
+    }
 
+
+class UnidadResponse(_SchemaORM):
     id: int
     identificador: str
     estructura_id: int
@@ -207,22 +277,11 @@ class UnidadResponse(BaseModel):
     @classmethod
     def _normalizar_nulos_en_memoria(cls, data: Any) -> Any:
         if hasattr(data, "identificador") and not isinstance(data, dict):
-            alicuota_raw = getattr(data, "alicuota", None)
-            credito_raw = getattr(data, "credito_disponible_usd", None)
-            return {
-                "id": getattr(data, "id", 0),
-                "identificador": getattr(data, "identificador", ""),
-                "estructura_id": getattr(data, "estructura_id", 1),
-                "alicuota": Decimal("0.0000") if alicuota_raw is None else alicuota_raw,
-                "cuota_fija_usd": getattr(data, "cuota_fija_usd", None),
-                "credito_disponible_usd": Decimal("0.00") if credito_raw is None else credito_raw,
-            }
+            return _normalizar_unidad_objeto(data)
         return data
 
 
-class AlicuotaUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class AlicuotaUpdateRequest(_SchemaEstricto):
     alicuota: Decimal = Field(..., ge=Decimal("0.0000"), le=Decimal("100.0000"), allow_inf_nan=False)
     cuota_fija_usd: Decimal | None = Field(
         default=None,
@@ -240,33 +299,30 @@ class EstructuraGenerarResponse(BaseModel):
     unidades: list[UnidadResponse]
 
 
-class UsuarioAsignarRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class UsuarioAsignarRequest(_SchemaEstricto):
     unidad_id: EnteroEstricto
     tipo_ocupante: TipoOcupante
     rol: RolResidente = "PROPIETARIO"
     puede_votar_asamblea: bool | None = None
 
 
-class JuntaCargoRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class JuntaCargoRequest(_SchemaEstricto):
     usuario_id: EnteroEstricto
     cargo: CargoJunta
 
 
-class IncidenciaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+# ==============================================================================
+# ESQUEMAS DE OPERACIONES, INCIDENCIAS, BITÁCORA Y COMUNICADOS
+# ==============================================================================
 
-    area: str = Field(min_length=1)
-    descripcion: str = Field(min_length=1)
+
+class IncidenciaCreate(_SchemaEstricto):
+    area: _TextoNoVacio
+    descripcion: _TextoNoVacio
     url_foto: UrlEvidenciaSegura | None = None
 
 
-class IncidenciaResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class IncidenciaResponse(_SchemaORM):
     id: int
     usuario_creador_id: int
     area: str
@@ -276,17 +332,13 @@ class IncidenciaResponse(BaseModel):
     adhesiones_count: int
 
 
-class PlantillaTareaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    titulo: str = Field(min_length=1)
-    area: str = Field(min_length=1)
+class PlantillaTareaCreate(_SchemaEstricto):
+    titulo: _TextoNoVacio
+    area: _TextoNoVacio
     frecuencia: FrecuenciaTarea = "DIARIA"
 
 
-class PlantillaTareaResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class PlantillaTareaResponse(_SchemaORM):
     id: int
     titulo: str
     area: str
@@ -294,24 +346,18 @@ class PlantillaTareaResponse(BaseModel):
     activa: bool
 
 
-class TareaDiariaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    titulo: str = Field(min_length=1)
-    area: str = Field(min_length=1)
+class TareaDiariaCreate(_SchemaEstricto):
+    titulo: _TextoNoVacio
+    area: _TextoNoVacio
     fecha: date_type | None = None
     incidencia_id: EnteroEstricto | None = None
 
 
-class TareaCompletarRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class TareaCompletarRequest(_SchemaEstricto):
     url_evidencia: UrlEvidenciaSegura | None = None
 
 
-class TareaDiariaResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class TareaDiariaResponse(_SchemaORM):
     id: int
     plantilla_id: int | None
     incidencia_id: int | None
@@ -322,18 +368,14 @@ class TareaDiariaResponse(BaseModel):
     url_evidencia: str | None
 
 
-class FotoVoceroCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
-    area: str = Field(min_length=1)
-    comentario: str = Field(min_length=1)
+class FotoVoceroCreate(_SchemaEstricto):
+    periodo: _PeriodoFiscal
+    area: _TextoNoVacio
+    comentario: _TextoNoVacio
     url_foto: UrlEvidenciaSegura
 
 
-class FotoVoceroResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class FotoVoceroResponse(_SchemaORM):
     id: int
     usuario_id: int
     periodo: str
@@ -349,18 +391,14 @@ class GaleriaVoceroResponse(BaseModel):
     fotos: list[FotoVoceroResponse]
 
 
-class BitacoraActaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class BitacoraActaCreate(_SchemaEstricto):
     fecha: date_type
-    hora: str = Field(min_length=1)
-    ubicacion: str = Field(min_length=1)
-    contenido: str = Field(min_length=1)
+    hora: _TextoNoVacio
+    ubicacion: _TextoNoVacio
+    contenido: _TextoNoVacio
 
 
-class BitacoraActaResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class BitacoraActaResponse(_SchemaORM):
     id: int
     fecha: date_type
     hora: str
@@ -369,40 +407,28 @@ class BitacoraActaResponse(BaseModel):
     autor_id: int
 
 
-class ComunicadoCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    titulo: str = Field(min_length=1)
-    contenido: str = Field(min_length=1)
+class ComunicadoCreate(_SchemaEstricto):
+    titulo: _TextoNoVacio
+    contenido: _TextoNoVacio
     enlace_externo: str | None = None
 
     @field_validator("enlace_externo")
     @classmethod
     def _validar_enlace_externo(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        if any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
-            raise ValueError("El enlace externo contiene caracteres de control no permitidos.")
-        limpio = v.strip()
-        if not limpio:
-            return None
-        minus = limpio.lower()
-        if limpio.startswith(("//", "/\\")) or minus.startswith(("javascript:", "data:", "vbscript:", "file:")):
-            raise ValueError("Enlace externo peligroso rechazado por seguridad (Anti-XSS).")
-        if not minus.startswith(("https://", "http://")):
-            raise ValueError("El enlace externo debe iniciar con https:// o http://.")
-        return limpio
+        return _validar_url_opcional(v, _REGLAS_ENLACE_EXTERNO)
 
 
-class ComunicadoResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class ComunicadoResponse(_SchemaORM):
     id: int
     titulo: str
     contenido: str
     enlace_externo: str | None
     activo: bool
 
+
+# ==============================================================================
+# ESQUEMAS DE FACTURACIÓN LPH, FONDOS Y SOLVENCIA (Hito 10)
+# ==============================================================================
 
 TipoFondoCondominio = Literal["RESERVA_LEGAL", "CAJA_CHICA", "ESPECIAL"]
 ModalidadFacturacion = Literal["ALICUOTA", "CUOTA_FIJA", "PARTES_IGUALES"]
@@ -418,9 +444,7 @@ TipoReciboItem = Literal[
 ]
 
 
-class FondoCondominioCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class FondoCondominioCreate(_SchemaEstricto):
     nombre: str = Field(..., min_length=3, max_length=100)
     tipo: TipoFondoCondominio = "RESERVA_LEGAL"
     porcentaje_recargo: Decimal = Field(
@@ -431,9 +455,7 @@ class FondoCondominioCreate(BaseModel):
     )
 
 
-class FondoCondominioResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class FondoCondominioResponse(_SchemaORM):
     id: int
     nombre: str
     tipo: str
@@ -442,10 +464,8 @@ class FondoCondominioResponse(BaseModel):
     es_activo: bool
 
 
-class FacturarPeriodoRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    periodo: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+class FacturarPeriodoRequest(_SchemaEstricto):
+    periodo: _PeriodoFiscal
     modalidad: ModalidadFacturacion = "ALICUOTA"
     monto_cuota_fija_usd: Decimal | None = Field(
         default=None,
@@ -463,9 +483,7 @@ class FacturarPeriodoRequest(BaseModel):
     descripcion_cuota_extraordinaria: str | None = Field(default=None, max_length=200)
 
 
-class ReciboItemResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class ReciboItemResponse(_SchemaORM):
     id: int
     recibo_id: int
     tipo_item: str
@@ -501,9 +519,7 @@ class FacturarPeriodoResponse(BaseModel):
     superavit_conciliado_fondo_usd: Decimal
 
 
-class CertificadoSolvenciaResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class CertificadoSolvenciaResponse(_SchemaORM):
     id: int
     jti: str = ""
     folio: str
@@ -529,6 +545,10 @@ class VerificarSolvenciaResponse(BaseModel):
     firma_hmac: str
 
 
+# ==============================================================================
+# ESQUEMAS DE CARTAS CONSULTA Y ASAMBLEAS DIGITALES (Hito 11)
+# ==============================================================================
+
 TipoConsulta = Literal[
     "CARTA_CONSULTA_1RA",
     "CARTA_CONSULTA_2DA",
@@ -544,16 +564,12 @@ EstadoConsulta = Literal[
 ]
 
 
-class OpcionConsultaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class OpcionConsultaCreate(_SchemaEstricto):
     etiqueta: str = Field(..., min_length=2, max_length=120)
     es_opcion_aprobatoria: bool = False
 
 
-class ConsultaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ConsultaCreate(_SchemaEstricto):
     titulo: str = Field(..., min_length=5, max_length=160)
     descripcion_legal: str = Field(..., min_length=10)
     tipo_consulta: TipoConsulta = "CARTA_CONSULTA_1RA"
@@ -605,11 +621,9 @@ class ConsultaDetalleResponse(ConsultaResumenResponse):
     mi_voto: VotoReciboResumenResponse | None = None
 
 
-class VotarConsultaRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    unidad_id: EnteroEstricto = Field(gt=0)
-    opcion_id: EnteroEstricto = Field(gt=0)
+class VotarConsultaRequest(_SchemaEstricto):
+    unidad_id: _IdPositivo
+    opcion_id: _IdPositivo
 
 
 class ReciboVotoResponse(BaseModel):
@@ -653,10 +667,8 @@ EstadoPaseQR = Literal["ACTIVO", "USADO", "REVOCADO", "EXPIRADO"]
 EstadoPaquete = Literal["EN_GARITA", "ENTREGADO"]
 
 
-class PaseVisitaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    unidad_id: EnteroEstricto = Field(gt=0)
+class PaseVisitaCreate(_SchemaEstricto):
+    unidad_id: _IdPositivo
     nombre_visitante: str = Field(..., min_length=3, max_length=120)
     cedula_visitante: str = Field(..., min_length=5, max_length=25)
     placa_vehiculo: str | None = Field(default=None, max_length=20)
@@ -694,9 +706,7 @@ class PaseVisitaResponse(BaseModel):
     qr_token: str
 
 
-class VerificarPaseQRRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class VerificarPaseQRRequest(_SchemaEstricto):
     qr_token: str = Field(..., min_length=16, max_length=512)
 
 
@@ -716,10 +726,8 @@ class VerificarPaseQRResponse(BaseModel):
     mensaje: str
 
 
-class PaqueteCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    unidad_id: EnteroEstricto = Field(gt=0)
+class PaqueteCreate(_SchemaEstricto):
+    unidad_id: _IdPositivo
     empresa_envio: str = Field(..., min_length=2, max_length=60)
     descripcion: str = Field(..., min_length=3, max_length=200)
     url_foto_evidencia: UrlEvidenciaSegura | None = None
@@ -746,29 +754,15 @@ class PaqueteResponse(BaseModel):
 ResultadoInspeccionReserva = Literal["FINALIZADA_SIN_DANOS", "FINALIZADA_CON_DANOS"]
 
 
-class AreaSocialCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class AreaSocialCreate(_SchemaEstricto):
     nombre: str = Field(..., min_length=3, max_length=100)
     aforo_maximo: EnteroEstricto = Field(ge=1, le=500)
-    costo_uso_usd: Decimal = Field(
-        default=Decimal("0.00"),
-        ge=Decimal("0.00"),
-        le=Decimal("99999999.99"),
-        allow_inf_nan=False,
-    )
-    deposito_garantia_usd: Decimal = Field(
-        default=Decimal("0.00"),
-        ge=Decimal("0.00"),
-        le=Decimal("99999999.99"),
-        allow_inf_nan=False,
-    )
+    costo_uso_usd: _MontoAreaSocial = Decimal("0.00")
+    deposito_garantia_usd: _MontoAreaSocial = Decimal("0.00")
     requiere_solvencia_estricta: bool = Field(default=True, strict=True)
 
 
-class AreaSocialResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class AreaSocialResponse(_SchemaORM):
     id: int
     nombre: str
     aforo_maximo: int
@@ -778,18 +772,14 @@ class AreaSocialResponse(BaseModel):
     es_activa: bool
 
 
-class ReservaAreaCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    area_id: EnteroEstricto = Field(gt=0)
-    unidad_id: EnteroEstricto = Field(gt=0)
+class ReservaAreaCreate(_SchemaEstricto):
+    area_id: _IdPositivo
+    unidad_id: _IdPositivo
     fecha_evento: date_type
     motivo_evento: str = Field(..., min_length=5, max_length=160)
 
 
-class ReservaInspeccionarRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ReservaInspeccionarRequest(_SchemaEstricto):
     estado: ResultadoInspeccionReserva
     observaciones_inspeccion: str = Field(..., min_length=3, max_length=500)
 

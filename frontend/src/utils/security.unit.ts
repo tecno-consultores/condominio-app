@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   escapeHtml,
   generateIdempotencyKey,
@@ -11,6 +11,10 @@ import {
 } from './security';
 
 describe('Utilidades de Seguridad Cliente Nivel 11X (security.ts)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
   it('escapa caracteres peligrosos XSS con escapeHtml y limpia controles sin doble-escapar en sanitizeUntrustedText', () => {
     expect(escapeHtml('<script>alert("xss" & \'1\')</script>')).toBe(
       '&lt;script&gt;alert(&quot;xss&quot; &amp; &#39;1&#39;)&lt;/script&gt;',
@@ -124,5 +128,107 @@ describe('Utilidades de Seguridad Cliente Nivel 11X (security.ts)', () => {
     });
     Object.defineProperty(crypto, 'randomUUID', { value: originalRandomUUID, configurable: true });
     mathSpy.mockRestore();
+  });
+
+  it('preserva tab y saltos mientras elimina DEL (127) en sanitizeUntrustedText', () => {
+    expect(sanitizeUntrustedText('Linea1\tCol2\nLinea2\r\nLinea3\u007fFin')).toBe(
+      'Linea1\tCol2\nLinea2\r\nLinea3Fin',
+    );
+    expect(sanitizeUntrustedText('\u0001\u001f')).toBe('');
+  });
+
+  it('acepta espacio (32) y bloquea DEL, no-strings, barras y fallos URL en redirecciones', () => {
+    expect(isSafeRedirectUrl('  /dashboard?q=hola mundo  ')).toBe(true);
+    expect(isSafeRedirectUrl('/dashboard\u007f')).toBe(false);
+    expect(isSafeRedirectUrl(undefined)).toBe(false);
+    expect(isSafeRedirectUrl(123 as unknown as string)).toBe(false);
+    expect(isSafeRedirectUrl('dashboard')).toBe(false);
+    expect(isSafeRedirectUrl('/ruta\\oculta')).toBe(false);
+    expect(isSafeRedirectUrl('///evil.com')).toBe(false);
+    expect(isSafeRedirectUrl('//condominio.internal/dashboard')).toBe(false);
+
+    vi.stubGlobal(
+      'URL',
+      class {
+        origin = 'https://evil.example';
+      },
+    );
+    expect(isSafeRedirectUrl('/dashboard')).toBe(false);
+
+    vi.stubGlobal(
+      'URL',
+      class {
+        constructor() {
+          throw new TypeError('Invalid URL');
+        }
+      },
+    );
+    expect(isSafeRedirectUrl('/dashboard')).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('valida espacio, DEL, no-strings y trim de rutas relativas en isSafeMediaUrl', () => {
+    expect(isSafeMediaUrl('  /api/evidencias/foto 1.avif  ')).toBe(true);
+    expect(isSafeMediaUrl('/api/evidencias/bad\u007f.png')).toBe(false);
+    expect(isSafeMediaUrl(123 as unknown as string)).toBe(false);
+    expect(isSafeMediaUrl(undefined)).toBe(false);
+  });
+
+  it('acepta el límite exacto MAX_UPLOAD_BYTES (2 MB), 1 byte y rechaza tamaño negativo', () => {
+    expect(
+      validateProofFileUpload({
+        name: 'exacto.pdf',
+        size: MAX_UPLOAD_BYTES,
+        type: 'application/pdf',
+      }),
+    ).toEqual({ valid: true });
+    expect(
+      validateProofFileUpload({
+        name: 'min.jpg',
+        size: 1,
+        type: 'image/jpeg',
+      }),
+    ).toEqual({ valid: true });
+    expect(
+      validateProofFileUpload({
+        name: 'neg.png',
+        size: -1,
+        type: 'image/png',
+      }),
+    ).toEqual({
+      valid: false,
+      error: 'El archivo seleccionado está vacío.',
+    });
+  });
+
+  it('verifica formato UUID, llamada real a getRandomValues y error sin crypto global', () => {
+    const uuidSpy = vi.spyOn(crypto, 'randomUUID');
+    const uuidKey = generateIdempotencyKey();
+    expect(uuidSpy).toHaveBeenCalledTimes(1);
+    expect(uuidKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    uuidSpy.mockRestore();
+
+    const originalRandomUUID = crypto.randomUUID;
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+    const getRandomSpy = vi.spyOn(crypto, 'getRandomValues');
+    try {
+      const k1 = generateIdempotencyKey();
+      const k2 = generateIdempotencyKey();
+      expect(getRandomSpy).toHaveBeenCalledTimes(2);
+      expect(k1).toMatch(/^idemp-[0-9a-f]{32}$/);
+      expect(k1).not.toBe(`idemp-${'0'.repeat(32)}`);
+      expect(k1).not.toBe(k2);
+    } finally {
+      getRandomSpy.mockRestore();
+      Object.defineProperty(crypto, 'randomUUID', {
+        value: originalRandomUUID,
+        configurable: true,
+      });
+    }
+
+    vi.stubGlobal('crypto', undefined);
+    expect(() => generateIdempotencyKey()).toThrow(
+      'Generador criptográfico (Web Crypto API) no disponible.',
+    );
   });
 });

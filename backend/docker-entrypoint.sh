@@ -36,7 +36,7 @@ case "${ROLE}" in
     exec python -m src.worker
     ;;
   api)
-    exec uvicorn src.main:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers
+    exec uvicorn src.main:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers --no-server-header
     ;;
   *)
     echo "❌ CONTAINER_ROLE inválido: '${ROLE}' (use 'api' o 'worker')." >&2

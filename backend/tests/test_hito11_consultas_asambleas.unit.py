@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.database import get_db
 from src.dependencies import get_current_user
@@ -29,66 +32,45 @@ from src.models import (
     ContratoOcupacion,
     OpcionConsulta,
     Unidad,
+    Usuario,
     VotoConsulta,
 )
 from src.redis_client import get_redis_client
 from src.security import get_vote_signing_key
+from tests._sqlite_helpers import SeededCondoContext, create_sqlite_fk_factory, seed_condo_base
 
 HEADERS = {"Idempotency-Key": "018f4a12-1111-7000-8000-000000001111"}
 
 
-class FakeUser:
-    def __init__(self, user_id: int = 1, rol: str = "PRESIDENTE", es_activo: bool = True) -> None:
-        self.id = user_id
-        self.correo = f"{rol.lower()}@condominio.test"
-        self.rol = rol
-        self.es_activo = es_activo
+async def _preparar_entorno() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession], SeededCondoContext]:
+    engine, factory = await create_sqlite_fk_factory()
+    ctx = await seed_condo_base(factory)
+    return engine, factory, ctx
 
 
-def _result(value: Any) -> MagicMock:
-    res = MagicMock()
-    res.scalars().first.return_value = value
-    return res
+async def _cargar_usuario(factory: async_sessionmaker[AsyncSession], usuario_id: int) -> Usuario:
+    async with factory() as session:
+        usuario = await session.get(Usuario, usuario_id)
+        assert usuario is not None
+        return usuario
 
 
-def _result_list(values: list[Any]) -> MagicMock:
-    res = MagicMock()
-    res.scalars().all.return_value = values
-    return res
-
-
-def _mock_session(*results: Any) -> AsyncMock:
-    session = AsyncMock()
-    session.execute.side_effect = list(results)
-    added: list[Any] = []
-
-    def _add(obj: Any) -> None:
-        if getattr(obj, "id", None) is None:
-            obj.id = 100 + len(added)
-        added.append(obj)
-
-    session.add = MagicMock(side_effect=_add)
-
-    async def _flush() -> None:
-        for idx, obj in enumerate(added, start=1):
-            if getattr(obj, "id", None) is None:
-                obj.id = 200 + idx
-
-    async def _refresh(instance: Any, *args: object, **kwargs: object) -> None:
-        if getattr(instance, "id", None) is None:
-            instance.id = 300
-
-    session.flush = _flush
-    session.refresh = _refresh
-    return session
-
-
-def _setup(session: AsyncMock, user: FakeUser | None = None, redis_new: bool = True) -> AsyncMock:
+def _configurar_overrides(
+    factory: async_sessionmaker[AsyncSession],
+    usuario: Usuario,
+    *,
+    redis_new: bool = True,
+) -> AsyncMock:
     mock_redis = AsyncMock()
     mock_redis.set.return_value = redis_new
-    app.dependency_overrides[get_db] = lambda: session
+
+    async def _override_get_db() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_redis_client] = lambda: mock_redis
-    app.dependency_overrides[get_current_user] = lambda: user or FakeUser()
+    app.dependency_overrides[get_current_user] = lambda: usuario
     return mock_redis
 
 
@@ -177,118 +159,127 @@ def test_evaluar_escrutinio_dos_tercios_fraccion_racional_exacta() -> None:
 # ==============================================================================
 
 
-def test_crear_consulta_exitoso_y_validaciones(client: TestClient) -> None:
-    ahora = datetime.now(UTC)
-    cierre = ahora + timedelta(days=5)
-    op1 = OpcionConsulta(id=1, consulta_id=100, etiqueta="APROBAR PRESUPUESTO A", es_opcion_aprobatoria=True)
-    op2 = OpcionConsulta(id=2, consulta_id=100, etiqueta="RECHAZAR PROPUESTA", es_opcion_aprobatoria=False)
+async def test_crear_consulta_exitoso_y_validaciones() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        presidente = await _cargar_usuario(factory, ctx.presidente_id)
+        secretario = await _cargar_usuario(factory, ctx.secretario_id)
+        cierre = datetime.now(UTC) + timedelta(days=5)
 
-    session = _mock_session(
-        _result_list([op1, op2]),  # _cargar_opciones_y_votos -> opciones
-        _result_list([]),  # _cargar_opciones_y_votos -> votos
-        _result_list([1]),  # _unidades_usuario
-    )
-    _setup(session, user=FakeUser(1, "PRESIDENTE"))
+        _configurar_overrides(factory, presidente)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            resp = await client.post(
+                "/api/consultas",
+                headers=HEADERS,
+                json={
+                    "titulo": "Carta Consulta #04-2026: Impermeabilización Torre A",
+                    "descripcion_legal": "Reparación urgente del manto asfáltico conforme al Art. 23 LPH.",
+                    "tipo_consulta": "CARTA_CONSULTA_1RA",
+                    "regla_quorum": "DOS_TERCIOS",
+                    "fecha_cierre": cierre.isoformat(),
+                    "opciones": [
+                        {"etiqueta": "APROBAR PRESUPUESTO A", "es_opcion_aprobatoria": True},
+                        {"etiqueta": "RECHAZAR PROPUESTA", "es_opcion_aprobatoria": False},
+                    ],
+                },
+            )
+            assert resp.status_code == 201
+            body = resp.json()
+            assert body["quorum_minimo_alicuota"] == "66.6667"
+            assert body["estado"] == "ABIERTA"
+            assert len(body["opciones"]) == 2
+            assert body["ya_voto_usuario"] is False
 
-    resp = client.post(
-        "/api/consultas",
-        headers=HEADERS,
-        json={
-            "titulo": "Carta Consulta #04-2026: Impermeabilización Torre A",
-            "descripcion_legal": "Reparación urgente del manto asfáltico conforme al Art. 23 LPH.",
-            "tipo_consulta": "CARTA_CONSULTA_1RA",
-            "regla_quorum": "DOS_TERCIOS",
-            "fecha_cierre": cierre.isoformat(),
-            "opciones": [
-                {"etiqueta": "APROBAR PRESUPUESTO A", "es_opcion_aprobatoria": True},
-                {"etiqueta": "RECHAZAR PROPUESTA", "es_opcion_aprobatoria": False},
-            ],
-        },
-    )
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["quorum_minimo_alicuota"] == "66.6667"
-    assert body["estado"] == "ABIERTA"
-    assert len(body["opciones"]) == 2
-    assert body["ya_voto_usuario"] is False
+            # Idempotency-Key duplicada -> 409
+            _configurar_overrides(factory, secretario, redis_new=False)
+            resp_dup = await client.post(
+                "/api/consultas",
+                headers=HEADERS,
+                json={
+                    "titulo": "Carta Consulta Duplicada",
+                    "descripcion_legal": "Descripción legal suficiente.",
+                    "fecha_cierre": cierre.isoformat(),
+                    "opciones": [
+                        {"etiqueta": "SÍ", "es_opcion_aprobatoria": True},
+                        {"etiqueta": "NO", "es_opcion_aprobatoria": False},
+                    ],
+                },
+            )
+            assert resp_dup.status_code == 409
 
-    # Idempotency-Key duplicada -> 409
-    _setup(_mock_session(), user=FakeUser(1, "SECRETARIO"), redis_new=False)
-    resp_dup = client.post(
-        "/api/consultas",
-        headers=HEADERS,
-        json={
-            "titulo": "Carta Consulta Duplicada",
-            "descripcion_legal": "Descripción legal suficiente.",
-            "fecha_cierre": cierre.isoformat(),
-            "opciones": [
-                {"etiqueta": "SÍ", "es_opcion_aprobatoria": True},
-                {"etiqueta": "NO", "es_opcion_aprobatoria": False},
-            ],
-        },
-    )
-    assert resp_dup.status_code == 409
+        async with factory() as check_db:
+            consulta_bd = await check_db.get(ConsultaComunitaria, body["id"])
+            assert consulta_bd is not None
+            res_ops = await check_db.execute(select(OpcionConsulta).where(OpcionConsulta.consulta_id == consulta_bd.id))
+            assert len(res_ops.scalars().all()) == 2
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_listar_y_obtener_detalle_consulta_con_voto_previo(client: TestClient) -> None:
-    ahora = datetime.now(UTC)
-    consulta = ConsultaComunitaria(
-        id=7,
-        titulo="Carta Consulta Ascensor",
-        descripcion_legal="Cambio de guayas.",
-        tipo_consulta="CARTA_CONSULTA_1RA",
-        regla_quorum="DOS_TERCIOS",
-        quorum_minimo_alicuota=Decimal("66.6700"),
-        fecha_apertura=ahora,
-        fecha_cierre=ahora + timedelta(days=3),
-        estado="ABIERTA",
-        creada_por_id=1,
-        acta_bitacora_id=None,
-    )
-    op1 = OpcionConsulta(id=10, consulta_id=7, etiqueta="Aprobar", es_opcion_aprobatoria=True)
-    op2 = OpcionConsulta(id=11, consulta_id=7, etiqueta="Rechazar", es_opcion_aprobatoria=False)
-    voto = VotoConsulta(
-        id=55,
-        consulta_id=7,
-        unidad_id=3,
-        usuario_id=2,
-        opcion_id=10,
-        alicuota_capturada=Decimal("35.0000"),
-        fecha_voto=ahora,
-        ip_hash="a" * 64,
-        firma_hmac="b" * 64,
-    )
-    consulta.opciones = [op1, op2]
-    consulta.votos = [voto]
+async def test_listar_y_obtener_detalle_consulta_con_voto_previo() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        ahora = datetime.now(UTC)
+        async with factory() as seed_db:
+            consulta = ConsultaComunitaria(
+                titulo="Carta Consulta Ascensor",
+                descripcion_legal="Cambio de guayas.",
+                tipo_consulta="CARTA_CONSULTA_1RA",
+                regla_quorum="DOS_TERCIOS",
+                quorum_minimo_alicuota=Decimal("66.6700"),
+                fecha_apertura=ahora,
+                fecha_cierre=ahora + timedelta(days=3),
+                estado="ABIERTA",
+                creada_por_id=ctx.presidente_id,
+                acta_bitacora_id=None,
+            )
+            seed_db.add(consulta)
+            await seed_db.flush()
+            op1 = OpcionConsulta(consulta_id=consulta.id, etiqueta="Aprobar", es_opcion_aprobatoria=True)
+            op2 = OpcionConsulta(consulta_id=consulta.id, etiqueta="Rechazar", es_opcion_aprobatoria=False)
+            seed_db.add_all([op1, op2])
+            await seed_db.flush()
+            seed_db.add(
+                VotoConsulta(
+                    condominio_id=1,
+                    jti=str(uuid.uuid4()),
+                    consulta_id=consulta.id,
+                    unidad_id=ctx.unidad_a_id,
+                    usuario_id=ctx.propietario_id,
+                    opcion_id=op1.id,
+                    alicuota_capturada=Decimal("35.0000"),
+                    fecha_voto=ahora,
+                    ip_hash="a" * 64,
+                    firma_hmac="b" * 64,
+                    prev_hash="0" * 64,
+                    record_hash="1" * 64,
+                )
+            )
+            await seed_db.commit()
+            consulta_id = consulta.id
 
-    session = _mock_session(
-        _result_list([consulta]),  # listar_consultas -> consultas
-        _result_list([3]),  # _unidades_usuario
-    )
-    _setup(session, user=FakeUser(2, "PROPIETARIO"))
-    resp_list = client.get("/api/consultas")
-    assert resp_list.status_code == 200
-    items = resp_list.json()
-    assert len(items) == 1
-    assert items[0]["participacion_alicuota"] == "35.0000"
-    assert items[0]["ya_voto_usuario"] is True
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        _configurar_overrides(factory, propietario)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            resp_list = await client.get("/api/consultas")
+            assert resp_list.status_code == 200
+            items = resp_list.json()
+            assert len(items) == 1
+            assert items[0]["participacion_alicuota"] == "35.0000"
+            assert items[0]["ya_voto_usuario"] is True
 
-    # Detalle con unidad encontrada y con fallback de unidad None
-    session_det = _mock_session(
-        _result(consulta),
-        _result_list([3]),
-        _result("A-03"),
-    )
-    _setup(session_det, user=FakeUser(2, "PROPIETARIO"))
-    resp_det = client.get("/api/consultas/7")
-    assert resp_det.status_code == 200
-    det = resp_det.json()
-    assert det["mi_voto"]["identificador_unidad"] == "A-03"
-    assert det["mi_voto"]["firma_hmac"] == "b" * 64
+            resp_det = await client.get(f"/api/consultas/{consulta_id}")
+            assert resp_det.status_code == 200
+            det = resp_det.json()
+            assert det["mi_voto"]["identificador_unidad"] == "1-A"
+            assert det["mi_voto"]["firma_hmac"] == "b" * 64
 
-    # 404 cuando no existe
-    _setup(_mock_session(_result(None)), user=FakeUser(2, "PROPIETARIO"))
-    assert client.get("/api/consultas/999").status_code == 404
+            # 404 cuando no existe
+            assert (await client.get("/api/consultas/999")).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 # ==============================================================================
@@ -296,161 +287,184 @@ def test_listar_y_obtener_detalle_consulta_con_voto_previo(client: TestClient) -
 # ==============================================================================
 
 
-def test_votar_en_consulta_propietario_exitoso_e_inquilino_con_y_sin_poder(client: TestClient) -> None:
-    ahora = datetime.now(UTC)
-    consulta = ConsultaComunitaria(
-        id=8,
-        titulo="Carta Consulta #08",
-        descripcion_legal="Pintura de fachada.",
-        tipo_consulta="CARTA_CONSULTA_1RA",
-        regla_quorum="DOS_TERCIOS",
-        quorum_minimo_alicuota=Decimal("66.6700"),
-        fecha_apertura=ahora,
-        fecha_cierre=ahora + timedelta(days=3),
-        estado="ABIERTA",
-        creada_por_id=1,
-    )
-    op = OpcionConsulta(id=20, consulta_id=8, etiqueta="Aprobar Fachada", es_opcion_aprobatoria=True)
-    unidad = Unidad(id=5, identificador="B-05", estructura_id=1, alicuota=Decimal("40.0000"))
-    contrato_prop = ContratoOcupacion(
-        id=1, usuario_id=2, unidad_id=5, tipo_ocupante="PROPIETARIO", es_activo=True, puede_votar_asamblea=True
-    )
-    voto_guardado = VotoConsulta(
-        id=100,
-        consulta_id=8,
-        unidad_id=5,
-        usuario_id=2,
-        opcion_id=20,
-        alicuota_capturada=Decimal("40.0000"),
-        fecha_voto=ahora,
-        ip_hash="c" * 64,
-        firma_hmac="d" * 64,
-    )
+async def test_votar_en_consulta_propietario_exitoso_e_inquilino_con_y_sin_poder() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        ahora = datetime.now(UTC)
+        async with factory() as seed_db:
+            consulta = ConsultaComunitaria(
+                titulo="Carta Consulta #08",
+                descripcion_legal="Pintura de fachada.",
+                tipo_consulta="CARTA_CONSULTA_1RA",
+                regla_quorum="DOS_TERCIOS",
+                quorum_minimo_alicuota=Decimal("66.6700"),
+                fecha_apertura=ahora - timedelta(hours=1),
+                fecha_cierre=ahora + timedelta(days=3),
+                estado="ABIERTA",
+                creada_por_id=ctx.presidente_id,
+            )
+            seed_db.add(consulta)
+            await seed_db.flush()
+            op = OpcionConsulta(consulta_id=consulta.id, etiqueta="Aprobar Fachada", es_opcion_aprobatoria=True)
+            seed_db.add(op)
+            await seed_db.commit()
+            consulta_id = consulta.id
+            opcion_id = op.id
 
-    session = _mock_session(
-        _result(consulta),
-        _result(op),
-        _result(unidad),
-        _result(contrato_prop),
-        _result(None),  # sin voto previo
-        _result_list([op]),
-        _result_list([voto_guardado]),
-    )
-    _setup(session, user=FakeUser(2, "PROPIETARIO"))
-    resp = client.post("/api/consultas/8/votar", headers=HEADERS, json={"unidad_id": 5, "opcion_id": 20})
-    assert resp.status_code == 201
-    recibo = resp.json()
-    assert recibo["identificador_unidad"] == "B-05"
-    assert recibo["alicuota_capturada"] == "40.0000"
-    assert recibo["participacion_total_alicuota"] == "40.0000"
-    assert len(recibo["firma_hmac"]) == 64
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        inquilino = await _cargar_usuario(factory, ctx.inquilino_id)
 
-    # Inquilino SIN poder registrado -> 403 Forbidden
-    contrato_inq_sin_poder = ContratoOcupacion(
-        id=2, usuario_id=3, unidad_id=5, tipo_ocupante="INQUILINO", es_activo=True, puede_votar_asamblea=False
-    )
-    session_inq = _mock_session(
-        _result(consulta),
-        _result(op),
-        _result(unidad),
-        _result(contrato_inq_sin_poder),
-    )
-    _setup(session_inq, user=FakeUser(3, "PROPIETARIO"))
-    resp_inq = client.post("/api/consultas/8/votar", headers=HEADERS, json={"unidad_id": 5, "opcion_id": 20})
-    assert resp_inq.status_code == 403
-    assert "propietario titular" in resp_inq.json()["detail"].lower()
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # Propietario con contrato activo en unidad_a (60.0000%) -> 201
+            _configurar_overrides(factory, propietario)
+            resp = await client.post(
+                f"/api/consultas/{consulta_id}/votar",
+                headers=HEADERS,
+                json={"unidad_id": ctx.unidad_a_id, "opcion_id": opcion_id},
+            )
+            assert resp.status_code == 201
+            recibo = resp.json()
+            assert recibo["identificador_unidad"] == "1-A"
+            assert recibo["alicuota_capturada"] == "60.0000"
+            assert recibo["participacion_total_alicuota"] == "60.0000"
+            assert len(recibo["firma_hmac"]) == 64
+
+            # Inquilino SIN poder registrado en unidad_b -> 403 Forbidden
+            _configurar_overrides(factory, inquilino)
+            resp_inq = await client.post(
+                f"/api/consultas/{consulta_id}/votar",
+                headers=HEADERS,
+                json={"unidad_id": ctx.unidad_b_id, "opcion_id": opcion_id},
+            )
+            assert resp_inq.status_code == 403
+            assert "propietario titular" in resp_inq.json()["detail"].lower()
+
+            # Con poder registrado en ContratoOcupacion -> Inquilino vota exitosamente -> 201
+            async with factory() as upd_db:
+                res_c = await upd_db.execute(
+                    select(ContratoOcupacion).where(
+                        ContratoOcupacion.usuario_id == ctx.inquilino_id,
+                        ContratoOcupacion.unidad_id == ctx.unidad_b_id,
+                    )
+                )
+                contrato_inq = res_c.scalars().first()
+                assert contrato_inq is not None
+                contrato_inq.puede_votar_asamblea = True
+                await upd_db.commit()
+
+            resp_inq_ok = await client.post(
+                f"/api/consultas/{consulta_id}/votar",
+                headers=HEADERS,
+                json={"unidad_id": ctx.unidad_b_id, "opcion_id": opcion_id},
+            )
+            assert resp_inq_ok.status_code == 201
+            assert resp_inq_ok.json()["participacion_total_alicuota"] == "100.0000"
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_votar_errores_404_403_409_y_race_condition(client: TestClient) -> None:
-    ahora = datetime.now(UTC)
-    consulta_abierta = ConsultaComunitaria(
-        id=8,
-        titulo="Consulta",
-        descripcion_legal="Texto legal.",
-        tipo_consulta="CARTA_CONSULTA_1RA",
-        regla_quorum="DOS_TERCIOS",
-        quorum_minimo_alicuota=Decimal("66.6700"),
-        fecha_apertura=ahora,
-        fecha_cierre=ahora + timedelta(days=2),
-        estado="ABIERTA",
-        creada_por_id=1,
-    )
-    consulta_cerrada = ConsultaComunitaria(
-        id=9,
-        titulo="Cerrada",
-        descripcion_legal="Texto.",
-        tipo_consulta="CARTA_CONSULTA_1RA",
-        regla_quorum="DOS_TERCIOS",
-        quorum_minimo_alicuota=Decimal("66.6700"),
-        fecha_apertura=ahora,
-        fecha_cierre=ahora + timedelta(days=2),
-        estado="CERRADA_APROBADA",
-        creada_por_id=1,
-    )
-    op = OpcionConsulta(id=20, consulta_id=8, etiqueta="Sí", es_opcion_aprobatoria=True)
-    unidad = Unidad(id=5, identificador="B-05", estructura_id=1, alicuota=Decimal("20.0000"))
-    contrato = ContratoOcupacion(
-        id=1, usuario_id=2, unidad_id=5, tipo_ocupante="PROPIETARIO", es_activo=True, puede_votar_asamblea=True
-    )
+async def test_votar_errores_404_403_409_y_race_condition(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        ahora = datetime.now(UTC)
+        async with factory() as seed_db:
+            consulta_abierta = ConsultaComunitaria(
+                titulo="Consulta",
+                descripcion_legal="Texto legal.",
+                tipo_consulta="CARTA_CONSULTA_1RA",
+                regla_quorum="DOS_TERCIOS",
+                quorum_minimo_alicuota=Decimal("66.6700"),
+                fecha_apertura=ahora - timedelta(hours=1),
+                fecha_cierre=ahora + timedelta(days=2),
+                estado="ABIERTA",
+                creada_por_id=ctx.presidente_id,
+            )
+            consulta_cerrada = ConsultaComunitaria(
+                titulo="Cerrada",
+                descripcion_legal="Texto.",
+                tipo_consulta="CARTA_CONSULTA_1RA",
+                regla_quorum="DOS_TERCIOS",
+                quorum_minimo_alicuota=Decimal("66.6700"),
+                fecha_apertura=ahora - timedelta(days=3),
+                fecha_cierre=ahora + timedelta(days=2),
+                estado="CERRADA_APROBADA",
+                creada_por_id=ctx.presidente_id,
+            )
+            seed_db.add_all([consulta_abierta, consulta_cerrada])
+            await seed_db.flush()
+            op = OpcionConsulta(consulta_id=consulta_abierta.id, etiqueta="Sí", es_opcion_aprobatoria=True)
+            seed_db.add(op)
+            await seed_db.commit()
+            abierta_id = consulta_abierta.id
+            cerrada_id = consulta_cerrada.id
+            opcion_id = op.id
 
-    payload = {"unidad_id": 5, "opcion_id": 20}
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        payload = {"unidad_id": ctx.unidad_a_id, "opcion_id": opcion_id}
 
-    # 1. Idempotency-Key duplicada -> 409
-    _setup(_mock_session(), user=FakeUser(2, "PROPIETARIO"), redis_new=False)
-    assert client.post("/api/consultas/8/votar", headers=HEADERS, json=payload).status_code == 409
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # 1. Idempotency-Key duplicada -> 409
+            _configurar_overrides(factory, propietario, redis_new=False)
+            resp_idem = await client.post(f"/api/consultas/{abierta_id}/votar", headers=HEADERS, json=payload)
+            assert resp_idem.status_code == 409
 
-    # 2. Consulta no encontrada -> 404
-    _setup(_mock_session(_result(None)), user=FakeUser(2, "PROPIETARIO"))
-    assert client.post("/api/consultas/99/votar", headers=HEADERS, json=payload).status_code == 404
+            # 2. Consulta no encontrada -> 404
+            _configurar_overrides(factory, propietario)
+            assert (await client.post("/api/consultas/999/votar", headers=HEADERS, json=payload)).status_code == 404
 
-    # 3. Consulta cerrada -> 409
-    _setup(_mock_session(_result(consulta_cerrada)), user=FakeUser(2, "PROPIETARIO"))
-    assert client.post("/api/consultas/9/votar", headers=HEADERS, json=payload).status_code == 409
+            # 3. Consulta cerrada -> 409
+            resp_cerrada = await client.post(f"/api/consultas/{cerrada_id}/votar", headers=HEADERS, json=payload)
+            assert resp_cerrada.status_code == 409
 
-    # 4. Opción no encontrada -> 404
-    _setup(_mock_session(_result(consulta_abierta), _result(None)), user=FakeUser(2, "PROPIETARIO"))
-    assert (
-        client.post("/api/consultas/8/votar", headers=HEADERS, json={"unidad_id": 5, "opcion_id": 99}).status_code
-        == 404
-    )
+            # 4. Opción no encontrada -> 404
+            assert (
+                await client.post(
+                    f"/api/consultas/{abierta_id}/votar",
+                    headers=HEADERS,
+                    json={"unidad_id": ctx.unidad_a_id, "opcion_id": 999},
+                )
+            ).status_code == 404
 
-    # 5. Unidad no encontrada -> 404
-    _setup(_mock_session(_result(consulta_abierta), _result(op), _result(None)), user=FakeUser(2, "PROPIETARIO"))
-    assert (
-        client.post("/api/consultas/8/votar", headers=HEADERS, json={"unidad_id": 99, "opcion_id": 20}).status_code
-        == 404
-    )
+            # 5. Unidad no encontrada -> 404
+            assert (
+                await client.post(
+                    f"/api/consultas/{abierta_id}/votar",
+                    headers=HEADERS,
+                    json={"unidad_id": 999, "opcion_id": opcion_id},
+                )
+            ).status_code == 404
 
-    # 6. Sin contrato activo sobre la unidad -> 403
-    _setup(
-        _mock_session(_result(consulta_abierta), _result(op), _result(unidad), _result(None)),
-        user=FakeUser(2, "PROPIETARIO"),
-    )
-    assert client.post("/api/consultas/8/votar", headers=HEADERS, json=payload).status_code == 403
+            # 6. Sin contrato activo sobre la unidad -> 403 (propietario intenta votar en unidad_b)
+            assert (
+                await client.post(
+                    f"/api/consultas/{abierta_id}/votar",
+                    headers=HEADERS,
+                    json={"unidad_id": ctx.unidad_b_id, "opcion_id": opcion_id},
+                )
+            ).status_code == 403
 
-    # 7. Voto previo existente -> 409
-    voto_previo = VotoConsulta(
-        id=1,
-        consulta_id=8,
-        unidad_id=5,
-        usuario_id=2,
-        opcion_id=20,
-        alicuota_capturada=Decimal("20.0000"),
-        fecha_voto=ahora,
-        ip_hash="a" * 64,
-        firma_hmac="b" * 64,
-    )
-    _setup(
-        _mock_session(_result(consulta_abierta), _result(op), _result(unidad), _result(contrato), _result(voto_previo)),
-        user=FakeUser(2, "PROPIETARIO"),
-    )
-    assert client.post("/api/consultas/8/votar", headers=HEADERS, json=payload).status_code == 409
+            # 7. IntegrityError concurrente en commit sobre sesión SQLite real -> 409
+            async with factory() as fault_session:
+                monkeypatch.setattr(
+                    fault_session,
+                    "commit",
+                    AsyncMock(side_effect=IntegrityError("dup", {}, Exception("uq_voto_consulta_unidad"))),
+                )
+                app.dependency_overrides[get_db] = lambda: fault_session
+                assert (
+                    await client.post(f"/api/consultas/{abierta_id}/votar", headers=HEADERS, json=payload)
+                ).status_code == 409
 
-    # 8. IntegrityError concurrente en commit -> 409
-    sess_ie = _mock_session(_result(consulta_abierta), _result(op), _result(unidad), _result(contrato), _result(None))
-    sess_ie.commit.side_effect = IntegrityError("dup", {}, Exception("uq_voto_consulta_unidad"))
-    _setup(sess_ie, user=FakeUser(2, "PROPIETARIO"))
-    assert client.post("/api/consultas/8/votar", headers=HEADERS, json=payload).status_code == 409
+            # 8. Voto previo existente en BD -> 409
+            _configurar_overrides(factory, propietario)
+            resp_v1 = await client.post(f"/api/consultas/{abierta_id}/votar", headers=HEADERS, json=payload)
+            assert resp_v1.status_code == 201
+            resp_v2 = await client.post(f"/api/consultas/{abierta_id}/votar", headers=HEADERS, json=payload)
+            assert resp_v2.status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 # ==============================================================================
@@ -458,71 +472,100 @@ def test_votar_errores_404_403_409_y_race_condition(client: TestClient) -> None:
 # ==============================================================================
 
 
-def test_cerrar_consulta_genera_acta_bitacora_y_maneja_errores(client: TestClient) -> None:
-    ahora = datetime.now(UTC)
-    consulta = ConsultaComunitaria(
-        id=12,
-        titulo="Carta Consulta #12: Bomba Hidroneumática",
-        descripcion_legal="Sustitución de bomba principal.",
-        tipo_consulta="CARTA_CONSULTA_1RA",
-        regla_quorum="DOS_TERCIOS",
-        quorum_minimo_alicuota=Decimal("66.6700"),
-        fecha_apertura=ahora - timedelta(days=1),
-        fecha_cierre=ahora - timedelta(minutes=1),
-        estado="ABIERTA",
-        creada_por_id=1,
-    )
-    op_si = OpcionConsulta(id=30, consulta_id=12, etiqueta="Aprobar Bomba", es_opcion_aprobatoria=True)
-    op_no = OpcionConsulta(id=31, consulta_id=12, etiqueta="Rechazar", es_opcion_aprobatoria=False)
-    v1 = VotoConsulta(
-        id=1,
-        consulta_id=12,
-        unidad_id=1,
-        usuario_id=2,
-        opcion_id=30,
-        alicuota_capturada=Decimal("40.0000"),
-        fecha_voto=ahora,
-        ip_hash="1" * 64,
-        firma_hmac="a" * 64,
-    )
-    v2 = VotoConsulta(
-        id=2,
-        consulta_id=12,
-        unidad_id=2,
-        usuario_id=3,
-        opcion_id=30,
-        alicuota_capturada=Decimal("30.0000"),
-        fecha_voto=ahora,
-        ip_hash="2" * 64,
-        firma_hmac="b" * 64,
-    )
+async def test_cerrar_consulta_genera_acta_bitacora_y_maneja_errores() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        ahora = datetime.now(UTC)
+        async with factory() as seed_db:
+            consulta = ConsultaComunitaria(
+                titulo="Carta Consulta #12: Bomba Hidroneumática",
+                descripcion_legal="Sustitución de bomba principal.",
+                tipo_consulta="CARTA_CONSULTA_1RA",
+                regla_quorum="DOS_TERCIOS",
+                quorum_minimo_alicuota=Decimal("66.6700"),
+                fecha_apertura=ahora - timedelta(days=1),
+                fecha_cierre=ahora - timedelta(minutes=1),
+                estado="ABIERTA",
+                creada_por_id=ctx.presidente_id,
+            )
+            seed_db.add(consulta)
+            await seed_db.flush()
+            op_si = OpcionConsulta(consulta_id=consulta.id, etiqueta="Aprobar Bomba", es_opcion_aprobatoria=True)
+            op_no = OpcionConsulta(consulta_id=consulta.id, etiqueta="Rechazar", es_opcion_aprobatoria=False)
+            seed_db.add_all([op_si, op_no])
+            await seed_db.flush()
 
-    session = _mock_session(
-        _result(consulta),
-        _result_list([op_si, op_no]),
-        _result_list([v1, v2]),
-    )
-    _setup(session, user=FakeUser(1, "SECRETARIO"))
+            u_c = Unidad(
+                condominio_id=1,
+                identificador="1-C",
+                estructura_id=ctx.estructura_id,
+                alicuota=Decimal("30.0000"),
+            )
+            seed_db.add(u_c)
+            await seed_db.flush()
 
-    resp = client.post("/api/consultas/12/cerrar", headers=HEADERS)
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["estado"] == "CERRADA_APROBADA"
-    assert body["participacion_alicuota"] == "70.0000"
-    assert body["alicuota_aprobatoria"] == "70.0000"
-    assert body["acta_bitacora_id"] >= 100
-    assert len(body["hash_global_escrutinio"]) == 64
+            seed_db.add_all(
+                [
+                    VotoConsulta(
+                        condominio_id=1,
+                        jti=str(uuid.uuid4()),
+                        consulta_id=consulta.id,
+                        unidad_id=ctx.unidad_a_id,
+                        usuario_id=ctx.propietario_id,
+                        opcion_id=op_si.id,
+                        alicuota_capturada=Decimal("40.0000"),
+                        fecha_voto=ahora,
+                        ip_hash="1" * 64,
+                        firma_hmac="a" * 64,
+                        prev_hash="0" * 64,
+                        record_hash="1" * 64,
+                    ),
+                    VotoConsulta(
+                        condominio_id=1,
+                        jti=str(uuid.uuid4()),
+                        consulta_id=consulta.id,
+                        unidad_id=u_c.id,
+                        usuario_id=ctx.inquilino_id,
+                        opcion_id=op_si.id,
+                        alicuota_capturada=Decimal("30.0000"),
+                        fecha_voto=ahora,
+                        ip_hash="2" * 64,
+                        firma_hmac="b" * 64,
+                        prev_hash="1" * 64,
+                        record_hash="2" * 64,
+                    ),
+                ]
+            )
+            await seed_db.commit()
+            consulta_id = consulta.id
 
-    # Verificar que se añadió un objeto BitacoraActa a la sesión
-    objetos_agregados = [call.args[0] for call in session.add.call_args_list]
-    assert any(isinstance(o, BitacoraActa) for o in objetos_agregados)
+        secretario = await _cargar_usuario(factory, ctx.secretario_id)
+        presidente = await _cargar_usuario(factory, ctx.presidente_id)
 
-    # Errores: Idempotency-Key duplicada (409), no encontrada (404), ya cerrada (409)
-    _setup(_mock_session(), user=FakeUser(1, "PRESIDENTE"), redis_new=False)
-    assert client.post("/api/consultas/12/cerrar", headers=HEADERS).status_code == 409
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            _configurar_overrides(factory, secretario)
+            resp = await client.post(f"/api/consultas/{consulta_id}/cerrar", headers=HEADERS)
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["estado"] == "CERRADA_APROBADA"
+            assert body["participacion_alicuota"] == "70.0000"
+            assert body["alicuota_aprobatoria"] == "70.0000"
+            assert body["acta_bitacora_id"] >= 1
+            assert len(body["hash_global_escrutinio"]) == 64
 
-    _setup(_mock_session(_result(None)), user=FakeUser(1, "PRESIDENTE"))
-    assert client.post("/api/consultas/999/cerrar", headers=HEADERS).status_code == 404
+            # Verificar que el acta se persistió en BitacoraActa dentro de SQLite real
+            async with factory() as check_db:
+                acta = await check_db.get(BitacoraActa, body["acta_bitacora_id"])
+                assert acta is not None
+                assert "Bomba Hidroneumática" in acta.contenido
 
-    _setup(_mock_session(_result(consulta)), user=FakeUser(1, "PRESIDENTE"))
-    assert client.post("/api/consultas/12/cerrar", headers=HEADERS).status_code == 409
+            # Errores: Idempotency-Key duplicada (409), no encontrada (404), ya cerrada (409)
+            _configurar_overrides(factory, presidente, redis_new=False)
+            assert (await client.post(f"/api/consultas/{consulta_id}/cerrar", headers=HEADERS)).status_code == 409
+
+            _configurar_overrides(factory, presidente)
+            assert (await client.post("/api/consultas/999/cerrar", headers=HEADERS)).status_code == 404
+            assert (await client.post(f"/api/consultas/{consulta_id}/cerrar", headers=HEADERS)).status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()

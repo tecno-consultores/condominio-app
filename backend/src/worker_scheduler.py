@@ -71,18 +71,36 @@ async def encolar_tarea_media(
     return evento
 
 
+def _clave_unica(_fecha: date, fechas_previas: set[date]) -> bool:
+    return len(fechas_previas) == 0
+
+
+def _debe_generar_semanal(fecha: date, fechas_previas: set[date]) -> bool:
+    semana_obj = fecha.isocalendar()[:2]
+    return all(f.isocalendar()[:2] != semana_obj for f in fechas_previas)
+
+
+def _debe_generar_mensual(fecha: date, fechas_previas: set[date]) -> bool:
+    mes_obj = (fecha.year, fecha.month)
+    return all((f.year, f.month) != mes_obj for f in fechas_previas)
+
+
+def _debe_generar_diaria(fecha: date, fechas_previas: set[date]) -> bool:
+    return fecha not in fechas_previas
+
+
+_REGLAS_FRECUENCIA: dict[str, Callable[[date, set[date]], bool]] = {
+    "UNICA": _clave_unica,
+    "SEMANAL": _debe_generar_semanal,
+    "MENSUAL": _debe_generar_mensual,
+}
+
+
 def debe_generar_por_frecuencia(frecuencia: str, fecha: date, fechas_previas: set[date]) -> bool:
     """Evalúa si corresponde generar una TareaDiaria para una plantilla según su frecuencia."""
     freq = (frecuencia or "DIARIA").strip().upper()
-    if freq == "UNICA":
-        return len(fechas_previas) == 0
-    if freq == "SEMANAL":
-        semana_obj = fecha.isocalendar()[:2]
-        return all(f.isocalendar()[:2] != semana_obj for f in fechas_previas)
-    if freq == "MENSUAL":
-        mes_obj = (fecha.year, fecha.month)
-        return all((f.year, f.month) != mes_obj for f in fechas_previas)
-    return fecha not in fechas_previas
+    regla = _REGLAS_FRECUENCIA.get(freq, _debe_generar_diaria)
+    return regla(fecha, fechas_previas)
 
 
 def _mapear_fechas_previas(tareas: Sequence[TareaDiaria], fecha_fallback: date) -> dict[int, set[date]]:

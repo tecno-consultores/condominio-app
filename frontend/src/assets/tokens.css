@@ -348,10 +348,7 @@
     --text-on-accent: light-dark(var(--text-on-accent-light), var(--text-on-accent-dark));
     --surface-backdrop: light-dark(var(--surface-backdrop-light), var(--surface-backdrop-dark));
     --surface-code-bg: light-dark(var(--surface-code-bg-light), var(--surface-code-bg-dark));
-    --surface-code-text: light-dark(
-      var(--surface-code-text-light),
-      var(--surface-code-text-dark)
-    );
+    --surface-code-text: light-dark(var(--surface-code-text-light), var(--surface-code-text-dark));
     --surface-code-accent: light-dark(
       var(--surface-code-accent-light),
       var(--surface-code-accent-dark)

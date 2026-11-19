@@ -4,6 +4,9 @@
 **Ecosistema:** FastAPI + SQLAlchemy 2.0 Async + PostgreSQL 17 + KeyDB Multi-Hilo + Vue 3 / Pinia  
 **Origen de Auditoría:** Diagnóstico integral código ↔ especificaciones (2026-11-13) y estándar QA Nivel 11X
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 12–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 19–23):** Los controles del Hito 17 fueron ampliados hacia el modelo operativo **Single-Condo + PG17 RLS real (`0010`)** con rol `condominio_app_runtime` (`NOBYPASSRLS`) y tablas WORM, derivación de subclaves **`HKDF-SHA256`**, `PBKDF2 >= 600_000` iteraciones async, lockout Lua atómico, idempotencia con *response replay* y liberación en `4xx/5xx`, complejidad **Radon Grado A**, **Worker AVIF/SMTP** (`BLMOVE` + DLQ), tokenización **`OKLCH` + `light-dark()`** en shell unificado, **Screenplay E2E WCAG 2.2 AA** y gobernanza **Thin-Repo `v3.1.0`**. Ver [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Empaquetado Productivo `--no-dev`, Fail-Fast en Producción y KDF Estricto (Sub-tarea 17.1)

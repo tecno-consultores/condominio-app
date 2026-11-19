@@ -156,29 +156,41 @@ def _sanitize_header(valor: str) -> str:
     return valor.replace("\r", " ").replace("\n", " ").strip()
 
 
-def enviar_correo_smtp(evento: dict[str, Any], settings: WorkerSettings) -> None:
-    """Envía una notificación por SMTP STARTTLS cuando SMTP está habilitado."""
+def _extraer_destinatarios(evento: dict[str, Any]) -> list[str]:
     destinatarios = [str(d).strip() for d in evento.get("destinatarios", []) if str(d).strip()]
     if not destinatarios:
         raise ValueError("Evento de notificación sin destinatarios válidos.")
-    if not settings.smtp_enabled or not settings.smtp_host:
-        logger.info(
-            "Notificación omitida (SMTP deshabilitado): asunto=%s", _sanitize_header(str(evento.get("asunto", "")))
-        )
-        return
+    return destinatarios
 
+
+def _construir_mensaje_correo(evento: dict[str, Any], destinatarios: list[str], smtp_from: str) -> EmailMessage:
     msg = EmailMessage()
-    msg["From"] = _sanitize_header(settings.smtp_from)
+    msg["From"] = _sanitize_header(smtp_from)
     msg["To"] = _sanitize_header(", ".join(destinatarios))
     msg["Subject"] = _sanitize_header(str(evento.get("asunto", "")))
     msg.set_content(str(evento.get("cuerpo", "")))
+    return msg
 
+
+def _despachar_smtp(msg: EmailMessage, settings: WorkerSettings) -> None:
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
         if settings.smtp_use_tls:
             smtp.starttls(context=ssl.create_default_context())
         if settings.smtp_user and settings.smtp_password:
             smtp.login(settings.smtp_user, settings.smtp_password)
         smtp.send_message(msg)
+
+
+def enviar_correo_smtp(evento: dict[str, Any], settings: WorkerSettings) -> None:
+    """Envía una notificación por SMTP STARTTLS cuando SMTP está habilitado."""
+    destinatarios = _extraer_destinatarios(evento)
+    if not settings.smtp_enabled or not settings.smtp_host:
+        logger.info(
+            "Notificación omitida (SMTP deshabilitado): asunto=%s", _sanitize_header(str(evento.get("asunto", "")))
+        )
+        return
+    msg = _construir_mensaje_correo(evento, destinatarios, settings.smtp_from)
+    _despachar_smtp(msg, settings)
 
 
 async def procesar_mensaje_notificacion(
@@ -230,17 +242,17 @@ async def procesar_mensaje_media(
         return False
 
 
+def _is_task_healthy(name: str, task: asyncio.Task[None]) -> bool:
+    if task.cancelled():
+        return False
+    if not task.done():
+        return True
+    return task.exception() is None and name in OPTIONAL_WORKERS
+
+
 def is_supervisor_healthy(tasks: dict[str, asyncio.Task[None]]) -> bool:
     """Evalúa salud del supervisor QA-HEALTH-01 diferenciando workers opcionales deshabilitados."""
-    for name, task in tasks.items():
-        if task.cancelled():
-            return False
-        if task.done():
-            if task.exception() is not None:
-                return False
-            if name not in OPTIONAL_WORKERS:
-                return False
-    return True
+    return all(_is_task_healthy(name, task) for name, task in tasks.items())
 
 
 def write_worker_heartbeat(heartbeat_path: Path) -> None:
@@ -337,22 +349,15 @@ async def _cancelar_tareas(tasks: dict[str, asyncio.Task[None]]) -> None:
     await asyncio.gather(*tasks.values(), return_exceptions=True)
 
 
-async def run_worker_orchestrator(
-    settings: WorkerSettings | None = None,
-    *,
-    stop_event: asyncio.Event | None = None,
-    max_ticks: int | None = None,
-    session_factory: Callable[[], Any] | None = None,
-    redis_getter: Callable[[], Any] | None = None,
-) -> int:
-    """Arranca los loops del worker bajo supervisión QA-HEALTH-01 y emite heartbeat físico."""
-    validate_production_security_settings()
-    cfg = settings or WorkerSettings.from_env()
-    evento_parada = stop_event or asyncio.Event()
+def _crear_tareas_supervisor(
+    cfg: WorkerSettings,
+    evento_parada: asyncio.Event,
+    session_factory: Callable[[], Any] | None,
+    redis_getter: Callable[[], Any] | None,
+) -> dict[str, asyncio.Task[None]]:
     db_factory = session_factory or AsyncSessionLocal
     redis_fn = redis_getter or get_redis_client
-
-    tasks: dict[str, asyncio.Task[None]] = {
+    return {
         "daily_tasks_scheduler": asyncio.create_task(
             _loop_scheduler_diario(cfg, evento_parada, db_factory),
             name="daily_tasks_scheduler",
@@ -367,20 +372,47 @@ async def run_worker_orchestrator(
         ),
     }
 
+
+def _alcanzo_max_ticks(ticks: int, max_ticks: int | None) -> bool:
+    return max_ticks is not None and ticks >= max_ticks
+
+
+async def _supervisar_ciclo_worker(
+    cfg: WorkerSettings,
+    evento_parada: asyncio.Event,
+    tasks: dict[str, asyncio.Task[None]],
+    max_ticks: int | None,
+) -> int:
     ticks = 0
+    while not evento_parada.is_set():
+        await asyncio.sleep(0)
+        if not is_supervisor_healthy(tasks):
+            logger.error("Supervisor worker detectó estado no saludable.")
+            cfg.heartbeat_path.unlink(missing_ok=True)
+            return 1
+        write_worker_heartbeat(cfg.heartbeat_path)
+        ticks += 1
+        if _alcanzo_max_ticks(ticks, max_ticks):
+            break
+        await _esperar_o_detener(evento_parada, cfg.poll_seconds)
+    return 0
+
+
+async def run_worker_orchestrator(
+    settings: WorkerSettings | None = None,
+    *,
+    stop_event: asyncio.Event | None = None,
+    max_ticks: int | None = None,
+    session_factory: Callable[[], Any] | None = None,
+    redis_getter: Callable[[], Any] | None = None,
+) -> int:
+    """Arranca los loops del worker bajo supervisión QA-HEALTH-01 y emite heartbeat físico."""
+    validate_production_security_settings()
+    cfg = settings or WorkerSettings.from_env()
+    evento_parada = stop_event or asyncio.Event()
+    tasks = _crear_tareas_supervisor(cfg, evento_parada, session_factory, redis_getter)
     try:
-        while not evento_parada.is_set():
-            await asyncio.sleep(0)
-            if not is_supervisor_healthy(tasks):
-                logger.error("Supervisor worker detectó estado no saludable.")
-                cfg.heartbeat_path.unlink(missing_ok=True)
-                return 1
-            write_worker_heartbeat(cfg.heartbeat_path)
-            ticks += 1
-            if max_ticks is not None and ticks >= max_ticks:
-                break
-            await _esperar_o_detener(evento_parada, cfg.poll_seconds)
-        return 0
+        return await _supervisar_ciclo_worker(cfg, evento_parada, tasks, max_ticks)
     finally:
         evento_parada.set()
         await _cancelar_tareas(tasks)

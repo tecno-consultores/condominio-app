@@ -108,32 +108,48 @@ def _cargos_cuota_fija(
     return items_por_unidad, cuantizar(total_fijo - total_egresos_comunes)
 
 
+def _obtener_pesos_alicuota_validados(unidades: list[Unidad]) -> list[tuple[int, Decimal]]:
+    """Extrae pares (unidad_id, alícuota) y exige suma válida de 100.0000%."""
+    pesos_alicuota = [(u.id, _decimal_or_default(getattr(u, "alicuota", None), Decimal("0.0000"))) for u in unidades]
+    if not validar_suma_alicuotas([peso for _, peso in pesos_alicuota]):
+        raise ErrorFinanciero("La suma de alícuotas de las unidades debe equivaler a 100.0000% antes de facturar")
+    return pesos_alicuota
+
+
+def _prorratear_por_modalidad(
+    modalidad: str,
+    monto: Decimal,
+    unidades: list[Unidad],
+) -> dict[int, Decimal]:
+    """Prorratea un monto por alícuotas o partes iguales según la modalidad del lote."""
+    if modalidad == "ALICUOTA":
+        return prorratear_por_alicuotas(monto, _obtener_pesos_alicuota_validados(unidades))
+    return prorratear_partes_iguales(monto, [u.id for u in unidades])
+
+
+def _lineas_cargo_variable(
+    periodo: str,
+    gasto_comun: Decimal,
+    reserva: Decimal,
+) -> list[tuple[str, str, Decimal]]:
+    """Arma las líneas de gasto común y aporte al fondo de reserva para una unidad."""
+    lineas: list[tuple[str, str, Decimal]] = [
+        ("GASTO_COMUN", f"Cuota parte de gastos comunes ({periodo})", gasto_comun)
+    ]
+    if reserva > CERO:
+        lineas.append(("FONDO_RESERVA", "Aporte al Fondo de Reserva Legal", reserva))
+    return lineas
+
+
 def _cargos_variables(
     datos: FacturarPeriodoRequest,
     unidades: list[Unidad],
     total_egresos_comunes: Decimal,
     recargo_reserva_total: Decimal,
 ) -> dict[int, list[tuple[str, str, Decimal]]]:
-    unidad_ids = [u.id for u in unidades]
-    pesos_alicuota = [(u.id, _decimal_or_default(getattr(u, "alicuota", None), Decimal("0.0000"))) for u in unidades]
-    if datos.modalidad == "ALICUOTA":
-        if not validar_suma_alicuotas([peso for _, peso in pesos_alicuota]):
-            raise ErrorFinanciero("La suma de alícuotas de las unidades debe equivaler a 100.0000% antes de facturar")
-        mapa_gastos = prorratear_por_alicuotas(total_egresos_comunes, pesos_alicuota)
-        mapa_reserva = prorratear_por_alicuotas(recargo_reserva_total, pesos_alicuota)
-    else:
-        mapa_gastos = prorratear_partes_iguales(total_egresos_comunes, unidad_ids)
-        mapa_reserva = prorratear_partes_iguales(recargo_reserva_total, unidad_ids)
-
-    items_por_unidad: dict[int, list[tuple[str, str, Decimal]]] = {}
-    for u in unidades:
-        lineas: list[tuple[str, str, Decimal]] = [
-            ("GASTO_COMUN", f"Cuota parte de gastos comunes ({datos.periodo})", mapa_gastos[u.id])
-        ]
-        if mapa_reserva[u.id] > CERO:
-            lineas.append(("FONDO_RESERVA", "Aporte al Fondo de Reserva Legal", mapa_reserva[u.id]))
-        items_por_unidad[u.id] = lineas
-    return items_por_unidad
+    mapa_gastos = _prorratear_por_modalidad(datos.modalidad, total_egresos_comunes, unidades)
+    mapa_reserva = _prorratear_por_modalidad(datos.modalidad, recargo_reserva_total, unidades)
+    return {u.id: _lineas_cargo_variable(datos.periodo, mapa_gastos[u.id], mapa_reserva[u.id]) for u in unidades}
 
 
 def _anexar_cuota_extraordinaria(
@@ -143,15 +159,7 @@ def _anexar_cuota_extraordinaria(
 ) -> None:
     if datos.cuota_extraordinaria_total_usd <= CERO:
         return
-    if datos.modalidad == "ALICUOTA":
-        pesos_alicuota = [
-            (u.id, _decimal_or_default(getattr(u, "alicuota", None), Decimal("0.0000"))) for u in unidades
-        ]
-        if not validar_suma_alicuotas([peso for _, peso in pesos_alicuota]):
-            raise ErrorFinanciero("La suma de alícuotas de las unidades debe equivaler a 100.0000% antes de facturar")
-        mapa_extra = prorratear_por_alicuotas(datos.cuota_extraordinaria_total_usd, pesos_alicuota)
-    else:
-        mapa_extra = prorratear_partes_iguales(datos.cuota_extraordinaria_total_usd, [u.id for u in unidades])
+    mapa_extra = _prorratear_por_modalidad(datos.modalidad, datos.cuota_extraordinaria_total_usd, unidades)
     desc_extra = datos.descripcion_cuota_extraordinaria or "Cuota extraordinaria aprobada"
     for uid, monto_extra in mapa_extra.items():
         items_por_unidad[uid].append(("CUOTA_EXTRAORDINARIA", desc_extra, monto_extra))
@@ -250,17 +258,22 @@ def _fusionar_recibo_existente(
     return items_orm, cargo_bruto, credito_usado, estado_viejo
 
 
+def _validar_fondo_ausente(modalidad: str, superavit_fondo: Decimal) -> None:
+    """Rechaza conciliación de cuota fija con superávit/déficit si no hay fondo de reserva activo."""
+    if modalidad == "CUOTA_FIJA" and superavit_fondo != CERO:
+        raise ErrorFinanciero("No existe un Fondo de Reserva Legal activo para conciliar la cuota fija.")
+
+
 def _actualizar_fondo_reserva(
     fondo_reserva: FondoCondominio | None,
     modalidad: str,
     recargo_reserva: Decimal,
     superavit_fondo: Decimal,
 ) -> None:
-    incremento = superavit_fondo if modalidad == "CUOTA_FIJA" else recargo_reserva
     if fondo_reserva is None:
-        if modalidad == "CUOTA_FIJA" and incremento != CERO:
-            raise ErrorFinanciero("No existe un Fondo de Reserva Legal activo para conciliar la cuota fija.")
+        _validar_fondo_ausente(modalidad, superavit_fondo)
         return
+    incremento = superavit_fondo if modalidad == "CUOTA_FIJA" else recargo_reserva
     saldo_actual = _decimal_or_default(getattr(fondo_reserva, "saldo_actual_usd", None), CERO)
     nuevo_saldo = cuantizar(saldo_actual + incremento)
     if nuevo_saldo < CERO:
@@ -276,6 +289,60 @@ def _motivo_auditoria_lote(periodo: str, credito_u: Decimal, es_upsert: bool) ->
     return f"Aplicación automática de saldo a favor en facturación {periodo} (-{credito_u} USD)"
 
 
+@dataclass(frozen=True)
+class _ContextoAuditoriaLote:
+    """Metadatos del lote necesarios para registrar la auditoría WORM de recibos."""
+
+    periodo: str
+    condominio_id: int
+    usuario_id: int | None
+
+
+def _obtener_id_recibo(recibo: Recibo) -> int:
+    """Verifica y retorna la clave primaria del recibo tras el flush transaccional."""
+    if recibo.id is None:
+        raise RuntimeError("El recibo no obtuvo ID primario tras flush transaccional")
+    return recibo.id
+
+
+def _anexar_items_recibo(db: AsyncSession, recibo_id: int, items: list[ReciboItem]) -> None:
+    """Asocia el recibo_id persistido a cada ítem y los encola en la sesión."""
+    for item in items:
+        item.recibo_id = recibo_id
+        db.add(item)
+
+
+async def _registrar_auditoria_entrada(
+    db: AsyncSession,
+    entrada: _EntradaLoteUnidad,
+    ctx: _ContextoAuditoriaLote,
+) -> None:
+    """Sella en cadena WORM las entradas de lote con fusión UPSERT o crédito aplicado."""
+    if not entrada.es_upsert and entrada.credito_usado <= CERO:
+        return
+    recibo = entrada.recibo
+    recibo_id = _obtener_id_recibo(recibo)
+    motivo = _motivo_auditoria_lote(ctx.periodo, entrada.credito_usado, entrada.es_upsert)
+    prev_hash, rec_hash = await sellar_cadena_worm(
+        db,
+        "auditoria_recibos",
+        ctx.condominio_id,
+        f"{recibo_id}|None|{ctx.usuario_id}|{entrada.estado_viejo}->{recibo.estado}|{motivo}",
+    )
+    db.add(
+        AuditoriaRecibo(
+            condominio_id=ctx.condominio_id,
+            recibo_id=recibo_id,
+            usuario_id=ctx.usuario_id,
+            estado_viejo=entrada.estado_viejo,
+            estado_nuevo=recibo.estado,
+            motivo=motivo,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
+        )
+    )
+
+
 async def _registrar_items_y_auditoria(
     db: AsyncSession,
     entradas: list[_EntradaLoteUnidad],
@@ -283,42 +350,19 @@ async def _registrar_items_y_auditoria(
     condominio_id: int,
     usuario_id: int | None,
 ) -> None:
+    ctx = _ContextoAuditoriaLote(periodo=periodo, condominio_id=condominio_id, usuario_id=usuario_id)
     for entrada in entradas:
-        recibo = entrada.recibo
-        if recibo.id is None:
-            raise RuntimeError("El recibo no obtuvo ID primario tras flush transaccional")
-        for item in entrada.items:
-            item.recibo_id = recibo.id
-            db.add(item)
-        if not entrada.es_upsert and entrada.credito_usado <= CERO:
-            continue
-        motivo = _motivo_auditoria_lote(periodo, entrada.credito_usado, entrada.es_upsert)
-        prev_hash, rec_hash = await sellar_cadena_worm(
-            db,
-            "auditoria_recibos",
-            condominio_id,
-            f"{recibo.id}|None|{usuario_id}|{entrada.estado_viejo}->{recibo.estado}|{motivo}",
-        )
-        db.add(
-            AuditoriaRecibo(
-                condominio_id=condominio_id,
-                recibo_id=recibo.id,
-                usuario_id=usuario_id,
-                estado_viejo=entrada.estado_viejo,
-                estado_nuevo=recibo.estado,
-                motivo=motivo,
-                prev_hash=prev_hash,
-                record_hash=rec_hash,
-            )
-        )
+        recibo_id = _obtener_id_recibo(entrada.recibo)
+        _anexar_items_recibo(db, recibo_id, entrada.items)
+        await _registrar_auditoria_entrada(db, entrada, ctx)
 
 
-async def cargar_contexto_facturacion(
+async def _cargar_unidades_y_egresos(
     db: AsyncSession,
-    datos: FacturarPeriodoRequest,
-    condominio_id: int = DEFAULT_CONDOMINIO_ID,
-) -> tuple[list[Unidad], Decimal, FondoCondominio | None, Decimal]:
-    """Carga unidades, egresos comunes y fondo patrimonial del condominio para facturar el periodo."""
+    periodo: str,
+    condominio_id: int,
+) -> tuple[list[Unidad], Decimal]:
+    """Carga con bloqueo las unidades del condominio y suma los egresos comunes del periodo."""
     uni_res = await db.execute(
         select(Unidad).where(Unidad.condominio_id == condominio_id).order_by(Unidad.id.asc()).with_for_update()
     )
@@ -332,13 +376,21 @@ async def cargar_contexto_facturacion(
     egr_res = await db.execute(
         select(Egreso).where(
             Egreso.condominio_id == condominio_id,
-            Egreso.periodo == datos.periodo,
+            Egreso.periodo == periodo,
             Egreso.es_gasto_comun.is_(True),
         )
     )
-    egresos_comunes = list(egr_res.scalars().all())
-    total_egresos = cuantizar(sum((e.monto_usd for e in egresos_comunes), CERO))
+    total_egresos = cuantizar(sum((e.monto_usd for e in egr_res.scalars().all()), CERO))
+    return unidades, total_egresos
 
+
+async def _cargar_fondo_y_recargo(
+    db: AsyncSession,
+    datos: FacturarPeriodoRequest,
+    total_egresos: Decimal,
+    condominio_id: int,
+) -> tuple[FondoCondominio | None, Decimal]:
+    """Consulta el fondo de reserva legal activo y calcula el recargo aplicable."""
     fondo_res = await db.execute(
         select(FondoCondominio)
         .where(
@@ -350,10 +402,22 @@ async def cargar_contexto_facturacion(
     )
     fondo_reserva = fondo_res.scalars().first()
     aplica_reserva = datos.incluir_fondo_reserva and datos.modalidad != "CUOTA_FIJA"
-    if aplica_reserva and fondo_reserva is None:
+    if not aplica_reserva:
+        return fondo_reserva, CERO
+    if fondo_reserva is None:
         raise ErrorFinanciero("No existe un Fondo de Reserva Legal activo configurado para aplicar el recargo.")
-    porcentaje_reserva = fondo_reserva.porcentaje_recargo if fondo_reserva is not None else Decimal("10.00")
-    recargo_reserva = cuantizar(total_egresos * (porcentaje_reserva / Decimal("100.00"))) if aplica_reserva else CERO
+    recargo_reserva = cuantizar(total_egresos * (fondo_reserva.porcentaje_recargo / Decimal("100.00")))
+    return fondo_reserva, recargo_reserva
+
+
+async def cargar_contexto_facturacion(
+    db: AsyncSession,
+    datos: FacturarPeriodoRequest,
+    condominio_id: int = DEFAULT_CONDOMINIO_ID,
+) -> tuple[list[Unidad], Decimal, FondoCondominio | None, Decimal]:
+    """Carga unidades, egresos comunes y fondo patrimonial del condominio para facturar el periodo."""
+    unidades, total_egresos = await _cargar_unidades_y_egresos(db, datos.periodo, condominio_id)
+    fondo_reserva, recargo_reserva = await _cargar_fondo_y_recargo(db, datos, total_egresos, condominio_id)
     return unidades, total_egresos, fondo_reserva, recargo_reserva
 
 

@@ -4,6 +4,9 @@
 **Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/finanzas.py`, `backend/src/routers/finanzas.py`, `backend/src/routers/pagos.py`, `backend/alembic/versions/0003_hito10_alicuotas_solvencia.py`  
 **Módulos Frontend Objetivo:** `frontend/src/stores/financeStore.ts`, `frontend/src/views/finance/BillingGeneratorView.vue`, `frontend/src/views/finance/SolvencyCertificateView.vue`, `frontend/src/components/finance/ReceiptBreakdownModal.vue`
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** La facturación LPH y solvencia incorporan aislamiento **Single-Condo + PG17 RLS (`0010`)**, subclave **`HKDF-SHA256`** dedicada para certificados y verificación *live* de deuda, fusión `UPSERT` en `facturar-periodo` para evitar colisiones `409`, aplicación al `100%` de `credito_disponible_usd` con traza en `AuditoriaRecibo`, complejidad **Radon Grado A**, uso de `fetchUnidades()` sin `403` en `SolvencyCertificateView.vue`, tokenización **`OKLCH` + `light-dark()`**, **Screenplay E2E** y gobernanza **Thin-Repo `v3.1.0`**. Ver [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Propósito, Modalidades de Cobro y Fundamento Legal (Art. 7, 11 y 14 LPH)

@@ -2,6 +2,9 @@
 
 **Estado:** Completado y Certificado en Backend (Hito 3 ✅) y GUI (Hito 6 ✅)
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** El núcleo financiero evoluciona con **PG17 RLS (`0010`)**, restricciones `CHECK` contables y tabla WORM `auditoria_recibos`, bloqueos pesimistas `.with_for_update()` en aprobaciones/rechazos, bloqueo de `cierre-mensual` con pagos `EN_REVISION`, idempotencia por ámbito `idemp:{condominio_id}:{usuario_id}:{scope}:{key}` con *response replay*, exactitud **Radon Grado A**, manejo no destructivo en `financeStore.ts` (incluyendo desacoplo de tasa `404`), tokenización **`OKLCH` + `light-dark()`**, Screenplay E2E y gobernanza **Thin-Repo `v3.1.0`**. Ver [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Principios del Core Matemático (`backend/src/finanzas.py`)

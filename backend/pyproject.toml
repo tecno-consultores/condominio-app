@@ -102,5 +102,9 @@ strict = true
 ignore_missing_imports = true
 
 [tool.mutmut]
-paths_to_mutate = "src/bootstrap.py,src/finanzas.py,src/facturacion_lph.py,src/security.py"
+paths_to_mutate = "src/bootstrap.py,src/database.py,src/dependencies.py,src/facturacion_lph.py,src/finanzas.py,src/main.py,src/redis_client.py,src/redis_idempotency.py,src/security.py,src/worker.py,src/worker_media.py,src/worker_scheduler.py"
 tests_dir = "tests/"
+
+[tool.coverage.run]
+source = ["src"]
+concurrency = ["greenlet", "thread"]

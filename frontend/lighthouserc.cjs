@@ -18,7 +18,7 @@ module.exports = {
   ci: {
     collect: {
       url: ['http://ui-prod:80/login', 'http://ui-prod:80/register'],
-      numberOfRuns: 1,
+      numberOfRuns: 3,
       chromePath: process.env.CHROME_PATH || resolvePlaywrightChrome(),
       settings: {
         chromeFlags: '--no-sandbox --disable-dev-shm-usage --headless=new --disable-gpu',
@@ -31,6 +31,7 @@ module.exports = {
         'categories:performance': ['error', { minScore: 0.9 }],
         'categories:accessibility': ['error', { minScore: 0.95 }],
         'categories:best-practices': ['error', { minScore: 0.95 }],
+        'cumulative-layout-shift': ['error', { maxNumericValue: 0 }],
       },
     },
     upload: {

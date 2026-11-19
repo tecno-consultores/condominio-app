@@ -2,13 +2,31 @@
 // Copyright (C) 2026 Condominio App Contributors
 
 import AxeBuilder from '@axe-core/playwright';
-import type { Actor, Question } from './core';
+import { waitForPaintSettled, type Actor, type Question } from './core';
 
 export interface AccessibilityViolationSummary {
   id: string;
   impact: string;
   help: string;
   nodes: string[];
+}
+
+export interface HorizontalOverflowResult {
+  hasOverflow: boolean;
+  scrollWidth: number;
+  innerWidth: number;
+}
+
+export interface BoundingBoxResult {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ViewportDimensions {
+  width: number;
+  height: number;
 }
 
 export interface GeometryAuditResult {
@@ -97,7 +115,7 @@ export class CurrentColorScheme implements Question<string> {
 }
 
 export class AxeCriticalOrSeriousViolations implements Question<AccessibilityViolationSummary[]> {
-  readonly description = 'ejecutar auditoría WCAG 2.1 AA con Axe-Core';
+  readonly description = 'ejecutar auditoría WCAG 2.1 AA y best-practice con Axe-Core';
 
   static detected(): AxeCriticalOrSeriousViolations {
     return new AxeCriticalOrSeriousViolations();
@@ -105,9 +123,9 @@ export class AxeCriticalOrSeriousViolations implements Question<AccessibilityVio
 
   async answeredBy(actor: Actor): Promise<AccessibilityViolationSummary[]> {
     const page = actor.page();
-    await page.evaluate(() => document.fonts.ready);
+    await waitForPaintSettled(page);
     const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'])
       .analyze();
     return results.violations
       .filter((v) => v.impact === 'critical' || v.impact === 'serious')
@@ -117,6 +135,127 @@ export class AxeCriticalOrSeriousViolations implements Question<AccessibilityVio
         help: v.help,
         nodes: v.nodes.flatMap((n) => n.target.map(String)),
       }));
+  }
+}
+
+export class HorizontalOverflow implements Question<HorizontalOverflowResult> {
+  readonly description = 'verificar que scrollWidth <= innerWidth (cero desbordamiento horizontal)';
+
+  static status(): HorizontalOverflow {
+    return new HorizontalOverflow();
+  }
+
+  async answeredBy(actor: Actor): Promise<HorizontalOverflowResult> {
+    const page = actor.page();
+    await waitForPaintSettled(page);
+    return page.evaluate(() => {
+      const scrollWidth = document.documentElement.scrollWidth;
+      const innerWidth = window.innerWidth;
+      return {
+        hasOverflow: scrollWidth > innerWidth,
+        scrollWidth,
+        innerWidth,
+      };
+    });
+  }
+}
+
+export class ElementBoundingBox implements Question<BoundingBoxResult | null> {
+  readonly description: string;
+
+  private constructor(private readonly selector: string) {
+    this.description = `medir caja delimitadora de ${selector}`;
+  }
+
+  static of(selector: string): ElementBoundingBox {
+    return new ElementBoundingBox(selector);
+  }
+
+  async answeredBy(actor: Actor): Promise<BoundingBoxResult | null> {
+    const locator = actor.page().locator(this.selector).first();
+    await locator.waitFor({ state: 'visible' });
+    return locator.boundingBox();
+  }
+}
+
+export class ElementAttribute implements Question<string | null> {
+  readonly description: string;
+
+  private constructor(
+    private readonly selector: string,
+    private readonly attributeName: string,
+  ) {
+    this.description = `leer atributo ${attributeName} de ${selector}`;
+  }
+
+  static of(selector: string, attributeName: string): ElementAttribute {
+    return new ElementAttribute(selector, attributeName);
+  }
+
+  async answeredBy(actor: Actor): Promise<string | null> {
+    return actor.page().locator(this.selector).first().getAttribute(this.attributeName);
+  }
+}
+
+export class ElementCount implements Question<number> {
+  readonly description: string;
+
+  private constructor(private readonly selector: string) {
+    this.description = `contar elementos coincidentes con ${selector}`;
+  }
+
+  static matching(selector: string): ElementCount {
+    return new ElementCount(selector);
+  }
+
+  async answeredBy(actor: Actor): Promise<number> {
+    return actor.page().locator(this.selector).count();
+  }
+}
+
+export class IsDialogInTopLayer implements Question<boolean> {
+  readonly description: string;
+
+  private constructor(private readonly selector: string) {
+    this.description = `verificar que ${selector} esté abierto en Top Layer (:modal)`;
+  }
+
+  static matching(selector: string): IsDialogInTopLayer {
+    return new IsDialogInTopLayer(selector);
+  }
+
+  async answeredBy(actor: Actor): Promise<boolean> {
+    return actor
+      .page()
+      .locator(this.selector)
+      .first()
+      .evaluate((el) => el.matches(':modal'));
+  }
+}
+
+export class CurrentViewportSize implements Question<ViewportDimensions | null> {
+  readonly description = 'consultar dimensiones actuales del viewport';
+
+  static dimensions(): CurrentViewportSize {
+    return new CurrentViewportSize();
+  }
+
+  async answeredBy(actor: Actor): Promise<ViewportDimensions | null> {
+    return actor.page().viewportSize();
+  }
+}
+
+export class VisualSnapshotReady implements Question<boolean> {
+  readonly description =
+    'esperar estabilización de fuentes, pintura y animaciones para captura visual';
+
+  static verified(): VisualSnapshotReady {
+    return new VisualSnapshotReady();
+  }
+
+  async answeredBy(actor: Actor): Promise<boolean> {
+    await waitForPaintSettled(actor.page());
+    return true;
   }
 }
 

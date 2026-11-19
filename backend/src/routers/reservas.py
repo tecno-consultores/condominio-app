@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import DEFAULT_CONDOMINIO_ID, get_db, sellar_cadena_worm
@@ -62,6 +63,20 @@ class _CargoReservaSpec:
     motivo_auditoria: str
     usuario_id: int
     condominio_id: int
+
+
+@dataclass(frozen=True)
+class _AuditoriaReservaSpec:
+    condominio_id: int
+    recibo: Recibo
+    usuario_id: int
+    estado_viejo: str
+    motivo: str
+
+
+def _resolver_condominio_id(obj: object, fallback: int = DEFAULT_CONDOMINIO_ID) -> int:
+    condo_raw = getattr(obj, "condominio_id", None)
+    return int(fallback if condo_raw is None else condo_raw)
 
 
 async def _unidades_activas_usuario(db: AsyncSession, usuario_id: int) -> set[int]:
@@ -249,6 +264,32 @@ async def listar_reservas_areas(
     return [_serializar_reserva(r, nombre_area, identificador) for r, nombre_area, identificador in res.all()]
 
 
+async def _flush_reserva_o_409(db: AsyncSession, reserva: ReservaAreaSocial) -> None:
+    """Inserta la reserva manejando colisiones concurrentes del índice único parcial como HTTP 409."""
+    db.add(reserva)
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El área social seleccionada ya se encuentra reservada para esa fecha.",
+        ) from exc
+
+
+async def _commit_reserva_o_409(db: AsyncSession, reserva: ReservaAreaSocial) -> None:
+    """Confirma la transacción de reserva convirtiendo colisiones diferidas en HTTP 409."""
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El área social seleccionada ya se encuentra reservada para esa fecha.",
+        ) from exc
+    await db.refresh(reserva)
+
+
 @router.post(
     "/reservas/solicitar",
     status_code=status.HTTP_201_CREATED,
@@ -296,13 +337,10 @@ async def solicitar_reserva_area_social(
         tarea_inspeccion_id=tarea_inspeccion.id,
         creado_en=ahora,
     )
-    db.add(reserva)
-    await db.flush()
+    await _flush_reserva_o_409(db, reserva)
 
     costo_uso = cuantizar(area.costo_uso_usd)
     if costo_uso > Decimal("0.00"):
-        condo_raw = getattr(usuario, "condominio_id", None)
-        condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
         await _registrar_cargo_reserva(
             db,
             _CargoReservaSpec(
@@ -313,12 +351,11 @@ async def solicitar_reserva_area_social(
                 descripcion=f"Uso área social ({area.nombre} - Reserva #{reserva.id})",
                 motivo_auditoria=f"Cargo por uso de área social en reserva #{reserva.id}",
                 usuario_id=usuario.id,
-                condominio_id=condo_id,
+                condominio_id=_resolver_condominio_id(usuario),
             ),
         )
 
-    await db.commit()
-    await db.refresh(reserva)
+    await _commit_reserva_o_409(db, reserva)
     return _serializar_reserva(reserva, area.nombre, unidad.identificador)
 
 
@@ -352,22 +389,31 @@ async def _resolver_periodo_cargo_abierto(db: AsyncSession, fecha_evento: date) 
     return str(periodo_evento)
 
 
+async def _buscar_recibo_para_cargo(
+    db: AsyncSession,
+    unidad_id: int,
+    periodo_inicial: str,
+) -> tuple[Recibo | None, str]:
+    # Si el recibo del periodo del evento ya está bloqueado, imputa al mes calendario actual
+    res_rec = await db.execute(
+        select(Recibo).where(Recibo.unidad_id == unidad_id, Recibo.periodo == periodo_inicial).with_for_update()
+    )
+    recibo = res_rec.scalars().first()
+    if recibo is not None and recibo.bloqueado:
+        periodo_actual = datetime.now(UTC).strftime("%Y-%m")
+        res_rec = await db.execute(
+            select(Recibo).where(Recibo.unidad_id == unidad_id, Recibo.periodo == periodo_actual).with_for_update()
+        )
+        return res_rec.scalars().first(), periodo_actual
+    return recibo, periodo_inicial
+
+
 async def _obtener_recibo_abierto_reserva(
     db: AsyncSession,
     spec: _CargoReservaSpec,
 ) -> tuple[Recibo, str]:
-    periodo_cargo = await _resolver_periodo_cargo_abierto(db, spec.fecha_evento)
-    res_rec = await db.execute(
-        select(Recibo).where(Recibo.unidad_id == spec.unidad_id, Recibo.periodo == periodo_cargo).with_for_update()
-    )
-    recibo = res_rec.scalars().first()
-
-    if recibo is not None and recibo.bloqueado:
-        periodo_cargo = datetime.now(UTC).strftime("%Y-%m")
-        res_rec = await db.execute(
-            select(Recibo).where(Recibo.unidad_id == spec.unidad_id, Recibo.periodo == periodo_cargo).with_for_update()
-        )
-        recibo = res_rec.scalars().first()
+    periodo_inicial = await _resolver_periodo_cargo_abierto(db, spec.fecha_evento)
+    recibo, periodo_cargo = await _buscar_recibo_para_cargo(db, spec.unidad_id, periodo_inicial)
 
     if recibo is not None and not recibo.bloqueado:
         estado_viejo = recibo.estado
@@ -391,13 +437,30 @@ async def _obtener_recibo_abierto_reserva(
     return recibo_nuevo, "INEXISTENTE"
 
 
+async def _registrar_auditoria_recibo_reserva(db: AsyncSession, spec: _AuditoriaReservaSpec) -> None:
+    """Sella la cadena WORM e inserta el registro de auditoría contable de reserva."""
+    detalle = f"{spec.recibo.id}|None|{spec.usuario_id}|{spec.estado_viejo}->{spec.recibo.estado}|{spec.motivo}"
+    prev_hash, rec_hash = await sellar_cadena_worm(db, "auditoria_recibos", spec.condominio_id, detalle)
+    db.add(
+        AuditoriaRecibo(
+            condominio_id=spec.condominio_id,
+            recibo_id=spec.recibo.id,
+            usuario_id=spec.usuario_id,
+            estado_viejo=spec.estado_viejo,
+            estado_nuevo=spec.recibo.estado,
+            motivo=spec.motivo,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
+        )
+    )
+
+
 async def _registrar_cargo_reserva(db: AsyncSession, spec: _CargoReservaSpec) -> None:
     """Registra un cargo contable individual de reserva (Recibo, ReciboItem y AuditoriaRecibo WORM)."""
     if spec.monto <= Decimal("0.00"):
         return
     recibo, estado_viejo = await _obtener_recibo_abierto_reserva(db, spec)
-    condo_raw = getattr(recibo, "condominio_id", None)
-    condo_id = int(spec.condominio_id if condo_raw is None else condo_raw)
+    condo_id = _resolver_condominio_id(recibo, fallback=spec.condominio_id)
 
     db.add(
         ReciboItem(
@@ -408,23 +471,15 @@ async def _registrar_cargo_reserva(db: AsyncSession, spec: _CargoReservaSpec) ->
             monto_usd=spec.monto,
         )
     )
-    prev_hash, rec_hash = await sellar_cadena_worm(
+    await _registrar_auditoria_recibo_reserva(
         db,
-        "auditoria_recibos",
-        condo_id,
-        f"{recibo.id}|None|{spec.usuario_id}|{estado_viejo}->{recibo.estado}|{spec.motivo_auditoria}",
-    )
-    db.add(
-        AuditoriaRecibo(
+        _AuditoriaReservaSpec(
             condominio_id=condo_id,
-            recibo_id=recibo.id,
+            recibo=recibo,
             usuario_id=spec.usuario_id,
             estado_viejo=estado_viejo,
-            estado_nuevo=recibo.estado,
             motivo=spec.motivo_auditoria,
-            prev_hash=prev_hash,
-            record_hash=rec_hash,
-        )
+        ),
     )
 
 
@@ -438,8 +493,6 @@ async def _registrar_cargo_danos_reserva(
     monto_danos = cuantizar(area.deposito_garantia_usd)
     if monto_danos <= Decimal("0.00"):
         return
-    condo_raw = getattr(reserva, "condominio_id", None)
-    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
     await _registrar_cargo_reserva(
         db,
         _CargoReservaSpec(
@@ -450,9 +503,38 @@ async def _registrar_cargo_danos_reserva(
             descripcion=f"Cargo por daños post-evento en {area.nombre} ({reserva.fecha_evento.isoformat()})",
             motivo_auditoria=f"Retención/cargo de depósito por daños en reserva #{reserva.id}",
             usuario_id=usuario_id,
-            condominio_id=condo_id,
+            condominio_id=_resolver_condominio_id(reserva),
         ),
     )
+
+
+async def _acreditar_saldo_unidad(db: AsyncSession, unidad_id: int, monto_usd: Decimal) -> None:
+    res_u = await db.execute(select(Unidad).where(Unidad.id == unidad_id).with_for_update())
+    unidad_obj = res_u.scalars().first()
+    if unidad_obj is None:
+        return
+    cred_raw = getattr(unidad_obj, "credito_disponible_usd", None)
+    cred_prev = Decimal("0.00") if cred_raw is None else cuantizar(cred_raw)
+    unidad_obj.credito_disponible_usd = cuantizar(cred_prev + monto_usd)
+
+
+async def _aplicar_reverso_o_credito(
+    db: AsyncSession,
+    recibo: Recibo,
+    item: ReciboItem,
+    reserva_id: int,
+) -> str:
+    # Si el recibo ya fue cerrado o abonado por encima del remanente, convierte el reverso en saldo a favor
+    pagado_raw = getattr(recibo, "monto_pagado_usd", None)
+    pagado = Decimal("0.00") if pagado_raw is None else cuantizar(pagado_raw)
+    nuevo_monto = cuantizar(recibo.monto_usd - item.monto_usd)
+    if not recibo.bloqueado and nuevo_monto >= pagado:
+        recibo.monto_usd = nuevo_monto
+        recibo.estado = determinar_estado_recibo(recibo.monto_usd, pagado)
+        await db.delete(item)
+        return f"Reverso de cargo por uso tras cancelación de reserva #{reserva_id}"
+    await _acreditar_saldo_unidad(db, recibo.unidad_id, item.monto_usd)
+    return f"Crédito a favor por cancelación de reserva #{reserva_id}"
 
 
 async def _revertir_cargo_uso_cancelacion(
@@ -477,45 +559,43 @@ async def _revertir_cargo_uso_cancelacion(
     if fila is None:
         return
     item, recibo = fila
-    condo_raw = getattr(recibo, "condominio_id", None)
-    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
-    pagado_raw = getattr(recibo, "monto_pagado_usd", None)
-    pagado = Decimal("0.00") if pagado_raw is None else cuantizar(pagado_raw)
-    nuevo_monto = cuantizar(recibo.monto_usd - item.monto_usd)
+    condo_id = _resolver_condominio_id(recibo)
     estado_viejo = recibo.estado
-
-    if not recibo.bloqueado and nuevo_monto >= pagado:
-        recibo.monto_usd = nuevo_monto
-        recibo.estado = determinar_estado_recibo(recibo.monto_usd, pagado)
-        await db.delete(item)
-        motivo = f"Reverso de cargo por uso tras cancelación de reserva #{reserva.id}"
-    else:
-        res_u = await db.execute(select(Unidad).where(Unidad.id == reserva.unidad_id).with_for_update())
-        unidad_obj = res_u.scalars().first()
-        if unidad_obj is not None:
-            cred_raw = getattr(unidad_obj, "credito_disponible_usd", None)
-            cred_prev = Decimal("0.00") if cred_raw is None else cuantizar(cred_raw)
-            unidad_obj.credito_disponible_usd = cuantizar(cred_prev + item.monto_usd)
-        motivo = f"Crédito a favor por cancelación de reserva #{reserva.id}"
-
-    prev_hash, rec_hash = await sellar_cadena_worm(
+    motivo = await _aplicar_reverso_o_credito(db, recibo, item, reserva.id)
+    await _registrar_auditoria_recibo_reserva(
         db,
-        "auditoria_recibos",
-        condo_id,
-        f"{recibo.id}|None|{usuario_id}|{estado_viejo}->{recibo.estado}|{motivo}",
-    )
-    db.add(
-        AuditoriaRecibo(
+        _AuditoriaReservaSpec(
             condominio_id=condo_id,
-            recibo_id=recibo.id,
+            recibo=recibo,
             usuario_id=usuario_id,
             estado_viejo=estado_viejo,
-            estado_nuevo=recibo.estado,
             motivo=motivo,
-            prev_hash=prev_hash,
-            record_hash=rec_hash,
-        )
+        ),
     )
+
+
+async def _obtener_reserva_bloqueada_o_404(db: AsyncSession, reserva_id: int) -> ReservaAreaSocial:
+    # Bloqueo FOR UPDATE para serializar cancelación e inspección post-evento
+    res = await db.execute(select(ReservaAreaSocial).where(ReservaAreaSocial.id == reserva_id).with_for_update())
+    reserva = res.scalars().first()
+    if not reserva:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reserva de área social no encontrada.")
+    return reserva
+
+
+def _asegurar_reserva_confirmada(reserva: ReservaAreaSocial, detail: str) -> None:
+    if reserva.estado != "CONFIRMADA":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
+def _serializar_reserva_con_modelos(
+    reserva: ReservaAreaSocial,
+    area: AreaSocial | None,
+    unidad: Unidad | None,
+) -> ReservaAreaResponse:
+    nombre_area = area.nombre if area else f"Área #{reserva.area_id}"
+    identificador = unidad.identificador if unidad else f"U-{reserva.unidad_id}"
+    return _serializar_reserva(reserva, nombre_area, identificador)
 
 
 @router.put(
@@ -536,17 +616,9 @@ async def cancelar_reserva_area_social(
     """Cancela una reserva CONFIRMADA liberando fecha, tarea asociada y revirtiendo cargo de uso."""
     verificar_usuario_activo(usuario)
 
-    res = await db.execute(select(ReservaAreaSocial).where(ReservaAreaSocial.id == reserva_id).with_for_update())
-    reserva = res.scalars().first()
-    if not reserva:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reserva de área social no encontrada.")
-
+    reserva = await _obtener_reserva_bloqueada_o_404(db, reserva_id)
     await _verificar_permiso_cancelacion(db, usuario, reserva)
-    if reserva.estado != "CONFIRMADA":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Solo pueden cancelarse reservas en estado CONFIRMADA.",
-        )
+    _asegurar_reserva_confirmada(reserva, "Solo pueden cancelarse reservas en estado CONFIRMADA.")
 
     res_area = await db.execute(select(AreaSocial).where(AreaSocial.id == reserva.area_id))
     area = res_area.scalars().first()
@@ -560,11 +632,7 @@ async def cancelar_reserva_area_social(
 
     res_unidad = await db.execute(select(Unidad).where(Unidad.id == reserva.unidad_id))
     unidad = res_unidad.scalars().first()
-    return _serializar_reserva(
-        reserva,
-        area.nombre if area else f"Área #{reserva.area_id}",
-        unidad.identificador if unidad else f"U-{reserva.unidad_id}",
-    )
+    return _serializar_reserva_con_modelos(reserva, area, unidad)
 
 
 @router.put(
@@ -586,16 +654,11 @@ async def inspeccionar_entrega_area_social(
 ) -> ReservaAreaResponse:
     """Registra la inspección post-evento, completa la TareaDiaria y genera cargo contable si hubo daños."""
     verificar_roles(usuario, _ROLES_INSPECCION)
-    res = await db.execute(select(ReservaAreaSocial).where(ReservaAreaSocial.id == reserva_id).with_for_update())
-    reserva = res.scalars().first()
-    if not reserva:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reserva de área social no encontrada.")
-
-    if reserva.estado != "CONFIRMADA":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="La inspección post-evento de esta reserva ya fue registrada o fue cancelada.",
-        )
+    reserva = await _obtener_reserva_bloqueada_o_404(db, reserva_id)
+    _asegurar_reserva_confirmada(
+        reserva,
+        "La inspección post-evento de esta reserva ya fue registrada o fue cancelada.",
+    )
 
     reserva.estado = datos.estado
     reserva.observaciones_inspeccion = datos.observaciones_inspeccion.strip()
@@ -611,9 +674,4 @@ async def inspeccionar_entrega_area_social(
 
     await db.commit()
     await db.refresh(reserva)
-
-    return _serializar_reserva(
-        reserva,
-        area.nombre if area else f"Área #{reserva.area_id}",
-        unidad.identificador if unidad else f"U-{reserva.unidad_id}",
-    )
+    return _serializar_reserva_con_modelos(reserva, area, unidad)

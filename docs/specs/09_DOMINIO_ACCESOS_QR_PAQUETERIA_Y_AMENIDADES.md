@@ -4,6 +4,9 @@
 **Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/routers/accesos.py`, `backend/src/routers/reservas.py`, `backend/alembic/versions/0005_hito12_accesos_paqueteria.py`, `backend/alembic/versions/0006_hito13_reservas_areas.py`  
 **Módulos Frontend Objetivo:** `frontend/src/stores/accessAmenitiesStore.ts`, `frontend/src/views/operations/VisitorPassesView.vue`, `frontend/src/views/operations/GatehouseScannerView.vue`, `frontend/src/views/operations/ParcelsTrackerView.vue`, `frontend/src/views/operations/AmenitiesReservationView.vue`
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** Los módulos de garita, paquetería y amenidades incorporan **PG17 RLS (`0010`)**, subclave **`HKDF-SHA256`** para pases QR y quema anti-replay fail-closed en KeyDB, restricción RBAC estricta en listados (`paqueteria`, `reservas`, `accesos/pases/mios`), bloqueo `.with_for_update()` en entregas/escaneo, cargo `FINALIZADA_CON_DANOS` acoplado vía `UPSERT` a `facturar-periodo`, complejidad **Radon Grado A**, **Worker AVIF/SMTP**, tokens **`OKLCH` + `light-dark()`**, **Screenplay E2E** y **Thin-Repo `v3.1.0`**. Ver [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Propósito Operativo y de Seguridad Física

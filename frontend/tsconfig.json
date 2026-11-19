@@ -19,5 +19,6 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "e2e/**/*.ts", "*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["e2e", "playwright.config.ts"]
 }

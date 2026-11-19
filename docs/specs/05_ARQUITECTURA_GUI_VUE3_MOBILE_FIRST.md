@@ -3,6 +3,9 @@
 **Estado:** Hitos 5, 6, 7, 10, 11, 12 y 13 Completados en `frontend/` (`37/37` componentes `.vue` cubiertos con 0 huérfanos) / Hitos 14–15 y Hito 8 (Certificación E2E/Lighthouse) especificados  
 **Ecosistema:** Vue 3 (Composition API `<script setup lang="ts">`) + Vite + Pinia + Vue Router + TypeScript Strict + Tokens `OKLCH` / `light-dark()` + `View Transitions API` + `@starting-style`
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** La arquitectura GUI alcanzó **`44/44` componentes `.vue` sin huérfanos**, ruta padre unificada `<AppShellLayout>` + `MobileNavDrawer` con cierre de sesión móvil y ruta `404`, modales `<dialog>` en Top-Layer vía `useTopLayerDialog`, limpieza total de sesión/stores al expirar o cerrar sesión, `String(val.value ?? '').trim()` en entradas numéricas, tokenización perceptual **`OKLCH` + `light-dark()`**, **Screenplay E2E WCAG 2.2 AA**, Stryker `MSI >= 80%`, Karate UI y gobernanza **Thin-Repo `v3.1.0`**. Ver [Spec 10](./10_DISENO_UX_UI_AMIGABLE_TRANSICIONES_Y_SISTEMA_TOKENS.md), [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Principios Arquitectónicos para Empezar la GUI de la Forma Correcta

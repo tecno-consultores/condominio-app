@@ -142,10 +142,15 @@ def _crear_par_tokens(user: Usuario, sid: str) -> tuple[str, str, str]:
     return access_token, refresh_token, csrf_token
 
 
+def _entero_estricto_o_none(valor: Any) -> int | None:
+    if isinstance(valor, int) and not isinstance(valor, bool):
+        return valor
+    return None
+
+
 async def _resolver_unidad_activa_id(db: AsyncSession, user: Any) -> int | None:
     if not isinstance(user, Usuario):
-        raw_fake = getattr(user, "unidad_activa_id", None)
-        return raw_fake if isinstance(raw_fake, int) and not isinstance(raw_fake, bool) else None
+        return _entero_estricto_o_none(getattr(user, "unidad_activa_id", None))
     stmt = (
         select(ContratoOcupacion.unidad_id)
         .where(
@@ -157,8 +162,49 @@ async def _resolver_unidad_activa_id(db: AsyncSession, user: Any) -> int | None:
         .limit(1)
     )
     res = await db.execute(stmt)
-    raw_uid = res.scalars().first()
-    return raw_uid if isinstance(raw_uid, int) and not isinstance(raw_uid, bool) else None
+    return _entero_estricto_o_none(res.scalars().first())
+
+
+async def _validar_registro_disponible(db: AsyncSession, user: UsuarioCreate) -> None:
+    result = await db.execute(select(Usuario).where((Usuario.correo == user.correo) | (Usuario.cedula == user.cedula)))
+    if result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Usuario ya registrado")
+
+    res_unidad = await db.execute(select(Unidad.id).where(Unidad.id == user.unidad_solicitada_id))
+    if res_unidad.scalars().first() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unidad inmobiliaria solicitada no encontrada",
+        )
+
+
+async def _crear_usuario_fantasma_y_contrato(db: AsyncSession, user: UsuarioCreate) -> Usuario:
+    password_hash = await get_password_hash_async(user.password)
+    new_user = Usuario(
+        condominio_id=DEFAULT_CONDOMINIO_ID,
+        nombre=user.nombre,
+        cedula=user.cedula,
+        correo=user.correo,
+        telefono=user.telefono,
+        password_hash=password_hash,
+        es_activo=False,
+        rol="FANTASMA",
+    )
+    db.add(new_user)
+    await db.flush()
+
+    nuevo_contrato = ContratoOcupacion(
+        condominio_id=DEFAULT_CONDOMINIO_ID,
+        usuario_id=new_user.id,
+        unidad_id=user.unidad_solicitada_id,
+        tipo_ocupante=user.tipo_ocupante_solicitado,
+        es_activo=False,
+        puede_votar_asamblea=(user.tipo_ocupante_solicitado == "PROPIETARIO"),
+    )
+    db.add(nuevo_contrato)
+    await db.commit()
+    await db.refresh(new_user)
+    return new_user
 
 
 @router.post(
@@ -178,47 +224,8 @@ async def register_user(
 ) -> Any:
     try:
         await bind_rls_tenant(db, DEFAULT_CONDOMINIO_ID)
-        result = await db.execute(
-            select(Usuario).where((Usuario.correo == user.correo) | (Usuario.cedula == user.cedula))
-        )
-        existing_user = result.scalars().first()
-        if existing_user:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Usuario ya registrado")
-
-        res_unidad = await db.execute(select(Unidad.id).where(Unidad.id == user.unidad_solicitada_id))
-        if res_unidad.scalars().first() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Unidad inmobiliaria solicitada no encontrada",
-            )
-
-        password_hash = await get_password_hash_async(user.password)
-        new_user = Usuario(
-            condominio_id=DEFAULT_CONDOMINIO_ID,
-            nombre=user.nombre,
-            cedula=user.cedula,
-            correo=user.correo,
-            telefono=user.telefono,
-            password_hash=password_hash,
-            es_activo=False,
-            rol="FANTASMA",
-        )
-        db.add(new_user)
-        await db.flush()
-
-        nuevo_contrato = ContratoOcupacion(
-            condominio_id=DEFAULT_CONDOMINIO_ID,
-            usuario_id=new_user.id,
-            unidad_id=user.unidad_solicitada_id,
-            tipo_ocupante=user.tipo_ocupante_solicitado,
-            es_activo=False,
-            puede_votar_asamblea=(user.tipo_ocupante_solicitado == "PROPIETARIO"),
-        )
-        db.add(nuevo_contrato)
-        await db.commit()
-        await db.refresh(new_user)
-
-        return new_user
+        await _validar_registro_disponible(db, user)
+        return await _crear_usuario_fantasma_y_contrato(db, user)
     except HTTPException:
         raise
     except IntegrityError as exc:
@@ -297,12 +304,12 @@ async def login(
 
 async def _revocar_payload_sesion(redis_conn: aioredis.Redis, payload: dict[str, Any]) -> None:
     """Revoca únicamente el sid de la sesión actual y quema su JTI refresh (aísla otros dispositivos)."""
-    sid = str(payload.get("sid") or "")
+    sid = payload.get("sid")
     if sid:
-        await revoke_session_id(redis_conn, sid, ttl_seconds=REVOKED_USER_TTL_SECONDS)
-    jti = str(payload.get("jti") or "")
+        await revoke_session_id(redis_conn, str(sid), ttl_seconds=REVOKED_USER_TTL_SECONDS)
+    jti = payload.get("jti")
     if payload.get("typ") == "refresh" and jti:
-        await mark_refresh_jti_used(redis_conn, jti, ttl_seconds=REVOKED_USER_TTL_SECONDS)
+        await mark_refresh_jti_used(redis_conn, str(jti), ttl_seconds=REVOKED_USER_TTL_SECONDS)
 
 
 async def _revocar_tokens_entrantes(request: Request, redis_conn: aioredis.Redis) -> None:
@@ -336,6 +343,12 @@ def _validar_refresh_token_payload(raw_token: str | None) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token inválido") from exc
 
 
+async def _validar_usuario_no_revocado(redis_conn: aioredis.Redis, user: Usuario) -> None:
+    user_id = getattr(user, "id", None)
+    if user_id is not None and await is_user_session_revoked(redis_conn, int(user_id)):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión revocada por la administración")
+
+
 async def _verificar_usuario_sesion_vigente(
     db: AsyncSession,
     redis_conn: aioredis.Redis,
@@ -347,9 +360,7 @@ async def _verificar_usuario_sesion_vigente(
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=not_found_status, detail="Usuario no encontrado")
-    user_id = getattr(user, "id", None)
-    if user_id is not None and await is_user_session_revoked(redis_conn, int(user_id)):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión revocada por la administración")
+    await _validar_usuario_no_revocado(redis_conn, user)
     if sid and await is_session_id_revoked(redis_conn, sid):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión revocada")
     return user

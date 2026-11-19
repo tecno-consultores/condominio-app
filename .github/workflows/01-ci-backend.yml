@@ -33,7 +33,7 @@ jobs:
       - name: 🔍 Lint, Tipado y SAST (Ruff + Mypy + Bandit)
         run: make qa-lint
 
-      - name: 📊 Gates de Complejidad (Radon <= B)
+      - name: 📊 Gates de Complejidad (Radon <= A)
         run: make qa-complexity
 
       - name: 🔐 Auditoría de Vulnerabilidades en Dependencias (uv audit)

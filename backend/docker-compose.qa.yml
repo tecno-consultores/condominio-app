@@ -65,11 +65,7 @@ services:
     working_dir: /app
     ports:
       - "${API_HOST_PORT:-0}:8000"
-    cap_add:
-      - SYS_PTRACE
-    security_opt:
-      - seccomp:unconfined
-    command: bash -c "rm -f /tmp/qa_api.db && uv sync --frozen --no-dev && uv run --no-dev python -m src.bootstrap --from-env && uv run --no-dev uvicorn src.main:app --host 0.0.0.0 --port 8000"
+    command: bash -c "rm -f /tmp/qa_api.db && uv sync --frozen --no-dev && uv run --no-dev python -m src.bootstrap --from-env && uv run --no-dev uvicorn src.main:app --host 0.0.0.0 --port 8000 --no-server-header"
 
   qa-backend:
     image: sinfallas/base-python-uv:3.13@sha256:1594cbb33269c6a535a8ae5242b07a5866aa519d00975868f0a0d03fdc3bc155
@@ -87,9 +83,33 @@ services:
     volumes:
       - ${HOST_PWD:-.}:/app
     working_dir: /app
+    command: bash -c "echo 'Contenedor QA Backend listo para Lint, Pytest y Mutmut'; sleep infinity"
+
+  profiler:
+    image: sinfallas/base-python-uv:3.13@sha256:1594cbb33269c6a535a8ae5242b07a5866aa519d00975868f0a0d03fdc3bc155
+    container_name: condominio_backend_pyspy
+    pull_policy: if_not_present
+    profiles:
+      - profile
+    depends_on:
+      - api
+    pid: "service:api"
+    user: "0:0"
+    cap_drop:
+      - ALL
     cap_add:
       - SYS_PTRACE
-    command: bash -c "echo 'Contenedor QA Backend listo para Lint, Pytest y Mutmut'; sleep infinity"
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      TZ: 'America/Caracas'
+      HOME: /tmp
+      UV_CACHE_DIR: /tmp/uv-cache
+      UV_PROJECT_ENVIRONMENT: /tmp/uv-venv
+    volumes:
+      - ${HOST_PWD:-.}:/app:ro
+    working_dir: /app
+    command: bash -c "echo 'Sidecar py-spy listo'; sleep infinity"
 
   karatelabs:
     image: sinfallas/karatelabs@sha256:f0cb9342d141abc74935c45ffea277f9c0c58af768b1af5614b046d7ce0b6647
@@ -109,9 +129,10 @@ services:
     pull_policy: if_not_present
     depends_on:
       - api
-    user: root
+    tmpfs:
+      - /tmp
     volumes:
-      - ${HOST_PWD:-.}:/zap/wrk/:rw
+      - ${HOST_PWD:-.}:/zap/wrk:ro
     command: bash -c "echo 'Contenedor ZAP listo'; sleep infinity"
 
   pumba:
@@ -171,7 +192,7 @@ services:
     volumes:
       - ${HOST_PWD:-.}:/app
     working_dir: /app
-    command: bash -c "uv sync --frozen && echo 'Esperando API...' && sleep 5 && uv run locust -f tests/locustfile.py --headless -u 100 -r 10 -t 1m --host http://api:8000 --html chaos-report.html"
+    command: bash -c "uv sync --frozen && for i in $$(seq 1 30); do python -c \"import urllib.request; urllib.request.urlopen('http://api:8000/health', timeout=2)\" >/dev/null 2>&1 && break; sleep 1; done && uv run locust -f tests/locustfile.py --headless -u 100 -r 10 -t 1m --host http://api:8000 --html /tmp/chaos-report.html"
 
 networks:
   default:

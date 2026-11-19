@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import BytesIO
 from typing import Any
@@ -26,17 +27,21 @@ def env_flag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _aplicar_esquema_http(cleaned: str, use_ssl: bool) -> str:
+    if cleaned.startswith("https://"):
+        return cleaned
+    scheme = "https" if use_ssl else "http"
+    if cleaned.startswith("http://"):
+        return f"{scheme}://{cleaned[7:]}"
+    return f"{scheme}://{cleaned}"
+
+
 def normalize_minio_endpoint(endpoint: str, use_ssl: bool) -> str:
     """Normaliza el endpoint MinIO aplicando esquema HTTPS cuando MINIO_USE_SSL está activo."""
     cleaned = endpoint.strip().rstrip("/")
     if not cleaned or cleaned.startswith("s3://"):
         return cleaned
-    if cleaned.startswith("http://"):
-        return f"https://{cleaned[7:]}" if use_ssl else cleaned
-    if cleaned.startswith("https://"):
-        return cleaned
-    scheme = "https" if use_ssl else "http"
-    return f"{scheme}://{cleaned}"
+    return _aplicar_esquema_http(cleaned, use_ssl)
 
 
 def _hmac_sha256(key: bytes, message: str) -> bytes:
@@ -114,14 +119,16 @@ def codificar_imagen_avif(contenido: bytes, *, strict_image: bool = False) -> by
         return contenido
 
 
+def _env_bucket_name() -> str:
+    raw = os.getenv("MINIO_BUCKET_NAME") or os.getenv("MINIO_BUCKET")
+    return raw.strip() if raw else ""
+
+
 def resolver_bucket_minio(bucket_name: str | None = None) -> str:
     """Resuelve el nombre del bucket S3/MinIO configurado."""
-    raw_bucket = (
-        bucket_name
-        if bucket_name is not None and bucket_name.strip()
-        else (os.getenv("MINIO_BUCKET_NAME") or os.getenv("MINIO_BUCKET") or "condominio-media")
-    )
-    return raw_bucket.strip() or "condominio-media"
+    if bucket_name and bucket_name.strip():
+        return bucket_name.strip()
+    return _env_bucket_name() or "condominio-media"
 
 
 def construir_clave_evidencia(contenido: bytes, prefijo: str, mime_origen: str) -> tuple[str, str]:
@@ -131,6 +138,40 @@ def construir_clave_evidencia(contenido: bytes, prefijo: str, mime_origen: str) 
     digest = hashlib.sha256(contenido).hexdigest()[:24]
     ruta_limpia = prefijo.strip("/") or "general"
     return f"{ruta_limpia}/{digest}.{ext}", destino_mime
+
+
+def _resolver_minio_credenciales() -> tuple[str, str]:
+    access_key = os.getenv("MINIO_ROOT_USER", "").strip()
+    secret_key = os.getenv("MINIO_ROOT_PASSWORD", "")
+    if not access_key or not secret_key:
+        raise ValueError("Credenciales MinIO no configuradas para carga S3.")
+    return access_key, secret_key
+
+
+def _construir_destino_s3(minio_endpoint: str, bucket: str, objeto_key: str) -> tuple[str, str, str, str]:
+    base_url = minio_endpoint.rstrip("/")
+    parsed = urlparse(base_url)
+    base_path = parsed.path.rstrip("/")
+    canonical_uri = _encode_sigv4_uri(f"{base_path}/{bucket}/{objeto_key}")
+    canonical_query = _encode_sigv4_query(parsed.query)
+    origin_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base_url
+    query_suffix = f"?{canonical_query}" if canonical_query else ""
+    return parsed.netloc, canonical_uri, canonical_query, f"{origin_url}{canonical_uri}{query_suffix}"
+
+
+def _ejecutar_put_http(
+    upload_url: str,
+    datos_binarios: bytes,
+    headers: dict[str, str],
+    http_client: httpx.Client | None,
+) -> None:
+    if http_client is not None:
+        resp = http_client.put(upload_url, content=datos_binarios, headers=headers, timeout=15.0)
+        resp.raise_for_status()
+        return
+    with httpx.Client(timeout=15.0) as client:
+        resp = client.put(upload_url, content=datos_binarios, headers=headers)
+        resp.raise_for_status()
 
 
 def subir_objeto_minio_s3(
@@ -143,22 +184,12 @@ def subir_objeto_minio_s3(
     content_type: str = "image/avif",
 ) -> str:
     """Sube bytes a MinIO mediante HTTP PUT autenticado con AWS SigV4 (RFC 3986)."""
-    access_key = os.getenv("MINIO_ROOT_USER", "").strip()
-    secret_key = os.getenv("MINIO_ROOT_PASSWORD", "")
-    if not access_key or not secret_key:
-        raise ValueError("Credenciales MinIO no configuradas para carga S3.")
-
+    access_key, secret_key = _resolver_minio_credenciales()
     bucket = resolver_bucket_minio(bucket_name)
-    base_url = minio_endpoint.rstrip("/")
-    parsed = urlparse(base_url)
-    base_path = parsed.path.rstrip("/")
-    canonical_uri = _encode_sigv4_uri(f"{base_path}/{bucket}/{objeto_key}")
-    canonical_query = _encode_sigv4_query(parsed.query)
-    origin_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base_url
-    upload_url = f"{origin_url}{canonical_uri}" + (f"?{canonical_query}" if canonical_query else "")
+    netloc, canonical_uri, canonical_query, upload_url = _construir_destino_s3(minio_endpoint, bucket, objeto_key)
     payload_hash = hashlib.sha256(datos_binarios).hexdigest()
     headers = _build_sigv4_headers(
-        parsed.netloc,
+        netloc,
         canonical_uri,
         payload_hash,
         access_key,
@@ -166,14 +197,7 @@ def subir_objeto_minio_s3(
         canonical_query=canonical_query,
         content_type=content_type,
     )
-
-    if http_client is not None:
-        resp = http_client.put(upload_url, content=datos_binarios, headers=headers, timeout=15.0)
-        resp.raise_for_status()
-    else:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.put(upload_url, content=datos_binarios, headers=headers)
-            resp.raise_for_status()
+    _ejecutar_put_http(upload_url, datos_binarios, headers, http_client)
     return f"s3://{bucket}/{objeto_key}"
 
 
@@ -199,26 +223,49 @@ def convertir_y_subir_avif(
     return f"{base_limpia}/{objeto_key}"
 
 
-def ejecutar_subida_media_bytes(evento: dict[str, Any], minio_endpoint: str, minio_use_ssl: bool) -> str:
-    """Decodifica payload multimedia base64 y ejecuta subida PDF directa o transcodificación AVIF."""
+@dataclass(frozen=True)
+class _MediaUploadPayload:
+    raw_bytes: bytes
+    mime_origen: str
+    prefijo: str
+    objeto_key: str
+
+
+def _str_campo(evento: dict[str, Any], clave: str, default: str = "") -> str:
+    val = evento.get(clave)
+    return str(val) if val else default
+
+
+def _decodificar_payload_media(evento: dict[str, Any]) -> _MediaUploadPayload:
     raw_b64 = evento.get("content_base64")
     if not isinstance(raw_b64, str) or not raw_b64:
         raise ValueError("Tarea media sin contenido base64.")
-    raw_bytes = base64.b64decode(raw_b64, validate=True)
-    mime_origen = str(evento.get("mime_origen") or "")
-    prefijo = str(evento.get("prefijo") or "general")
-    objeto_key = str(evento.get("objeto_key") or "").strip("/")
+    return _MediaUploadPayload(
+        raw_bytes=base64.b64decode(raw_b64, validate=True),
+        mime_origen=_str_campo(evento, "mime_origen"),
+        prefijo=_str_campo(evento, "prefijo", "general"),
+        objeto_key=_str_campo(evento, "objeto_key").strip("/"),
+    )
+
+
+def _subir_pdf_directo(raw_bytes: bytes, objeto_key: str, endpoint: str, minio_use_ssl: bool) -> str:
+    base_limpia = normalize_minio_endpoint(endpoint, minio_use_ssl)
+    if base_limpia.startswith(("http://", "https://")):
+        return subir_objeto_minio_s3(raw_bytes, objeto_key, base_limpia, content_type="application/pdf")
+    return f"{base_limpia}/{objeto_key}"
+
+
+def ejecutar_subida_media_bytes(evento: dict[str, Any], minio_endpoint: str, minio_use_ssl: bool) -> str:
+    """Decodifica payload multimedia base64 y ejecuta subida PDF directa o transcodificación AVIF."""
+    payload = _decodificar_payload_media(evento)
     endpoint = minio_endpoint or "s3://condominio-media"
-    if mime_origen == "application/pdf":
-        base_limpia = normalize_minio_endpoint(endpoint, minio_use_ssl)
-        if base_limpia.startswith(("http://", "https://")):
-            return subir_objeto_minio_s3(raw_bytes, objeto_key, base_limpia, content_type="application/pdf")
-        return f"{base_limpia}/{objeto_key}"
+    if payload.mime_origen == "application/pdf":
+        return _subir_pdf_directo(payload.raw_bytes, payload.objeto_key, endpoint, minio_use_ssl)
     return convertir_y_subir_avif(
-        raw_bytes,
-        prefijo,
+        payload.raw_bytes,
+        payload.prefijo,
         minio_endpoint=endpoint,
         strict_image=True,
         minio_use_ssl=minio_use_ssl,
-        objeto_key_override=objeto_key or None,
+        objeto_key_override=payload.objeto_key or None,
     )

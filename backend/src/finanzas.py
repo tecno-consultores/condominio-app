@@ -141,6 +141,19 @@ def validar_suma_alicuotas(
     return abs(suma - Decimal("100.0000")) <= tolerancia
 
 
+def _sumar_y_validar_pesos(ordenadas: Sequence[tuple[int, Decimal]]) -> Decimal:
+    """Valida que ninguna alícuota sea negativa y que la suma total sea estrictamente positiva."""
+    suma_pesos = Decimal(0)
+    for _, peso in ordenadas:
+        if peso < Decimal(0):
+            raise ErrorFinanciero("Las alícuotas no pueden ser negativas")
+        suma_pesos += peso
+
+    if suma_pesos <= Decimal(0):
+        raise ErrorFinanciero("La suma de alícuotas debe ser mayor que cero")
+    return suma_pesos
+
+
 def _validar_entradas_prorrateo(
     monto_total_usd: Decimal,
     unidades_alicuotas: Sequence[tuple[int, Decimal]],
@@ -152,15 +165,38 @@ def _validar_entradas_prorrateo(
         raise ErrorFinanciero("Se requiere al menos una unidad para prorratear")
 
     ordenadas = sorted(unidades_alicuotas, key=lambda item: item[0])
-    suma_pesos = Decimal(0)
-    for _, peso in ordenadas:
-        if peso < Decimal(0):
-            raise ErrorFinanciero("Las alícuotas no pueden ser negativas")
-        suma_pesos += peso
-
-    if suma_pesos <= Decimal(0):
-        raise ErrorFinanciero("La suma de alícuotas debe ser mayor que cero")
+    suma_pesos = _sumar_y_validar_pesos(ordenadas)
     return monto_total, ordenadas, suma_pesos
+
+
+def _calcular_pisos_y_residuos(
+    total_centavos: int,
+    ordenadas: Sequence[tuple[int, Decimal]],
+    suma_pesos: Decimal,
+) -> tuple[dict[int, int], list[tuple[Decimal, int]]]:
+    """Calcula la parte entera en centavos y el residuo fraccional por unidad para Hamilton."""
+    pisos_por_unidad: dict[int, int] = {}
+    residuos: list[tuple[Decimal, int]] = []
+    for unidad_id, peso in ordenadas:
+        cuota_exacta_centavos = (Decimal(total_centavos) * peso) / suma_pesos
+        piso_centavos = int(cuota_exacta_centavos // Decimal(1))
+        residuo = cuota_exacta_centavos - Decimal(piso_centavos)
+        pisos_por_unidad[unidad_id] = piso_centavos
+        residuos.append((residuo, unidad_id))
+    return pisos_por_unidad, residuos
+
+
+def _repartir_residuo_hamilton(
+    total_centavos: int,
+    pisos_por_unidad: dict[int, int],
+    residuos: list[tuple[Decimal, int]],
+) -> None:
+    """Distribuye los centavos sobrantes por mayor resto y desempate determinista por unidad_id."""
+    centavos_restantes = total_centavos - sum(pisos_por_unidad.values())
+    residuos.sort(key=lambda item: (-item[0], item[1]))
+    for idx in range(centavos_restantes):
+        uid_ganadora = residuos[idx][1]
+        pisos_por_unidad[uid_ganadora] += 1
 
 
 def prorratear_por_alicuotas(
@@ -176,22 +212,8 @@ def prorratear_por_alicuotas(
         return {uid: CERO for uid, _ in ordenadas}
 
     total_centavos = int((monto_total * 100).to_integral_value())
-    pisos_por_unidad: dict[int, int] = {}
-    residuos: list[tuple[Decimal, int]] = []
-
-    for unidad_id, peso in ordenadas:
-        cuota_exacta_centavos = (Decimal(total_centavos) * peso) / suma_pesos
-        piso_centavos = int(cuota_exacta_centavos // Decimal(1))
-        residuo = cuota_exacta_centavos - Decimal(piso_centavos)
-        pisos_por_unidad[unidad_id] = piso_centavos
-        residuos.append((residuo, unidad_id))
-
-    centavos_restantes = total_centavos - sum(pisos_por_unidad.values())
-    residuos.sort(key=lambda item: (-item[0], item[1]))
-    for idx in range(centavos_restantes):
-        uid_ganadora = residuos[idx][1]
-        pisos_por_unidad[uid_ganadora] += 1
-
+    pisos_por_unidad, residuos = _calcular_pisos_y_residuos(total_centavos, ordenadas, suma_pesos)
+    _repartir_residuo_hamilton(total_centavos, pisos_por_unidad, residuos)
     return {uid: cuantizar(Decimal(pisos_por_unidad[uid]) / Decimal(100)) for uid, _ in ordenadas}
 
 
@@ -380,6 +402,24 @@ def _cumple_umbral_quorum(
     return valor_pct >= quorum_min
 
 
+def _acumular_alicuotas_consulta(
+    opciones_aprobatorias_ids: set[int],
+    alicuotas_por_opcion: dict[int, Decimal],
+) -> tuple[Decimal, Decimal]:
+    """Suma la participación total y la alícuota aprobatoria redondeadas a 4 decimales."""
+    participacion_total = Decimal("0.0000")
+    alicuota_aprobatoria = Decimal("0.0000")
+    for op_id, alic in alicuotas_por_opcion.items():
+        alic_norm = Decimal(str(alic)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+        participacion_total += alic_norm
+        if op_id in opciones_aprobatorias_ids:
+            alicuota_aprobatoria += alic_norm
+    return (
+        participacion_total.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP),
+        alicuota_aprobatoria.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP),
+    )
+
+
 def evaluar_escrutinio_consulta(
     quorum_minimo_alicuota: Decimal,
     opciones_aprobatorias_ids: set[int],
@@ -392,17 +432,9 @@ def evaluar_escrutinio_consulta(
     """
     quorum_min = Decimal(str(quorum_minimo_alicuota)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
     usa_dos_tercios = regla_quorum == "DOS_TERCIOS" or quorum_min == UMBRAL_DOS_TERCIOS_PCT
-    participacion_total = Decimal("0.0000")
-    alicuota_aprobatoria = Decimal("0.0000")
-
-    for op_id, alic in alicuotas_por_opcion.items():
-        alic_norm = Decimal(str(alic)).quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
-        participacion_total += alic_norm
-        if op_id in opciones_aprobatorias_ids:
-            alicuota_aprobatoria += alic_norm
-
-    participacion_total = participacion_total.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
-    alicuota_aprobatoria = alicuota_aprobatoria.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+    participacion_total, alicuota_aprobatoria = _acumular_alicuotas_consulta(
+        opciones_aprobatorias_ids, alicuotas_por_opcion
+    )
 
     if not _cumple_umbral_quorum(participacion_total, quorum_min, usa_dos_tercios, regla_quorum):
         return "CERRADA_SIN_QUORUM", participacion_total, alicuota_aprobatoria
@@ -462,6 +494,27 @@ def _decodificar_b64_claims_qr(b64_segment: str) -> list[str]:
     return partes
 
 
+def _dividir_token_pase_qr(qr_token: str) -> tuple[str, str]:
+    """Separa el token compacto base64url.firma y valida que ambos segmentos existan."""
+    token_limpio = (qr_token or "").strip()
+    b64_part, sep, firma_recibida = token_limpio.partition(".")
+    if not all((b64_part, sep, firma_recibida)):
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
+    return b64_part, firma_recibida
+
+
+def _extraer_claims_pase_qr(partes: list[str]) -> tuple[str, int, str, int]:
+    """Convierte y valida los campos tipados del payload QR|v1."""
+    jti = partes[2].strip()
+    modalidad = partes[4].strip()
+    try:
+        unidad_id = int(partes[3])
+        exp_unix = int(partes[5])
+    except ValueError as exc:
+        raise ErrorFinanciero("Firma criptográfica de pase QR inválida") from exc
+    return jti, unidad_id, modalidad, exp_unix
+
+
 def decodificar_y_verificar_token_pase_qr(
     qr_token: str,
     secret_key: str,
@@ -470,23 +523,11 @@ def decodificar_y_verificar_token_pase_qr(
 
     Retorna (jti, unidad_id, modalidad, exp_unix, firma_hmac) o lanza ErrorFinanciero.
     """
-    token_limpio = (qr_token or "").strip()
-    if "." not in token_limpio:
-        raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
-    b64_part, firma_recibida = token_limpio.split(".", 1)
-    if not b64_part or not firma_recibida:
-        raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
-
+    b64_part, firma_recibida = _dividir_token_pase_qr(qr_token)
     partes = _decodificar_b64_claims_qr(b64_part)
-    jti = partes[2].strip()
-    modalidad = partes[4].strip()
-    try:
-        unidad_id = int(partes[3])
-        exp_unix = int(partes[5])
-    except ValueError as exc:
-        raise ErrorFinanciero("Firma criptográfica de pase QR inválida") from exc
+    jti, unidad_id, modalidad, exp_unix = _extraer_claims_pase_qr(partes)
 
     esperada = generar_firma_pase_qr(jti, unidad_id, modalidad, exp_unix, secret_key)
-    if not jti or not hmac.compare_digest(firma_recibida.strip(), esperada):
+    if not all((jti, hmac.compare_digest(firma_recibida.strip(), esperada))):
         raise ErrorFinanciero("Firma criptográfica de pase QR inválida")
     return jti, unidad_id, modalidad, exp_unix, esperada

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { useAuthStore, type UsuarioPerfil } from './authStore';
+import {
+  registerSessionResetter,
+  useAuthStore,
+  type AuthSessionResponse,
+  type UsuarioPerfil,
+} from './authStore';
 import { useFinanceStore } from './financeStore';
 import { useOperationsStore } from './operationsStore';
 import { useGovernanceStore } from './governanceStore';
@@ -300,5 +305,199 @@ describe('Store useAuthStore (Aislamiento SPA 11X, No Destructivo & Trimodal)', 
     );
     await expect(apiClient.apiRequest('/api/operaciones/incidencias')).rejects.toThrow();
     expect(store.isAuthenticated).toBe(false);
+  });
+
+  it('tolera ausencia de Pinia activa en registerSessionResetter y clearSession', () => {
+    const store = useAuthStore();
+    setActivePinia(undefined);
+    try {
+      expect(() => registerSessionResetter(() => {})).not.toThrow();
+      expect(() => store.clearSession()).not.toThrow();
+    } finally {
+      setActivePinia(createPinia());
+    }
+  });
+
+  it('valida payload de perfil, frontera 500 vs 403 y flags isLoading/isStale/sessionHydrated', async () => {
+    const store = useAuthStore();
+    expect(store.sessionHydrated).toBe(false);
+    store.clearSession();
+    expect(store.sessionHydrated).toBe(true);
+
+    const invalidPayloads: unknown[] = [
+      'no-objeto',
+      { id: '1', rol: 'PROPIETARIO' },
+      { id: 1, rol: 123 },
+      null,
+    ];
+    for (const badPayload of invalidPayloads) {
+      store.setProfileForTesting(PERFIL_ACTIVO);
+      apiClient.setCsrfToken('csrf-sucio');
+      vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce(badPayload as UsuarioPerfil);
+      expect(await store.fetchProfile()).toBeNull();
+      expect(store.data).toBeNull();
+      expect(store.lastUpdatedAt).toBeNull();
+      expect(apiClient.getCsrfToken()).toBe('csrf-client-initialized');
+    }
+
+    let resolveMe: (value: UsuarioPerfil) => void = () => {};
+    const pendingMe = new Promise<UsuarioPerfil>((resolve) => {
+      resolveMe = resolve;
+    });
+    vi.spyOn(apiClient, 'apiRequest').mockReturnValueOnce(pendingMe);
+    const profilePromise = store.fetchProfile();
+    expect(store.isLoading).toBe(true);
+    resolveMe(PERFIL_ACTIVO);
+    await profilePromise;
+    expect(store.isLoading).toBe(false);
+
+    vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(
+      new apiClient.ApiError(403, 'Prohibido'),
+    );
+    await store.fetchProfile();
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new apiClient.ApiError(500, 'Caído'));
+    await store.fetchProfile();
+    expect(store.isStale).toBe(true);
+    expect(store.isLoading).toBe(false);
+
+    store.setProfileForTesting(PERFIL_ACTIVO);
+    expect(store.isStale).toBe(false);
+
+    setActivePinia(createPinia());
+    const freshStore = useAuthStore();
+    expect(freshStore.sessionHydrated).toBe(false);
+    freshStore.setProfileForTesting(PERFIL_ACTIVO);
+    expect(freshStore.isStale).toBe(false);
+    expect(freshStore.sessionHydrated).toBe(true);
+  });
+
+  it('verifica flags en login/register (éxito y error) y argumentos exactos de logout', async () => {
+    const store = useAuthStore();
+    let resolveLogin: (value: AuthSessionResponse) => void = () => {};
+    const loginPending = new Promise<AuthSessionResponse>((resolve) => {
+      resolveLogin = resolve;
+    });
+    vi.spyOn(apiClient, 'apiRequest')
+      .mockReturnValueOnce(loginPending)
+      .mockResolvedValueOnce(PERFIL_ACTIVO);
+    const loginPromise = store.login('carlos@condominio.test', 'Password123!');
+    expect(store.isLoading).toBe(true);
+    resolveLogin({ message: 'ok', rol: 'PROPIETARIO', csrf_token: 'c1' });
+    await loginPromise;
+    expect(store.isLoading).toBe(false);
+
+    vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new Error('Fallo login'));
+    await expect(store.login('carlos@condominio.test', 'bad')).rejects.toThrow();
+    expect(store.isLoading).toBe(false);
+
+    vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new apiClient.ApiError(500, '500'));
+    await store.fetchProfile();
+    expect(store.isStale).toBe(true);
+
+    const regPayload = {
+      nombre: 'Nuevo',
+      cedula: 'V-88',
+      correo: 'nuevo@condominio.test',
+      telefono: '0414',
+      password: 'Password123!',
+      unidad_solicitada_id: 2,
+      tipo_ocupante_solicitado: 'PROPIETARIO' as const,
+    };
+    let resolveReg: (value: UsuarioPerfil) => void = () => {};
+    const regPending = new Promise<UsuarioPerfil>((resolve) => {
+      resolveReg = resolve;
+    });
+    vi.spyOn(apiClient, 'apiRequest').mockReturnValueOnce(regPending);
+    const regPromise = store.register(regPayload, 'idem-reg-loading');
+    expect(store.isLoading).toBe(true);
+    resolveReg(PERFIL_FANTASMA);
+    await regPromise;
+    expect(store.isLoading).toBe(false);
+    expect(store.isStale).toBe(false);
+    expect(store.sessionHydrated).toBe(true);
+
+    setActivePinia(createPinia());
+    const freshStore = useAuthStore();
+    vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce(PERFIL_FANTASMA);
+    await freshStore.register(regPayload, 'idem-reg-fresh');
+    expect(freshStore.sessionHydrated).toBe(true);
+
+    vi.spyOn(apiClient, 'apiRequest').mockRejectedValueOnce(new Error('Error reg'));
+    await expect(freshStore.register(regPayload, 'idem-reg-err')).rejects.toThrow();
+    expect(freshStore.isLoading).toBe(false);
+
+    const logoutSpy = vi.spyOn(apiClient, 'apiRequest').mockResolvedValueOnce({ message: 'ok' });
+    await freshStore.logout();
+    expect(logoutSpy).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
+  });
+
+  it('distingue callback 401 con/sin sesión y omite redirect desde /espera-aprobacion o sin sesión', async () => {
+    const { registerAuthRouter } = await import('./authStore');
+    const mockPush = vi.fn().mockResolvedValue(undefined);
+    const mockRouter = {
+      currentRoute: { value: { path: '/consultas/4', fullPath: '/consultas/4' } },
+      push: mockPush,
+    } as unknown as Parameters<typeof registerAuthRouter>[0];
+    registerAuthRouter(mockRouter);
+
+    try {
+      const store = useAuthStore();
+
+      store.setProfileForTesting(null);
+      await store.handleUnauthorizedError(new apiClient.ApiError(401, 'No auth'));
+      expect(mockPush).toHaveBeenCalledWith('/login');
+
+      mockPush.mockClear();
+      store.setProfileForTesting(PERFIL_ACTIVO);
+      (mockRouter.currentRoute as { value: { path: string; fullPath: string } }).value = {
+        path: '/espera-aprobacion',
+        fullPath: '/espera-aprobacion',
+      };
+      await store.handleUnauthorizedError(new apiClient.ApiError(401, 'No auth'));
+      expect(mockPush).toHaveBeenCalledWith('/login');
+
+      store.setProfileForTesting(null);
+      store.setRbacNotice('Aviso residual');
+      apiClient.setCsrfToken('csrf-sucio');
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ detail: 'No auth' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ detail: 'No refresh' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      await expect(apiClient.apiRequest('/api/operaciones/incidencias')).rejects.toThrow();
+      expect(store.errorMessage).toBeNull();
+      expect(store.rbacNotice).toBeNull();
+      expect(apiClient.getCsrfToken()).toBe('csrf-client-initialized');
+
+      store.setProfileForTesting(PERFIL_ACTIVO);
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ detail: 'Token revocado' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ detail: 'No refresh' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      await expect(apiClient.apiRequest('/api/operaciones/incidencias')).rejects.toThrow();
+      expect(store.errorMessage).toBe('Su sesión ha expirado. Inicie sesión nuevamente.');
+    } finally {
+      registerAuthRouter(null as unknown as Parameters<typeof registerAuthRouter>[0]);
+    }
   });
 });

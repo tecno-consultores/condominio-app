@@ -25,7 +25,7 @@ build-ui:
 		echo "🏗️ Compilando aplicación Vue 3 / Vite para entorno E2E/Producción..."; \
 		docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile && pnpm run build"; \
 	fi
-	docker compose -f $(COMPOSE_FILE) up -d --force-recreate ui-prod chrome-cdp
+	docker compose -f $(COMPOSE_FILE) up -d --force-recreate ui-api-mock ui-prod chrome-cdp
 
 qa-lint:
 	@echo "🔍 [11X] Ejecutando Auditoría de CVEs, Type-Check, Prettier y ESLint (SonarJS)..."
@@ -42,7 +42,7 @@ qa-orphans:
 qa-mutation:
 	@echo "👽 [11X] Ejecutando Pruebas de Mutación Frontend (Stryker)..."
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile"
-	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "./node_modules/.bin/stryker run stryker.conf.json"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) -e NODE_PATH="" $(E2E_SERVICE) bash -c "./node_modules/.bin/stryker run stryker.conf.json"
 
 qa-perf: build-ui
 	@echo "⚡ [11X] Ejecutando Auditoría de Rendimiento (Lighthouse CI)..."

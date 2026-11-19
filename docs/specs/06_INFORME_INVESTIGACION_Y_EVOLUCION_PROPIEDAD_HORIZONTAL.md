@@ -3,6 +3,9 @@
 **Fecha:** 2026-10-30  
 **Alcance:** Auditoría de consistencia `backend/` + `frontend/` contra `docs/specs/01..05`, investigación de sistemas modernos de administración de condominios (Latinoamérica / Ley de Propiedad Horizontal de Venezuela / HOA Global 2025–2026) y arquitectura de los próximos módulos.
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** Los pilares evolutivos propuestos en este informe fueron materializados en las Specs 07–12 y consolidados en la [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Fase 7 completada): aislamiento **Single-Condo + PG17 RLS (`0010`)**, **`HKDF-SHA256`**, complejidad **Radon Grado A**, Worker **AVIF/SMTP**, UX/UI **`OKLCH` + `light-dark()`**, **Screenplay E2E** y gobernanza **Thin-Repo `v3.1.0`** con distribución Docker Hub multi-arch (y Fase 8 planificada para `v1.2.0`).
+
 ---
 
 ## 1. Auditoría de Consistencia Código ↔ Specs y Endurecimiento Aplicado

@@ -1,5 +1,6 @@
 """Endpoints del flujo de reporte, revisión y aprobación de pagos."""
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -131,6 +132,47 @@ def _normalizar_referencia_pago(pago: PagoReportar) -> tuple[str, str | None]:
     return metodo_norm, ref_limpia
 
 
+def _resolver_condominio_id(recibo: Recibo) -> int:
+    condo_raw = getattr(recibo, "condominio_id", None)
+    return int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
+
+
+async def _registrar_pago_en_bd(db: AsyncSession, pago: PagoReportar, usuario: Usuario) -> PagoReportado:
+    """Valida titularidad, tasa y periodo abierto antes de persistir el pago en revisión."""
+    try:
+        metodo_norm, ref_limpia = _normalizar_referencia_pago(pago)
+        await _verificar_referencia_no_duplicada(db, metodo_norm, ref_limpia)
+        tasa = await obtener_tasa_del_dia(db)
+        recibo = await _obtener_recibo(db, pago.recibo_id)
+        await _verificar_titularidad_recibo(db, usuario, recibo.unidad_id)
+        if recibo.bloqueado:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El periodo está cerrado (Candado Contable)",
+            )
+        monto_usd = convertir_a_usd(pago.monto, pago.moneda, tasa.tasa_usd_ves)
+    except ErrorFinanciero as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    nuevo_pago = PagoReportado(
+        condominio_id=_resolver_condominio_id(recibo),
+        recibo_id=recibo.id,
+        usuario_id=usuario.id,
+        monto=pago.monto,
+        moneda=pago.moneda,
+        monto_usd=monto_usd,
+        tasa_cambio=tasa.tasa_usd_ves,
+        metodo_pago=metodo_norm,
+        numero_referencia=ref_limpia,
+        url_comprobante=pago.url_comprobante,
+        estado="EN_REVISION",
+    )
+    db.add(nuevo_pago)
+    await db.commit()
+    await db.refresh(nuevo_pago)
+    return nuevo_pago
+
+
 @router.post(
     "/reportar",
     response_model=PagoResponse,
@@ -151,42 +193,9 @@ async def reportar_pago(
 ) -> Any:
     verificar_usuario_activo(usuario)
     try:
-        metodo_norm, ref_limpia = _normalizar_referencia_pago(pago)
-        await _verificar_referencia_no_duplicada(db, metodo_norm, ref_limpia)
-
-        tasa = await obtener_tasa_del_dia(db)
-        recibo = await _obtener_recibo(db, pago.recibo_id)
-        await _verificar_titularidad_recibo(db, usuario, recibo.unidad_id)
-        if recibo.bloqueado:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="El periodo está cerrado (Candado Contable)",
-            )
-
-        monto_usd = convertir_a_usd(pago.monto, pago.moneda, tasa.tasa_usd_ves)
-        condo_raw = getattr(recibo, "condominio_id", None)
-        condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
-        nuevo_pago = PagoReportado(
-            condominio_id=condo_id,
-            recibo_id=recibo.id,
-            usuario_id=usuario.id,
-            monto=pago.monto,
-            moneda=pago.moneda,
-            monto_usd=monto_usd,
-            tasa_cambio=tasa.tasa_usd_ves,
-            metodo_pago=metodo_norm,
-            numero_referencia=ref_limpia,
-            url_comprobante=pago.url_comprobante,
-            estado="EN_REVISION",
-        )
-        db.add(nuevo_pago)
-        await db.commit()
-        await db.refresh(nuevo_pago)
-        return nuevo_pago
+        return await _registrar_pago_en_bd(db, pago, usuario)
     except HTTPException:
         raise
-    except ErrorFinanciero as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
@@ -226,6 +235,72 @@ async def listar_pagos_en_revision(
     return list(result.scalars().all())
 
 
+@dataclass(frozen=True)
+class _AuditoriaPagoSpec:
+    """Datos inmutables para sellar la auditoría WORM de un pago."""
+
+    condominio_id: int
+    recibo_id: int
+    pago_id: int
+    usuario_id: int
+    estado_viejo: str
+    estado_nuevo: str
+    motivo: str
+
+
+async def _cargar_pago_y_recibo_en_revision(db: AsyncSession, pago_id: int) -> tuple[PagoReportado, Recibo]:
+    """Bloquea con FOR UPDATE pago y recibo validando estado en revisión y periodo abierto."""
+    pago = await _obtener_pago(db, pago_id, for_update=True)
+    if pago.estado != "EN_REVISION":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El pago no está en revisión")
+
+    recibo = await _obtener_recibo(db, pago.recibo_id, for_update=True)
+    if recibo.bloqueado:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El periodo está cerrado (Candado Contable)",
+        )
+    return pago, recibo
+
+
+def _aplicar_abono_y_excedente(recibo: Recibo, unidad: Unidad, pago: PagoReportado) -> str:
+    """Aplica el abono al recibo y acredita excedente al saldo a favor si aplica."""
+    excedente = calcular_excedente_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
+    nuevo_pagado, nuevo_estado = aplicar_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
+    recibo.estado = nuevo_estado
+    pago.estado = "APROBADO"
+    if excedente <= Decimal("0.00"):
+        recibo.monto_pagado_usd = nuevo_pagado
+        return f"Pago #{pago.id} aprobado ({pago.monto_usd} USD)"
+
+    recibo.monto_pagado_usd = recibo.monto_usd
+    credito_raw = getattr(unidad, "credito_disponible_usd", None)
+    credito_previo = Decimal("0.00") if credito_raw is None else credito_raw
+    unidad.credito_disponible_usd = cuantizar(credito_previo + excedente)
+    return f"Sobrepago acreditado a saldo a favor: +{excedente} USD"
+
+
+async def _registrar_auditoria_pago(db: AsyncSession, spec: _AuditoriaPagoSpec) -> None:
+    """Sella la cadena WORM e inserta el registro inmutable en auditoria_recibos."""
+    detalle = (
+        f"{spec.recibo_id}|{spec.pago_id}|{spec.usuario_id}|{spec.estado_viejo}->{spec.estado_nuevo}|{spec.motivo}"
+    )
+    prev_hash, rec_hash = await sellar_cadena_worm(db, "auditoria_recibos", spec.condominio_id, detalle)
+    db.add(
+        AuditoriaRecibo(
+            condominio_id=spec.condominio_id,
+            recibo_id=spec.recibo_id,
+            pago_id=spec.pago_id,
+            usuario_id=spec.usuario_id,
+            estado_viejo=spec.estado_viejo,
+            estado_nuevo=spec.estado_nuevo,
+            motivo=spec.motivo,
+            prev_hash=prev_hash,
+            record_hash=rec_hash,
+        )
+    )
+
+
 @router.put(
     "/{pago_id}/aprobar",
     response_model=PagoResponse,
@@ -243,52 +318,22 @@ async def aprobar_pago(
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_roles(usuario, _ROLES_TESORERIA)
-
-    pago = await _obtener_pago(db, pago_id, for_update=True)
-    if pago.estado != "EN_REVISION":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El pago no está en revisión")
-
-    recibo = await _obtener_recibo(db, pago.recibo_id, for_update=True)
-    if recibo.bloqueado:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El periodo está cerrado (Candado Contable)",
-        )
-
+    pago, recibo = await _cargar_pago_y_recibo_en_revision(db, pago_id)
     unidad = await _obtener_unidad_bloqueada(db, recibo.unidad_id)
     estado_previo_recibo = recibo.estado
-    excedente = calcular_excedente_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
-    nuevo_pagado, nuevo_estado = aplicar_pago(recibo.monto_usd, recibo.monto_pagado_usd, pago.monto_usd)
-    recibo.monto_pagado_usd = recibo.monto_usd if excedente > Decimal("0.00") else nuevo_pagado
-    recibo.estado = nuevo_estado
-    pago.estado = "APROBADO"
-    motivo_auditoria = f"Pago #{pago.id} aprobado ({pago.monto_usd} USD)"
-    if excedente > Decimal("0.00"):
-        credito_raw = getattr(unidad, "credito_disponible_usd", None)
-        credito_previo = Decimal("0.00") if credito_raw is None else credito_raw
-        unidad.credito_disponible_usd = cuantizar(credito_previo + excedente)
-        motivo_auditoria = f"Sobrepago acreditado a saldo a favor: +{excedente} USD"
+    motivo_auditoria = _aplicar_abono_y_excedente(recibo, unidad, pago)
 
-    condo_raw = getattr(recibo, "condominio_id", None)
-    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
-    prev_hash, rec_hash = await sellar_cadena_worm(
+    await _registrar_auditoria_pago(
         db,
-        "auditoria_recibos",
-        condo_id,
-        f"{recibo.id}|{pago.id}|{usuario.id}|{estado_previo_recibo}->{recibo.estado}|{motivo_auditoria}",
-    )
-    db.add(
-        AuditoriaRecibo(
-            condominio_id=condo_id,
+        _AuditoriaPagoSpec(
+            condominio_id=_resolver_condominio_id(recibo),
             recibo_id=recibo.id,
             pago_id=pago.id,
             usuario_id=usuario.id,
             estado_viejo=estado_previo_recibo,
             estado_nuevo=recibo.estado,
             motivo=motivo_auditoria,
-            prev_hash=prev_hash,
-            record_hash=rec_hash,
-        )
+        ),
     )
     await db.commit()
     await db.refresh(pago)
@@ -314,38 +359,19 @@ async def rechazar_pago(
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    pago = await _obtener_pago(db, pago_id, for_update=True)
-    if pago.estado != "EN_REVISION":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El pago no está en revisión")
-
-    recibo = await _obtener_recibo(db, pago.recibo_id, for_update=True)
-    if recibo.bloqueado:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El periodo está cerrado (Candado Contable)",
-        )
-
+    pago, recibo = await _cargar_pago_y_recibo_en_revision(db, pago_id)
     pago.estado = "RECHAZADO"
-    condo_raw = getattr(recibo, "condominio_id", None)
-    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
-    prev_hash, rec_hash = await sellar_cadena_worm(
+    await _registrar_auditoria_pago(
         db,
-        "auditoria_recibos",
-        condo_id,
-        f"{recibo.id}|{pago.id}|{usuario.id}|{recibo.estado}->{recibo.estado}|{body.motivo}",
-    )
-    db.add(
-        AuditoriaRecibo(
-            condominio_id=condo_id,
+        _AuditoriaPagoSpec(
+            condominio_id=_resolver_condominio_id(recibo),
             recibo_id=recibo.id,
             pago_id=pago.id,
             usuario_id=usuario.id,
             estado_viejo=recibo.estado,
             estado_nuevo=recibo.estado,
             motivo=body.motivo,
-            prev_hash=prev_hash,
-            record_hash=rec_hash,
-        )
+        ),
     )
     await db.commit()
     await db.refresh(pago)

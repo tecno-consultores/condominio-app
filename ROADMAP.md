@@ -32,7 +32,7 @@
 | **Hito 20** | Defensa PG17 RLS Single-Condo, HKDF/JWT, KeyDB y RBAC/IDOR (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
 | **Hito 21** | Exactitud Contable LPH, Idempotencia con Replay y Worker Real (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
 | **Hito 22** | Rescate Frontend Mobile-First, Shell Unificado y WCAG 2.2 AA (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
-| **Hito 23** | Erradicación Anti-Mock Blindness QA 11X y Docs Thin-Repo (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
+| **Hito 23** | Erradicación Anti-Mock Blindness QA 11X y Docs Thin-Repo (Fase 7) | `13_REMEDIACION_INTEGRAL...` | ✅ Completado | `100%` |
 | **Hito 24** | Recuperación de Contraseña, Multi-Inmueble y Estacionamientos/Maleteros (Fase 8) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
 | **Hito 25** | Motor PDF + Envío SMTP y Código QR Gráfico con Escáner de Cámara (Fase 8) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
 | **Hito 26** | Notificaciones en Vivo por WebSocket (`/ws/`) y Cierre `v1.2.0` (Fase 8) | `13_REMEDIACION_INTEGRAL...` | ⏳ Pendiente | `0%` |
@@ -234,7 +234,7 @@
 
 ---
 
-> **🛠️ FASE 7: Remediación Integral Post-Auditoría `v1.0.0` (Hitos 19 al 23 — Spec 13) — `[80% EN PROGRESO]`**  
+> **🛠️ FASE 7: Remediación Integral Post-Auditoría `v1.0.0` (Hitos 19 al 23 — Spec 13) — `[100% COMPLETADA]`**  
 > **Política de Distribución Aprobada:** Sin publicación en `npmjs.com` (`"private": true`); distribución exclusiva en Docker Hub mediante 2 imágenes multi-arquitectura (`linux/amd64,linux/arm64`): `sinfallas/condominio-backend` y `sinfallas/condominio-frontend` para despliegues Single-Condo con PostgreSQL 17 RLS activo.
 
 ## ✅ Hito 19: Contención Operativa, Gobernanza v3.1.0 y Docker Hub Multi-Arch
@@ -264,12 +264,12 @@
   - [x] **Sub-tarea 22.2 (Ruta Padre `<AppShellLayout>` y Navegación Móvil `< 768px`):** Agrupar todas las vistas autenticadas bajo ruta padre con `<AppShellLayout>` en `router/index.ts` (corrigiendo las 6 vistas huérfanas), añadir ruta `404` (`NotFoundView.vue`), hidratación en `/login` y `/register`, *code-splitting* dinámico y cajón móvil completo (`MobileNavDrawer.vue`) más botón accesible de **Salir / Cerrar sesión** en `< 768px`.
   - [x] **Sub-tarea 22.3 (Vistas Críticas, Tokens OKLCH e Invariantes 11X):** Desacoplar `GET /api/finanzas/tasa` con `Promise.allSettled` evitando mostrar falsa solvencia, corregir el `403` de `SolvencyCertificateView.vue`, cargar recibos reales y subida real de comprobantes en `PaymentWizardView.vue`, renderizar `<img>` en galería/incidencias, visibilizar errores en vistas admin, aplicar `String(val.value ?? '').trim()` en todos los números, erradicar UUIDs/JTIs/PKs crudos y badges catch-all invertidos (`UI-11X-02`), corregir `tokens.css:555`, `ExpensesDonutChart.vue`, `CollectionTrafficLight.vue`, `<dialog>` Top-Layer (`useTopLayerDialog.ts`), colores `OKLCH` y añadir `useDualRefresh` (`setInterval` + `[ 🔄 Refrescar ]`).
 
-## ⏳ Hito 23: Erradicación Anti-Mock Blindness QA 11X y Docs Thin-Repo
+## ✅ Hito 23: Erradicación Anti-Mock Blindness QA 11X y Docs Thin-Repo
 - **Especificación:** [`docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md`](./docs/specs/13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md) (Sección 2.5)
 - **Sub-tareas de Implementación:**
-  - [ ] **Sub-tarea 23.1 (Suites Reales Backend, Mutmut/Radon 11X, ZAP y Locust):** Crear `.unit.py` para los 5 módulos faltantes, cubrir 27 tablas y todos los esquemas dinámicamente, migrar suites de `_mock_session` a BD real (`PRAGMA foreign_keys=ON` + HTTP PG17 real + `asyncio.gather`), exigir `radon` Grado A (`MAX_GRADE = 1`), corregir `mutmut_gates.py`, activar `zap.yaml` en `make qa-dast`, reparar `locustfile.py` y cubrir flujos nominales `2xx` de los 9 routers en `backend/test/api_test.feature`.
-  - [ ] **Sub-tarea 23.2 (Suites Frontend, Mock OpenAPI, Playwright Tablet y Karate UI):** Añadir `navIcons.unit.ts` y `main.unit.ts`, correr Stryker en `qa-vue3` ampliando módulos, alinear `condominioApiMock.ts` 1:1 con OpenAPI/RBAC/`404`, cubrir `22/22` vistas en `accessibility.e2e.ts`, añadir `consultation-detail-dark` + viewport Tablet `768x1024`, incluir `e2e/` en ESLint/Prettier y añadir flujos autenticados reales en `frontend/test/ui_business_flow.feature`.
-  - [ ] **Sub-tarea 23.3 (Saneamiento Documental Integral y READMEs):** Corregir comandos rotos de restauración (`api`/`worker`, `condominio_admin`, `pg17_*.dump.gz`) y rutas reales en `MANUAL_ADMINISTRADOR_E_INSTALADOR.md`, `MANUAL_USUARIO_RESIDENTE.md`, `API_ROUTES.md` y `ARCHITECTURE.md`; sincronizar `SECURITY.md` (`22` vectores), `CHANGELOG.md`, `TESTING.md`; podar `docs/qa/*` bajo Thin-Repo; actualizar `docs/specs/01..12` y rediseñar `README.md` raíz + crear `backend/README.md` y `frontend/README.md`.
+  - [x] **Sub-tarea 23.1 (Suites Reales Backend, Mutmut/Radon 11X, ZAP y Locust):** Crear `.unit.py` para los 5 módulos faltantes, cubrir 27 tablas y todos los esquemas dinámicamente, migrar suites de `_mock_session` a BD real (`PRAGMA foreign_keys=ON` + HTTP PG17 real + `asyncio.gather`), exigir `radon` Grado A (`MAX_GRADE = 1`), corregir `mutmut_gates.py`, activar `zap.yaml` en `make qa-dast`, reparar `locustfile.py` + sidecar `profiler` y cubrir flujos nominales `2xx` de los 9 routers en `backend/test/api_test.feature`.
+  - [x] **Sub-tarea 23.2 (Suites Frontend, Mock OpenAPI, Playwright Tablet y Karate UI):** Añadir `navIcons.unit.ts` y `main.unit.ts`, ejecutar Stryker vía `qa-vue3` + `ui-e2e` ampliando módulos (`97.49%` MSI), alinear `condominioApiMock.ts` 1:1 con OpenAPI/RBAC/`404`, cubrir `23/23` vistas en `accessibility.e2e.ts`, añadir `consultation-detail-dark` + viewport Tablet `768x1024` (`24` PNGs), incluir `e2e/` en ESLint/Prettier/`tsconfig.e2e.json` y añadir flujos autenticados reales en `frontend/test/ui_business_flow.feature`.
+  - [x] **Sub-tarea 23.3 (Saneamiento Documental Integral y READMEs):** Corregir comandos rotos de restauración (`api`/`worker`, `condominio_admin`, `pg17_*.dump.gz`) y rutas reales en `MANUAL_ADMINISTRADOR_E_INSTALADOR.md`, `MANUAL_USUARIO_RESIDENTE.md`, `API_ROUTES.md` y `ARCHITECTURE.md`; sincronizar `SECURITY.md` (`22` vectores), `CHANGELOG.md`, `TESTING.md`; podar `docs/qa/*` bajo Thin-Repo; actualizar `docs/specs/01..12` y rediseñar `README.md` raíz + crear `backend/README.md` y `frontend/README.md`.
 
 ---
 

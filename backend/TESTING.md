@@ -86,15 +86,17 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
   - Cobertura de defensa Hito 20: subclaves `HKDF-SHA256`, validación JWT `typ`/`iat`/`iss`/`aud`, KeyDB fail-closed 7d sin fugas RAM, `/logout` por `sid` y lockout Lua atómico, cierre CSRF `Cookie + Bearer dummy`, protección `/metrics`, `ALLOWED_HOSTS`/`TRUSTED_PROXY_IPS`, OSHP en `500`, anti-SSRF asíncrono y cierre RBAC/IDOR en administración, finanzas, paquetería, reservas y accesos.
 - `tests/test_hito21_contabilidad_idempotencia_worker.unit.py`:
   - Cobertura de exactitud contable LPH e infraestructura productiva Hito 21: rechazo `<= 0` y micro-VES, quórum `MAYORIA_SIMPLE` estricto (`> 50.0000%`), `Decimal` acotados y `EnteroEstricto` (`BeforeValidator` JSON Schema Draft 2020-12), fusión `UPSERT` reservas ↔ `facturar-periodo`, créditos al 100%, fondos patrimoniales, bloqueo `409` de `cierre-mensual` con pagos `EN_REVISION`, *replay* HTTP `X-Idempotency-Replayed: true` y liberación en `4xx`, `/health` loopback ante `ALLOWED_HOSTS`, `POST /api/evidencias/subir`, cotas temporales en consultas y QR, bombardeo AVIF `16M px`, SigV4 RFC 3986, `BLMOVE`/`LREM`/`LTRIM` DLQ, frecuencias `PlantillaTarea` y `scripts/find_worker.py`.
-  - Suite completa certificada Hito 21 (`Python 3.13`, `Rule Zero`): **`289 passed, 3 skipped` en SQLite (`95.53%` cobertura global)** + **`26 passed` en `qa-parity` sobre PostgreSQL 17 real** con reversibilidad `0001..0010` (`ruff` `64` archivos, `mypy --strict` sobre `25` fuentes, `bandit`, `radon_gates.py`), **Schemathesis `60/60` (`9.049/9.049` casos, `0` fallos)** y mutación baseline `81.59%` MSI.
+- **Erradicación Anti-Mock Blindness Hito 23 (`Rule Zero`):**
+  - Nuevas suites reales con `PRAGMA foreign_keys=ON` (eliminación integral de `_mock_session` y roles ficticios): `tests/test_database.unit.py`, `tests/test_facturacion_lph.unit.py`, `tests/test_redis_client.unit.py`, `tests/test_administracion.unit.py`, `tests/test_incidencias.unit.py` y `tests/test_pg17_http_concurrency.unit.py`, además de cobertura dinámica integral de las **27 tablas ORM** (`test_models.unit.py`) y esquemas Pydantic con `extra="forbid"` (`test_schemas.unit.py` / `test_security_11x.unit.py`).
+  - **Suite certificada Hito 23:** **`464 passed, 4 skipped`** en SQLite (`99.42%` cobertura global; re-validado `test_bootstrap_cli.unit.py` `15 passed, 1 skipped` tras saneamiento de literales sintéticos), **`23 passed, 0 skipped`** en `qa-parity` sobre PostgreSQL 17 + KeyDB reales (`0001..0010` reversible), **`ruff check`/`format` (`72` archivos)** + **`mypy --strict` (`25` archivos)** + **`bandit` (`0` hallazgos)**, **Radon Grado A estricto (`MAX_GRADE = 1`, `CC <= 5`, `MI >= A`)**, **Mutmut `91.60%` MSI global** (`2324/2537` en los **`12/12` módulos lógicos** de `src/`, `81.30%–99.49%`, timeouts NO contados como muertos), **OWASP ZAP DAST** (`zap.yaml` no-root, `88 URLs`, **`0 WARN-NEW / 0 FAIL-NEW`**, `PASS: 62`) y **`qa-profile`** mediante sidecar `profiler` mínimo-privilegio (`py-spy` PID `188`, `288` muestras, `0` errores) bajo carga **Locust** (**`866` reqs, `0.00%` fallos, `29.25` req/s, `p50 7ms`, `p95 44ms`**).
 
 ---
 
 ## 2. Pruebas BDD, Paridad PostgreSQL 17, Caos y Resiliencia
 
-- `test/api_test.feature`: **30 escenarios funcionales** en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`, **30/30 pass**): incluye cabeceras `CSP`/`COOP`/`CORP`/`Permissions-Policy`/`Vary` en Escenario 1, protección `401`/`200` por `METRICS_AUTH_TOKEN` en `/metrics` (Escenario 2), **Escenario 20** (Hito 17.2), **Escenario 21** (Fetch Metadata), **Escenario 22** (Hito 17.3), **Escenario 23** (Hito 17.4), **Escenario 24** (Hito 18), **Escenario 25** (Bootstrap Día 0), **Escenario 26** (Hito 19), **Escenario 27** (Hito 20 RBAC/IDOR) y los **Escenarios 28–30 (Hito 21)**: *replay* `X-Idempotency-Replayed` + liberación en `400`, subida binaria `/api/evidencias/subir` (`202` PNG / `415` EXE) y flujo integrado reserva `costo_uso_usd > 0` → `facturar-periodo` (`PARTES_IGUALES`) + bloqueo `409` en `cierre-mensual` por pago `EN_REVISION`.
-- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 27 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`).
-- `tests/locustfile.py`: Perfil de carga concurrente y saturación para inyección de caos y estrés con Pumba + Locust + Prometheus.
+- `test/api_test.feature`: **33 escenarios funcionales** en Gherkin ejecutados por Karate Labs de caja negra contra la API viva (`make qa-bdd`, **33/33 pass**): incluye cabeceras `CSP`/`COOP`/`CORP`/`Permissions-Policy`/`Vary` en Escenario 1, protección `401`/`200` por `METRICS_AUTH_TOKEN` en `/metrics` (Escenario 2), **Escenarios 20–30** (Hitos 17 a 21) y los **Escenarios 31–33 (Hito 23)**: flujos nominales `2xx` aislados por UUID cubriendo los **9 routers** (`Finanzas`/`Pagos`/`Administración`, `Consultas LPH`/`Reservas` con cierre e inspección, e `Incidencias`/`Operaciones`/`Accesos QR`/`Paquetería`/`Cargos de Junta`).
+- `make qa-parity`: Verificación de paridad real entre `alembic upgrade head` sobre `postgres:17-alpine` y las 27 tablas de los modelos SQLAlchemy (`../.agents/scripts/verify_alembic_orm_parity.py`) junto a pruebas de concurrencia HTTP reales contra PG17 + KeyDB (`23 passed, 0 skipped`).
+- `tests/locustfile.py`: Perfil de carga real autenticado con sesión y control `401` (`qa-profile` `866` reqs, `0.00%` fallos; y carga/caos `qa-chaos` con Pumba + Prometheus).
 
 ---
 
@@ -103,17 +105,17 @@ La suite unitaria actual cubre de forma completamente aislada (sin red ni base d
 Todas las pruebas se ejecutan utilizando contenedores efímeros sin dependencias instaladas en el host mediante `backend/Makefile`:
 
 ```bash
-make qa-unit         # Pruebas unitarias + cobertura (mínimo 95%)
+make qa-unit         # Pruebas unitarias + cobertura (mínimo 95% -> 99.42%)
 make qa-lint         # Ruff + Mypy (--strict) + Bandit (SAST)
-make qa-complexity   # Radon (complejidad ciclomática e índice de mantenibilidad <= B)
+make qa-complexity   # Radon Grado A (CC <= 5, MI >= A en scripts/radon_gates.py)
 make qa-deps         # Auditoría de vulnerabilidades en dependencias (uv audit)
-make qa-parity       # Paridad real Alembic <-> ORM contra PostgreSQL 17
-make qa-bdd          # Escenarios BDD Gherkin con Karate Labs
-make qa-profile      # Perfilado de CPU con py-spy bajo carga de Locust
+make qa-parity       # Paridad real Alembic <-> ORM + PG17 + KeyDB (23 passed, 0 skipped)
+make qa-bdd          # Escenarios BDD Gherkin con Karate Labs (33/33 pass)
+make qa-profile      # Perfilado de CPU con sidecar py-spy (SYS_PTRACE aislado) bajo carga Locust
 make qa-infra        # Auditoría Trivy IaC + FS (HIGH/CRITICAL = 0)
-make qa-mutation     # Pruebas de mutación (Mutmut)
+make qa-mutation     # Pruebas de mutación (Mutmut >= 80% en 12 módulos -> 91.60% MSI)
 make qa-contracts    # Fuzzing OpenAPI (Schemathesis)
-make qa-dast         # Seguridad dinámica (OWASP ZAP)
+make qa-dast         # Seguridad dinámica (OWASP ZAP con zap.yaml no-root -> 0 WARN-NEW / FAIL-NEW)
 make qa-chaos        # Ingeniería del Caos (Pumba + Locust + Prometheus)
 make qa-all          # Pipeline integral
 ```

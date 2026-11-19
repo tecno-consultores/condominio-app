@@ -97,15 +97,22 @@ async def _verificar_acceso_unidad_anfitriona(
     return unidad
 
 
-def _resolver_ventana_validez(datos: PaseVisitaCreate) -> tuple[datetime, datetime]:
-    ahora = datetime.now(UTC)
-    desde = _normalizar_utc(datos.valido_desde) if datos.valido_desde else ahora
-    hasta = _normalizar_utc(datos.valido_hasta) if datos.valido_hasta else desde + timedelta(hours=datos.horas_validez)
-    if datos.valido_desde is not None and desde < ahora - timedelta(minutes=5):
+def _resolver_inicio_ventana(valido_desde: datetime | None, ahora: datetime) -> datetime:
+    if valido_desde is None:
+        return ahora
+    desde = _normalizar_utc(valido_desde)
+    if desde < ahora - timedelta(minutes=5):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La fecha de inicio del pase QR no puede ubicarse en el pasado.",
         )
+    return desde
+
+
+def _resolver_ventana_validez(datos: PaseVisitaCreate) -> tuple[datetime, datetime]:
+    ahora = datetime.now(UTC)
+    desde = _resolver_inicio_ventana(datos.valido_desde, ahora)
+    hasta = _normalizar_utc(datos.valido_hasta) if datos.valido_hasta else desde + timedelta(hours=datos.horas_validez)
     if hasta <= ahora:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -274,22 +281,25 @@ async def revocar_pase_visita(
     return _serializar_pase(pase, unidad.identificador)
 
 
+_MENSAJES_BLOQUEO_ESTADO_PASE: dict[str, str] = {
+    "REVOCADO": "Alerta de Seguridad: Este pase QR fue revocado por el anfitrión",
+    "EXPIRADO": "Pase QR expirado o aún no vigente",
+}
+_MSG_PASE_UNICO_USADO = "Alerta de Seguridad: Este pase QR de único uso ya fue utilizado"
+
+
 async def _verificar_estado_bloqueo_pase(redis_conn: aioredis.Redis, pase: PaseVisita) -> None:
-    if pase.estado == "REVOCADO":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Alerta de Seguridad: Este pase QR fue revocado por el anfitrión",
-        )
-    if pase.estado == "EXPIRADO":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Pase QR expirado o aún no vigente",
-        )
+    detalle_bloqueo = _MENSAJES_BLOQUEO_ESTADO_PASE.get(pase.estado)
+    if detalle_bloqueo is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detalle_bloqueo)
     if pase.modalidad == "UNICO_USO" and (pase.estado == "USADO" or await is_qr_nonce_burned(redis_conn, pase.jti)):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Alerta de Seguridad: Este pase QR de único uso ya fue utilizado",
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_MSG_PASE_UNICO_USADO)
+
+
+async def _marcar_expirado_si_vencio(db: AsyncSession, pase: PaseVisita, ha_vencido: bool) -> None:
+    if ha_vencido and pase.estado == "ACTIVO":
+        pase.estado = "EXPIRADO"
+        await db.commit()
 
 
 async def _validar_estado_y_vigencia_pase(
@@ -303,9 +313,7 @@ async def _validar_estado_y_vigencia_pase(
     desde_utc = _normalizar_utc(pase.valido_desde)
     hasta_utc = _normalizar_utc(pase.valido_hasta)
     if ahora < desde_utc or ahora > hasta_utc or int(ahora.timestamp()) > exp_unix:
-        if ahora > hasta_utc and pase.estado == "ACTIVO":
-            pase.estado = "EXPIRADO"
-            await db.commit()
+        await _marcar_expirado_si_vencio(db, pase, ahora > hasta_utc)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pase QR expirado o aún no vigente",
@@ -315,6 +323,15 @@ async def _validar_estado_y_vigencia_pase(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Firma criptográfica de pase QR inválida",
         )
+
+
+async def _consumir_nonce_si_unico_uso(redis_conn: aioredis.Redis, pase: PaseVisita, ahora: datetime) -> None:
+    if pase.modalidad != "UNICO_USO":
+        return
+    ttl = max(60, int((_normalizar_utc(pase.valido_hasta) - ahora).total_seconds()) + 3600)
+    if not await burn_qr_nonce(redis_conn, pase.jti, ttl_seconds=ttl):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_MSG_PASE_UNICO_USADO)
+    pase.estado = "USADO"
 
 
 @router.post(
@@ -353,16 +370,7 @@ async def verificar_pase_qr_en_garita(
 
     ahora = datetime.now(UTC)
     await _validar_estado_y_vigencia_pase(db, redis_conn, pase, exp_unix, ahora)
-
-    if pase.modalidad == "UNICO_USO":
-        ttl = max(60, int((_normalizar_utc(pase.valido_hasta) - ahora).total_seconds()) + 3600)
-        primer_uso = await burn_qr_nonce(redis_conn, pase.jti, ttl_seconds=ttl)
-        if not primer_uso:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Alerta de Seguridad: Este pase QR de único uso ya fue utilizado",
-            )
-        pase.estado = "USADO"
+    await _consumir_nonce_si_unico_uso(redis_conn, pase, ahora)
 
     pase.usado_en = ahora
     pase.verificado_por_id = usuario.id
@@ -400,11 +408,11 @@ async def _notificar_paquete_unidad(
             ContratoOcupacion.fecha_fin.is_(None),
         )
     )
-    uids = [int(uid) for uid in res_contratos.scalars().all()]
+    uids = list(res_contratos.scalars().all())
     if not uids:
         return
     res_usuarios = await db.execute(select(Usuario.correo).where(Usuario.id.in_(uids)))
-    correos = [str(c) for c in res_usuarios.scalars().all() if c]
+    correos = list(filter(None, res_usuarios.scalars().all()))
     if correos:
         await encolar_notificacion_correo(
             destinatarios=correos,

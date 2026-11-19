@@ -3,6 +3,7 @@
   "plugins": ["@stryker-mutator/vitest-runner"],
   "testRunner": "vitest",
   "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
   "incremental": true,
   "incrementalFile": "/tmp/stryker-incremental.json",
   "tempDirName": ".stryker-tmp",
@@ -10,9 +11,16 @@
   "concurrency": 6,
   "mutate": [
     "src/utils/security.ts",
-    "src/composables/useIdempotency.ts",
+    "src/utils/decimal.ts",
+    "src/utils/navigationCatalog.ts",
+    "!src/utils/screenHelpCatalog.ts",
+    "!src/utils/navIcons.ts",
+    "src/composables/*.ts",
     "src/services/apiClient.ts",
-    "src/stores/authStore.ts"
+    "src/router/index.ts",
+    "src/stores/*.ts",
+    "!src/**/*.unit.ts",
+    "!src/**/*.spec.ts"
   ],
   "reporters": ["clear-text", "progress"],
   "thresholds": {

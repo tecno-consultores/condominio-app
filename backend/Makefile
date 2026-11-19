@@ -31,9 +31,9 @@ qa-unit:
 qa-parity:
 	@echo "🗄️ Verificando Paridad ORM vs Migraciones Alembic, Motor Real PostgreSQL 17 e Integración RLS..."
 	docker run --rm -v "${HOST_PWD}/..:/workspace:ro" -w /workspace/backend sinfallas/base-python-uv:3.13@sha256:1594cbb33269c6a535a8ae5242b07a5866aa519d00975868f0a0d03fdc3bc155 python3 /workspace/.agents/scripts/verify_alembic_orm_parity.py
-	docker compose -f $(COMPOSE_FILE) up -d --wait postgres
+	docker compose -f $(COMPOSE_FILE) up -d --wait postgres redis
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) -e DATABASE_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" $(SERVICE_NAME) bash -c "uv sync --frozen && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head"
-	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) -e POSTGRES_TEST_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync --frozen && uv run pytest -o addopts='--import-mode=importlib --strict-markers --cov=src --cov-fail-under=0' tests/test_hito17_4_integridad_rls.unit.py tests/test_bootstrap_cli.unit.py"
+	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) -e POSTGRES_TEST_URL="postgresql+asyncpg://qa_user:qa_password@postgres:5432/qa_db" -e REDIS_URL="redis://redis:6379/0" -e COVERAGE_FILE=/tmp/.coverage $(SERVICE_NAME) bash -c "uv sync --frozen && uv run pytest -o addopts='--import-mode=importlib --strict-markers --cov=src --cov-fail-under=0' tests/test_hito17_4_integridad_rls.unit.py tests/test_bootstrap_cli.unit.py tests/test_pg17_http_concurrency.unit.py"
 
 wait-api:
 	@docker compose -f $(COMPOSE_FILE) run --rm -T --no-deps qa-backend bash -c 'for i in $$(seq 1 60); do python -c "import urllib.request; urllib.request.urlopen(\"http://api:8000/health\", timeout=2)" >/dev/null 2>&1 && exit 0; sleep 1; done; echo "❌ Timeout esperando API /health"; exit 1'
@@ -55,16 +55,11 @@ qa-contracts:
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(USER_FLAGS) $(SERVICE_NAME) bash -c "uv sync --frozen && uv run schemathesis run http://api:8000/openapi.json"
 
 qa-dast:
-	@echo "🛡️ Escaneo Dinámico de Seguridad (OWASP ZAP)..."
+	@echo "🛡️ Escaneo Dinámico de Seguridad (OWASP ZAP con OpenAPI y exitStatus estricto)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
 	$(MAKE) wait-api
-	@set +e; docker compose -f $(COMPOSE_FILE) run --rm -T zap zap-baseline.py -t http://api:8000 -r zap-report.html; \
-	status=$$?; set -e; \
-	if [ $$status -eq 0 ] || [ $$status -eq 2 ]; then \
-		echo "✅ DAST finalizado sin fallos (FAIL-NEW=0; código $$status)."; \
-	else \
-		exit $$status; \
-	fi
+	docker compose -f $(COMPOSE_FILE) run --rm -T zap zap.sh -cmd -autorun /zap/wrk/zap.yaml
+	@echo "✅ DAST finalizado sin hallazgos (0 WARN-NEW / 0 FAIL-NEW)."
 
 qa-chaos:
 	@echo "🌪️ Certificación de Resiliencia y Caos (Pumba + Locust + Prometheus)..."
@@ -81,13 +76,19 @@ qa-infra:
 qa-profile:
 	@echo "📈 Perfilando la API con py-spy bajo carga de Locust (guardando profile.svg)..."
 	docker compose -f $(COMPOSE_FILE) up -d api
-	docker compose -f $(COMPOSE_FILE) run -d -T --name condominio_backend_profiler $(SERVICE_NAME) bash -c "uv sync --frozen -q && uv run locust -f tests/locustfile.py --headless -u 30 -r 5 -t 30s --host http://api:8000"
-	@sleep 6; \
-	worker=$$(docker exec condominio_backend_api python /app/scripts/find_worker.py); \
-	echo "📊 Muestreando reloader/workers (PID $$worker)..."; \
-	docker exec condominio_backend_api py-spy record -s --pid $$worker --duration 18 -o /app/profile.svg; \
-	echo "🧹 Deteniendo generador de carga..."; \
-	docker rm -f condominio_backend_profiler
+	$(MAKE) wait-api
+	@set -eu; \
+	docker rm -f condominio_backend_profiler >/dev/null 2>&1 || true; \
+	trap 'docker rm -f condominio_backend_profiler >/dev/null 2>&1 || true; rm -f profile.svg.tmp' EXIT; \
+	docker compose -f $(COMPOSE_FILE) run -d -T --name condominio_backend_profiler $(SERVICE_NAME) bash -c "uv sync --frozen -q && uv run --no-sync locust -f tests/locustfile.py --headless -u 30 -r 5 -t 30s --host http://api:8000"; \
+	sleep 8; \
+	docker compose -f $(COMPOSE_FILE) --profile profile run --rm -T profiler bash -c 'uv sync --frozen -q && worker=$$(python /app/scripts/find_worker.py) && echo "📊 Muestreando worker Python (PID $$worker)..." >&2 && uv run --no-sync py-spy record -s --pid "$$worker" --duration 15 -o /tmp/profile.svg >&2 && test -s /tmp/profile.svg && cat /tmp/profile.svg' > profile.svg.tmp; \
+	test -s profile.svg.tmp && grep -q '<svg' profile.svg.tmp; \
+	mv profile.svg.tmp profile.svg; \
+	echo "🧹 Esperando cierre limpio del generador de carga Locust..."; \
+	locust_rc=$$(docker wait condominio_backend_profiler); \
+	docker logs --tail 25 condominio_backend_profiler; \
+	test "$$locust_rc" -eq 0
 	@echo "✅ Perfil de CPU guardado en profile.svg"
 
 clean-cache:

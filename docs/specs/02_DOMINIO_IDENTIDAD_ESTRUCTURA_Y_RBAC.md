@@ -2,6 +2,9 @@
 
 **Estado:** Hitos 1, 2, 4, 5 y 7 Completados y Certificados en Backend (`auth.py`, `administracion.py`) y GUI (`frontend/src/views/auth/`, `frontend/src/views/admin/`)
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** El dominio de identidad y RBAC incorpora aislamiento **Single-Condo + PG17 RLS (`0010`)** con `condominio_id` en claims JWT y claves `UNIQUE` compuestas, subclaves **`HKDF-SHA256`**, lockout atómico Lua en KeyDB, CSRF estricto en cookies `HttpOnly`, bloqueo de escalación `VICEPRESIDENTE -> PRESIDENTE`, privacidad DTO en listados, bootstrap Día 0 sin `--password` en CLI, complejidad **Radon Grado A**, shell `<AppShellLayout>` con tokens `OKLCH`/`light-dark()`, Screenplay E2E y gobernanza **Thin-Repo `v3.1.0`**. Ver [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Modelo de Entidades de Identidad y Estructura

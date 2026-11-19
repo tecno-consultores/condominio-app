@@ -4,6 +4,9 @@
 **Ecosistema:** Vue 3 (`<script setup lang="ts">`) + CSS Moderno (`OKLCH`, `light-dark()`, `@starting-style`, `transition-behavior: allow-discrete`, `overlay`, `View Transitions API`, `interpolate-size`, `calc-size()`, `:has()`, `container-type: inline-size`)  
 **Fuentes de Diseño y Plataforma:** Investigación PropTech 2025–2026 + `refactoring-ui` + `modern-web-guidance`
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 11–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** El sistema visual `OKLCH` y `light-dark()` fue endurecido con ruta padre `<AppShellLayout>` para todas las vistas autenticadas (`44/44` componentes `.vue`), cajón móvil `< 768px` con cierre de sesión accesible, composable unificado `useTopLayerDialog` para `<dialog>` Top-Layer, eliminación de colores hex residuales y UUIDs crudos (`UI-11X-02`), refresco dual (`useDualRefresh`), cobertura **WCAG 2.2 AA** en `22/22` vistas (`@axe-core/playwright`), **Screenplay E2E** en 3 viewports (móvil/tablet/escritorio), Lighthouse (`CLS = 0`) y gobernanza **Thin-Repo `v3.1.0`**. Ver [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Visión de Diseño: De "Portal Contable Frío" a "Hospitalidad Residencial Cálida"

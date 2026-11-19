@@ -1,12 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const isCI = Boolean(
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.CI,
+);
+
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.e2e.ts',
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  forbidOnly: isCI,
+  retries: isCI ? 2 : 0,
+  workers: isCI ? 1 : undefined,
   reporter: [['html', { open: 'never' }], ['list']],
   use: {
     baseURL: 'http://ui-prod:80',
@@ -31,6 +35,13 @@ export default defineConfig({
         ...devices['iPhone 13'],
         browserName: 'chromium',
         viewport: { width: 390, height: 844 },
+      },
+    },
+    {
+      name: 'tablet-768x1024',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 768, height: 1024 },
       },
     },
     {

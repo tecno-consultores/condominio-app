@@ -4,6 +4,9 @@
 **Módulos Backend Objetivo:** `backend/src/models.py`, `backend/src/schemas.py`, `backend/src/finanzas.py`, `backend/src/routers/consultas.py`, `backend/alembic/versions/0004_hito11_cartas_consulta.py`  
 **Módulos Frontend Objetivo:** `frontend/src/stores/governanceStore.ts`, `frontend/src/views/governance/ConsultationsListView.vue`, `frontend/src/views/governance/ConsultationDetailView.vue`, `frontend/src/components/governance/VoteReceiptModal.vue`
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** La gobernanza LPH añade **PG17 RLS (`0010`)** con revocación WORM (`UPDATE`/`DELETE`) y hash-chain en `votos_consulta`, subclave **`HKDF-SHA256`** para firma de votos, umbral exacto `MAYORIA_SIMPLE > 50.0000%` y `2/3` racional (`FRACCION_DOS_TERCIOS`), bloqueo temporal en `fecha_cierre` y cierre atómico con `.with_for_update()`, complejidad **Radon Grado A**, modales `<dialog>` Top-Layer (`VoteReceiptModal.vue`), tokens **`OKLCH` + `light-dark()`**, **Screenplay E2E WCAG 2.2 AA** y **Thin-Repo `v3.1.0`**. Ver [Spec 11](./11_ENDURECIMIENTO_BACKEND_CONCURRENCIA_Y_SEGURIDAD_REAL.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Propósito y Fundamento Legal (Art. 22, 23 y 24 LPH)

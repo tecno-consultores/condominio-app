@@ -1,472 +1,588 @@
-"""Pruebas unitarias del flujo de reporte y aprobación de pagos (mockeando BD/Redis)."""
+"""Pruebas unitarias del flujo de reporte y aprobación de pagos en SQLite FK real."""
 
+import hashlib
+import json
+from collections.abc import AsyncIterator, Generator
+from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
-from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
+import pytest
+from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.database import get_db
-from src.dependencies import get_current_user
 from src.main import app
-from src.models import ContratoOcupacion, PagoReportado, Recibo, TasaCambio, Unidad
-from src.redis_client import get_redis_client
+from src.models import AuditoriaRecibo, PagoReportado, Recibo, TasaCambio, Usuario
+from src.redis_client import (
+    acquire_idempotency_slot,
+    build_scoped_idempotency_key,
+    get_redis_client,
+    reset_local_security_state,
+)
+from src.routers.pagos import _obtener_recibo, _obtener_unidad_bloqueada
+from src.security import create_access_token, get_password_hash
+from tests._sqlite_helpers import SeededCondoContext, create_sqlite_fk_factory, seed_condo_base
 
-
-class FakeUser:
-    id: int = 7
-    correo: str = "tesorero@test.com"
-    rol: str = "TESORERO"
-    es_activo: bool = True
-    condominio_id: int = 1
-
-
-def _mock_session(*results: Any) -> AsyncMock:
-    session = AsyncMock()
-    session.execute.side_effect = list(results)
-    session.add = MagicMock()
-
-    async def refresh(instance: Any, *args: object, **kwargs: object) -> None:
-        if getattr(instance, "id", None) is None:
-            instance.id = 1
-
-    session.refresh = refresh
-    return session
-
-
-def _result(value: Any) -> MagicMock:
-    result = MagicMock()
-    result.scalars().first.return_value = value
-    return result
-
-
-def _result_list(values: list[Any]) -> MagicMock:
-    result = MagicMock()
-    result.scalars().all.return_value = values
-    return result
-
-
-def _setup(session: AsyncMock, redis_is_new: bool = True, user: Any = None) -> AsyncMock:
-    mock_redis = AsyncMock()
-    mock_redis.set.return_value = redis_is_new
-    app.dependency_overrides[get_db] = lambda: session
-    app.dependency_overrides[get_redis_client] = lambda: mock_redis
-    app.dependency_overrides[get_current_user] = lambda: user or FakeUser()
-    return mock_redis
-
-
-def _tasa() -> TasaCambio:
-    return TasaCambio(id=1, fecha=date.today(), tasa_usd_ves=Decimal("36.5000"))
-
-
-def _recibo(bloqueado: bool = False, pagado: str = "0.00") -> Recibo:
-    return Recibo(
-        id=1,
-        unidad_id=1,
-        periodo="2026-10",
-        monto_usd=Decimal("100.00"),
-        monto_pagado_usd=Decimal(pagado),
-        estado="PENDIENTE",
-        bloqueado=bloqueado,
-    )
-
-
-def _unidad(credito: str = "0.00") -> Unidad:
-    return Unidad(
-        id=1,
-        identificador="A-01",
-        estructura_id=1,
-        alicuota=Decimal("25.0000"),
-        credito_disponible_usd=Decimal(credito),
-    )
-
-
-def _pago(estado: str = "EN_REVISION", monto_usd: str = "40.00") -> PagoReportado:
-    return PagoReportado(
-        id=5,
-        recibo_id=1,
-        usuario_id=7,
-        monto=Decimal(monto_usd),
-        moneda="USD",
-        monto_usd=Decimal(monto_usd),
-        tasa_cambio=Decimal("36.5000"),
-        metodo_pago="EFECTIVO",
-        numero_referencia=None,
-        url_comprobante=None,
-        estado=estado,
-    )
-
-
-PAYLOAD = {"recibo_id": 1, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
 HEADERS = {"Idempotency-Key": "11111111-1111-1111-1111-111111111111"}
+HEADERS_ALT = {"Idempotency-Key": "44444444-4444-4444-4444-444444444444"}
+
+
+@pytest.fixture(autouse=True)
+def _limpiar_estado_pagos() -> Generator[None]:
+    """Aísla el estado local de idempotencia y overrides entre pruebas."""
+    app.dependency_overrides.clear()
+    reset_local_security_state()
+    try:
+        yield
+    finally:
+        app.dependency_overrides.clear()
+        reset_local_security_state()
+
+
+def _cookies_usuario(correo: str, usuario_id: int, rol: str) -> dict[str, str]:
+    token = create_access_token(data={"sub": correo, "id": usuario_id, "rol": rol, "condominio_id": 1})
+    return {"access_token": f"Bearer {token}"}
+
+
+@asynccontextmanager
+async def _entorno_pagos(
+    *,
+    tasa_hoy: Decimal | None = Decimal("36.5000"),
+) -> AsyncIterator[tuple[async_sessionmaker[AsyncSession], SeededCondoContext, AsyncClient]]:
+    """Prepara SQLite FK real con semilla base y limpieza obligatoria en try...finally."""
+    engine, factory = await create_sqlite_fk_factory()
+    try:
+        ctx = await seed_condo_base(factory)
+        async with factory() as session:
+            await session.execute(delete(TasaCambio))
+            if tasa_hoy is not None:
+                session.add(TasaCambio(condominio_id=1, fecha=date.today(), tasa_usd_ves=tasa_hoy))
+            await session.commit()
+
+        async def _override_get_db() -> AsyncIterator[AsyncSession]:
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_redis_client] = lambda: None
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as ac:
+            yield factory, ctx, ac
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+async def _sembrar_recibo(
+    factory: async_sessionmaker[AsyncSession],
+    unidad_id: int,
+    *,
+    monto_usd: str = "100.00",
+    pagado_usd: str = "0.00",
+    estado: str = "PENDIENTE",
+    bloqueado: bool = False,
+) -> int:
+    async with factory() as session:
+        recibo = Recibo(
+            condominio_id=1,
+            unidad_id=unidad_id,
+            periodo="2026-10",
+            monto_usd=Decimal(monto_usd),
+            monto_pagado_usd=Decimal(pagado_usd),
+            estado=estado,
+            bloqueado=bloqueado,
+        )
+        session.add(recibo)
+        await session.commit()
+        return recibo.id
+
+
+async def _sembrar_pago(
+    factory: async_sessionmaker[AsyncSession],
+    recibo_id: int,
+    usuario_id: int,
+    *,
+    monto_usd: str = "40.00",
+    estado: str = "EN_REVISION",
+    metodo_pago: str = "EFECTIVO",
+    referencia: str | None = None,
+) -> int:
+    async with factory() as session:
+        pago = PagoReportado(
+            condominio_id=1,
+            recibo_id=recibo_id,
+            usuario_id=usuario_id,
+            monto=Decimal(monto_usd),
+            moneda="USD",
+            monto_usd=Decimal(monto_usd),
+            tasa_cambio=Decimal("36.5000"),
+            metodo_pago=metodo_pago,
+            numero_referencia=referencia,
+            estado=estado,
+        )
+        session.add(pago)
+        await session.commit()
+        return pago.id
+
+
+@pytest.mark.asyncio
+async def test_reportar_pago_success() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
 
+        response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
 
-def test_reportar_pago_success(client: TestClient) -> None:
-    session = _mock_session(_result(_tasa()), _result(_recibo()))
-    _setup(session)
+        assert response.status_code == 201
+        body = response.json()
+        assert float(body["monto_usd"]) == 100.0
+        assert float(body["tasa_cambio"]) == 36.5
+        assert body["estado"] == "EN_REVISION"
+        async with factory() as session:
+            total = (await session.execute(select(func.count()).select_from(PagoReportado))).scalar_one()
+            assert total == 1
 
-    response = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
 
-    assert response.status_code == 201
-    body = response.json()
-    assert float(body["monto_usd"]) == 100.0
-    assert float(body["tasa_cambio"]) == 36.5
-    assert body["estado"] == "EN_REVISION"
-    assert session.add.call_count == 1
+@pytest.mark.asyncio
+async def test_reportar_pago_ves_convierte_por_tasa_del_dia() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": recibo_id, "monto": "3650.00", "moneda": "VES", "metodo_pago": "EFECTIVO"}
 
-    app.dependency_overrides = {}
+        response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
 
+        assert response.status_code == 201
+        assert float(response.json()["monto_usd"]) == 100.0
 
-def test_reportar_pago_ves_convierte_por_tasa_del_dia(client: TestClient) -> None:
-    session = _mock_session(_result(_tasa()), _result(_recibo()))
-    _setup(session)
-    payload = {"recibo_id": 1, "monto": "3650.00", "moneda": "VES", "metodo_pago": "EFECTIVO"}
 
-    response = client.post("/api/pagos/reportar", json=payload, headers=HEADERS)
+@pytest.mark.asyncio
+async def test_reportar_pago_duplicado() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
+        raw_body = json.dumps(payload).encode("utf-8")
+        redis_key = build_scoped_idempotency_key(1, ctx.tesorero_id, "reportar_pago", HEADERS["Idempotency-Key"])
+        await acquire_idempotency_slot(None, redis_key, hashlib.sha256(raw_body).hexdigest())
 
-    assert response.status_code == 201
-    assert float(response.json()["monto_usd"]) == 100.0
+        response = await ac.post(
+            "/api/pagos/reportar",
+            content=raw_body,
+            headers={**HEADERS, "Content-Type": "application/json"},
+            cookies=cookies,
+        )
 
-    app.dependency_overrides = {}
+        assert response.status_code == 409
+        assert "Petición duplicada" in response.json()["detail"]
 
 
-def test_reportar_pago_duplicado(client: TestClient) -> None:
-    session = _mock_session()
-    _setup(session, redis_is_new=False)
+@pytest.mark.asyncio
+async def test_reportar_pago_zelle_sin_referencia_falla() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "ZELLE"}
 
-    response = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
+        response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
 
-    assert response.status_code == 409
-    assert "Petición duplicada" in response.json()["detail"]
+        assert response.status_code == 400
+        assert "referencia" in response.json()["detail"]
 
-    app.dependency_overrides = {}
 
+@pytest.mark.asyncio
+async def test_reportar_pago_tasa_no_registrada() -> None:
+    async with _entorno_pagos(tasa_hoy=None) as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
 
-def test_reportar_pago_zelle_sin_referencia_falla(client: TestClient) -> None:
-    session = _mock_session()
-    _setup(session)
-    payload = {"recibo_id": 1, "monto": "100.00", "moneda": "USD", "metodo_pago": "ZELLE"}
+        response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
 
-    response = client.post("/api/pagos/reportar", json=payload, headers=HEADERS)
+        assert response.status_code == 400
+        assert "tasa de cambio" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_reportar_pago_recibo_no_encontrado() -> None:
+    async with _entorno_pagos() as (_, ctx, ac):
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": 99999, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
 
-    assert response.status_code == 400
-    assert "referencia" in response.json()["detail"]
+        response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
+
+        assert response.status_code == 404
+        assert "Recibo no encontrado" in response.json()["detail"]
 
-    app.dependency_overrides = {}
 
+@pytest.mark.asyncio
+async def test_reportar_pago_mes_bloqueado() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id, bloqueado=True)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
 
-def test_reportar_pago_tasa_no_registrada(client: TestClient) -> None:
-    session = _mock_session(_result(None))
-    _setup(session)
+        response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
 
-    response = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
-
-    assert response.status_code == 400
-    assert "tasa de cambio" in response.json()["detail"].lower()
-
-    app.dependency_overrides = {}
-
-
-def test_reportar_pago_recibo_no_encontrado(client: TestClient) -> None:
-    session = _mock_session(_result(_tasa()), _result(None))
-    _setup(session)
-
-    response = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
-
-    assert response.status_code == 404
-    assert "Recibo no encontrado" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_reportar_pago_mes_bloqueado(client: TestClient) -> None:
-    session = _mock_session(_result(_tasa()), _result(_recibo(bloqueado=True)))
-    _setup(session)
-
-    response = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
-
-    assert response.status_code == 409
-    assert "Candado Contable" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_reportar_pago_moneda_invalida_es_422(client: TestClient) -> None:
-    _setup(_mock_session())
-    payload = {"recibo_id": 1, "monto": "10.00", "moneda": "EUR", "metodo_pago": "EFECTIVO"}
-    response = client.post("/api/pagos/reportar", json=payload, headers=HEADERS)
-    assert response.status_code == 422
-    app.dependency_overrides = {}
-
-
-def test_reportar_pago_sin_idempotency_key(client: TestClient) -> None:
-    _setup(_mock_session())
-    response = client.post("/api/pagos/reportar", json=PAYLOAD)
-    assert response.status_code == 422
-    app.dependency_overrides = {}
-
-
-def test_reportar_pago_falla_bd(client: TestClient) -> None:
-    session = _mock_session(_result(_tasa()), _result(_recibo()))
-    session.commit.side_effect = Exception("DB down")
-    _setup(session)
-
-    response = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
-
-    assert response.status_code == 500
-    assert "Error en base de datos" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_listar_pagos_en_revision(client: TestClient) -> None:
-    session = _mock_session(_result_list([_pago()]))
-    _setup(session)
-
-    response = client.get("/api/pagos/revision")
-
-    assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["estado"] == "EN_REVISION"
-
-    app.dependency_overrides = {}
-
-
-def test_aprobar_pago_parcial(client: TestClient) -> None:
-    pago = _pago(monto_usd="40.00")
-    recibo = _recibo()
-    unidad = _unidad()
-    session = _mock_session(_result(pago), _result(recibo), _result(unidad))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
-
-    assert response.status_code == 200
-    assert response.json()["estado"] == "APROBADO"
-    assert recibo.estado == "PAGADO_PARCIAL"
-    assert recibo.monto_pagado_usd == Decimal("40.00")
-    assert session.add.call_count == 1
-
-    app.dependency_overrides = {}
-
-
-def test_aprobar_pago_total_exacto(client: TestClient) -> None:
-    pago = _pago(monto_usd="100.00")
-    recibo = _recibo()
-    unidad = _unidad()
-    session = _mock_session(_result(pago), _result(recibo), _result(unidad))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
-
-    assert response.status_code == 200
-    assert recibo.estado == "PAGADO"
-    assert recibo.monto_pagado_usd == Decimal("100.00")
-
-    app.dependency_overrides = {}
-
-
-def test_aprobar_pago_parcial_sobre_saldo_previo(client: TestClient) -> None:
-    pago = _pago(monto_usd="30.00")
-    recibo = _recibo(pagado="40.00")
-    unidad = _unidad()
-    session = _mock_session(_result(pago), _result(recibo), _result(unidad))
-    _setup(session)
-
-    client.put("/api/pagos/5/aprobar", headers=HEADERS)
-
-    assert recibo.monto_pagado_usd == Decimal("70.00")
-    assert recibo.estado == "PAGADO_PARCIAL"
-
-    app.dependency_overrides = {}
-
-
-def test_aprobar_pago_no_encontrado(client: TestClient) -> None:
-    session = _mock_session(_result(None))
-    _setup(session)
-
-    response = client.put("/api/pagos/999/aprobar", headers=HEADERS)
-
-    assert response.status_code == 404
-    assert "Pago no encontrado" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_aprobar_pago_no_esta_en_revision(client: TestClient) -> None:
-    session = _mock_session(_result(_pago(estado="APROBADO")))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
-
-    assert response.status_code == 409
-    assert "no está en revisión" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_aprobar_recibo_no_encontrado(client: TestClient) -> None:
-    session = _mock_session(_result(_pago()), _result(None))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
-
-    assert response.status_code == 404
-    assert "Recibo no encontrado" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_aprobar_mes_bloqueado(client: TestClient) -> None:
-    session = _mock_session(_result(_pago()), _result(_recibo(bloqueado=True)))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/aprobar", headers=HEADERS)
-
-    assert response.status_code == 409
-    assert "Candado Contable" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_rechazar_pago_success(client: TestClient) -> None:
-    pago = _pago()
-    recibo = _recibo()
-    session = _mock_session(_result(pago), _result(recibo))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "Comprobante ilegible"})
-
-    assert response.status_code == 200
-    assert response.json()["estado"] == "RECHAZADO"
-    assert pago.estado == "RECHAZADO"
-    audit = session.add.call_args[0][0]
-    assert audit.motivo == "Comprobante ilegible"
-    assert audit.estado_viejo == "PENDIENTE"
-    assert audit.estado_nuevo == "PENDIENTE"
-
-    app.dependency_overrides = {}
-
-
-def test_rechazar_pago_sin_motivo_es_422(client: TestClient) -> None:
-    _setup(_mock_session())
-    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": ""})
-    assert response.status_code == 422
-    app.dependency_overrides = {}
-
-
-def test_rechazar_pago_no_encontrado(client: TestClient) -> None:
-    session = _mock_session(_result(None))
-    _setup(session)
-
-    response = client.put("/api/pagos/999/rechazar", headers=HEADERS, json={"motivo": "X"})
-
-    assert response.status_code == 404
-
-    app.dependency_overrides = {}
-
-
-def test_rechazar_pago_no_esta_en_revision(client: TestClient) -> None:
-    session = _mock_session(_result(_pago(estado="RECHAZADO")))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "X"})
-
-    assert response.status_code == 409
-
-    app.dependency_overrides = {}
-
-
-def test_rechazar_mes_bloqueado(client: TestClient) -> None:
-    session = _mock_session(_result(_pago()), _result(_recibo(bloqueado=True)))
-    _setup(session)
-
-    response = client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "X"})
-
-    assert response.status_code == 409
-    assert "Candado Contable" in response.json()["detail"]
-
-    app.dependency_overrides = {}
-
-
-def test_pagos_rbac_y_bloqueo_fantasma(client: TestClient) -> None:
-    class GhostUser:
-        id: int = 99
-        correo: str = "fantasma@test.com"
-        rol: str = "FANTASMA"
-        es_activo: bool = False
-
-    class PropietarioUser:
-        id: int = 88
-        correo: str = "vecino@test.com"
-        rol: str = "PROPIETARIO"
-        es_activo: bool = True
-
-    _setup(_mock_session(), user=GhostUser())
-    assert client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS).status_code == 403
-
-    _setup(_mock_session(), user=PropietarioUser())
-    assert client.get("/api/pagos/revision").status_code == 403
-    assert client.put("/api/pagos/5/aprobar", headers=HEADERS).status_code == 403
-    assert client.put("/api/pagos/5/rechazar", headers=HEADERS, json={"motivo": "Motivo válido"}).status_code == 403
-    app.dependency_overrides = {}
-
-
-def test_aprobar_pago_sin_idempotency_key_duplicado_y_unidad_inexistente(client: TestClient) -> None:
-    _setup(_mock_session())
-    assert client.put("/api/pagos/5/aprobar").status_code == 422
-
-    _setup(_mock_session(), redis_is_new=False)
-    res_dup = client.put("/api/pagos/5/aprobar", headers=HEADERS)
-    assert res_dup.status_code == 409
-    assert "Idempotency-Key" in res_dup.json()["detail"]
-
-    session_sin_uni = _mock_session(_result(_pago()), _result(_recibo()), _result(None))
-    _setup(session_sin_uni)
-    res_uni = client.put("/api/pagos/5/aprobar", headers=HEADERS)
-    assert res_uni.status_code == 404
-    assert "Unidad" in res_uni.json()["detail"]
-    app.dependency_overrides = {}
-
-
-def test_reportar_pago_anti_idor_y_colision_integrity_error(client: TestClient) -> None:
-    class PropietarioUser:
-        id: int = 88
-        correo: str = "vecino@test.com"
-        rol: str = "PROPIETARIO"
-        es_activo: bool = True
-
-    # Vecino sin ContratoOcupacion activo sobre la unidad -> 403 anti-IDOR
-    session_idor = _mock_session(_result(_tasa()), _result(_recibo()), _result(None))
-    _setup(session_idor, user=PropietarioUser())
-    res_idor = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
-    assert res_idor.status_code == 403
-    assert "autorización" in res_idor.json()["detail"]
-
-    # Vecino con ContratoOcupacion activo -> 201 OK
-    contrato = ContratoOcupacion(id=1, usuario_id=88, unidad_id=1, tipo_ocupante="PROPIETARIO", es_activo=True)
-    session_ok = _mock_session(_result(_tasa()), _result(_recibo()), _result(contrato))
-    _setup(session_ok, user=PropietarioUser())
-    res_ok = client.post("/api/pagos/reportar", json=PAYLOAD, headers=HEADERS)
-    assert res_ok.status_code == 201
-
-    # IntegrityError concurrente sobre referencia única parcial -> 409 Conflict
-    session_ie = _mock_session(_result(None), _result(_tasa()), _result(_recibo()))
-    session_ie.commit.side_effect = IntegrityError("dup", {}, Exception("uq_pagos_metodo_ref_activo"))
-    _setup(session_ie)
-    res_ie = client.post(
-        "/api/pagos/reportar",
-        json={
-            "recibo_id": 1,
-            "monto": "100.00",
-            "moneda": "USD",
-            "metodo_pago": "ZELLE",
-            "numero_referencia": "REF-RACE-01",
-        },
-        headers=HEADERS,
-    )
-    assert res_ie.status_code == 409
-    assert "referencia bancaria" in res_ie.json()["detail"]
-    app.dependency_overrides = {}
+        assert response.status_code == 409
+        assert "Candado Contable" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_reportar_pago_moneda_invalida_es_422() -> None:
+    async with _entorno_pagos() as (_, ctx, ac):
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": 1, "monto": "10.00", "moneda": "EUR", "metodo_pago": "EFECTIVO"}
+        response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
+        assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_reportar_pago_sin_idempotency_key() -> None:
+    async with _entorno_pagos() as (_, ctx, ac):
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": 1, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
+        response = await ac.post("/api/pagos/reportar", json=payload, cookies=cookies)
+        assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_reportar_pago_falla_bd(monkeypatch: pytest.MonkeyPatch) -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
+
+        async with factory() as real_session:
+
+            async def _fallar_commit() -> None:
+                raise SQLAlchemyError("DB down")
+
+            monkeypatch.setattr(real_session, "commit", _fallar_commit)
+            app.dependency_overrides[get_db] = lambda: real_session
+            response = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies)
+
+        assert response.status_code == 500
+        assert "Error en base de datos" in response.json()["detail"]
+        async with factory() as check_session:
+            total = (await check_session.execute(select(func.count()).select_from(PagoReportado))).scalar_one()
+            assert total == 0
+
+
+@pytest.mark.asyncio
+async def test_listar_pagos_en_revision() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        await _sembrar_pago(factory, recibo_id, ctx.propietario_id, estado="EN_REVISION")
+        await _sembrar_pago(factory, recibo_id, ctx.propietario_id, estado="APROBADO")
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.get("/api/pagos/revision", cookies=cookies)
+
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+        assert response.json()[0]["estado"] == "EN_REVISION"
+
+
+@pytest.mark.asyncio
+async def test_aprobar_pago_parcial() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id, monto_usd="40.00")
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, cookies=cookies)
+
+        assert response.status_code == 200
+        assert response.json()["estado"] == "APROBADO"
+        async with factory() as session:
+            recibo = await session.get(Recibo, recibo_id)
+            audits = list((await session.execute(select(AuditoriaRecibo))).scalars().all())
+            assert recibo is not None
+            assert recibo.estado == "PAGADO_PARCIAL"
+            assert recibo.monto_pagado_usd == Decimal("40.00")
+            assert len(audits) == 1
+
+
+@pytest.mark.asyncio
+async def test_aprobar_pago_total_exacto() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id, monto_usd="100.00")
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, cookies=cookies)
+
+        assert response.status_code == 200
+        async with factory() as session:
+            recibo = await session.get(Recibo, recibo_id)
+            assert recibo is not None
+            assert recibo.estado == "PAGADO"
+            assert recibo.monto_pagado_usd == Decimal("100.00")
+
+
+@pytest.mark.asyncio
+async def test_aprobar_pago_parcial_sobre_saldo_previo() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id, pagado_usd="40.00", estado="PAGADO_PARCIAL")
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id, monto_usd="30.00")
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, cookies=cookies)
+
+        assert response.status_code == 200
+        async with factory() as session:
+            recibo = await session.get(Recibo, recibo_id)
+            assert recibo is not None
+            assert recibo.monto_pagado_usd == Decimal("70.00")
+            assert recibo.estado == "PAGADO_PARCIAL"
+
+
+@pytest.mark.asyncio
+async def test_aprobar_pago_no_encontrado() -> None:
+    async with _entorno_pagos() as (_, ctx, ac):
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        response = await ac.put("/api/pagos/99999/aprobar", headers=HEADERS, cookies=cookies)
+        assert response.status_code == 404
+        assert "Pago no encontrado" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_aprobar_pago_no_esta_en_revision() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id, estado="APROBADO")
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, cookies=cookies)
+        assert response.status_code == 409
+        assert "no está en revisión" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_aprobar_recibo_no_encontrado() -> None:
+    async with _entorno_pagos() as (factory, ctx, _):
+        # PRAGMA foreign_keys=ON impide insertar PagoReportado sin recibo válido; validamos FK y la guardia 404 real.
+        async with factory() as session:
+            session.add(
+                PagoReportado(
+                    condominio_id=1,
+                    recibo_id=99999,
+                    usuario_id=ctx.propietario_id,
+                    monto=Decimal("10.00"),
+                    moneda="USD",
+                    monto_usd=Decimal("10.00"),
+                    tasa_cambio=Decimal("36.5000"),
+                    metodo_pago="EFECTIVO",
+                    estado="EN_REVISION",
+                )
+            )
+            with pytest.raises(IntegrityError):
+                await session.commit()
+            await session.rollback()
+
+            with pytest.raises(HTTPException) as exc_rec:
+                await _obtener_recibo(session, 99999, for_update=True)
+            assert exc_rec.value.status_code == 404
+            assert "Recibo no encontrado" in exc_rec.value.detail
+
+
+@pytest.mark.asyncio
+async def test_aprobar_mes_bloqueado() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id, bloqueado=True)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, cookies=cookies)
+        assert response.status_code == 409
+        assert "Candado Contable" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_rechazar_pago_success() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(
+            f"/api/pagos/{pago_id}/rechazar",
+            headers=HEADERS,
+            cookies=cookies,
+            json={"motivo": "Comprobante ilegible"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["estado"] == "RECHAZADO"
+        async with factory() as session:
+            pago = await session.get(PagoReportado, pago_id)
+            audit = (await session.execute(select(AuditoriaRecibo))).scalars().first()
+            assert pago is not None and pago.estado == "RECHAZADO"
+            assert audit is not None
+            assert audit.motivo == "Comprobante ilegible"
+            assert audit.estado_viejo == "PENDIENTE"
+            assert audit.estado_nuevo == "PENDIENTE"
+
+
+@pytest.mark.asyncio
+async def test_rechazar_pago_sin_motivo_es_422() -> None:
+    async with _entorno_pagos() as (_, ctx, ac):
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        response = await ac.put("/api/pagos/5/rechazar", headers=HEADERS, cookies=cookies, json={"motivo": ""})
+        assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_rechazar_pago_no_encontrado() -> None:
+    async with _entorno_pagos() as (_, ctx, ac):
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        response = await ac.put("/api/pagos/99999/rechazar", headers=HEADERS, cookies=cookies, json={"motivo": "X"})
+        assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_rechazar_pago_no_esta_en_revision() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id, estado="RECHAZADO")
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(
+            f"/api/pagos/{pago_id}/rechazar", headers=HEADERS, cookies=cookies, json={"motivo": "X"}
+        )
+        assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_rechazar_mes_bloqueado() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id, bloqueado=True)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        response = await ac.put(
+            f"/api/pagos/{pago_id}/rechazar", headers=HEADERS, cookies=cookies, json={"motivo": "X"}
+        )
+        assert response.status_code == 409
+        assert "Candado Contable" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_pagos_rbac_y_bloqueo_fantasma() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id)
+        async with factory() as session:
+            fantasma = Usuario(
+                condominio_id=1,
+                nombre="Fantasma",
+                cedula="V-99999999",
+                correo="fantasma@test.com",
+                telefono="0414",
+                password_hash=get_password_hash("Clave1234!"),
+                es_activo=False,
+                rol="FANTASMA",
+            )
+            session.add(fantasma)
+            await session.commit()
+            fantasma_id = fantasma.id
+
+        cookies_ghost = _cookies_usuario("fantasma@test.com", fantasma_id, "FANTASMA")
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
+        res_ghost = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies_ghost)
+        assert res_ghost.status_code == 403
+
+        cookies_prop = _cookies_usuario("prop@condo.test", ctx.propietario_id, "PROPIETARIO")
+        assert (await ac.get("/api/pagos/revision", cookies=cookies_prop)).status_code == 403
+        assert (await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, cookies=cookies_prop)).status_code == 403
+        assert (
+            await ac.put(
+                f"/api/pagos/{pago_id}/rechazar",
+                headers=HEADERS,
+                cookies=cookies_prop,
+                json={"motivo": "Motivo válido"},
+            )
+        ).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_aprobar_pago_sin_idempotency_key_duplicado_y_unidad_inexistente() -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        pago_id = await _sembrar_pago(factory, recibo_id, ctx.propietario_id)
+        cookies = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+
+        assert (await ac.put(f"/api/pagos/{pago_id}/aprobar", cookies=cookies)).status_code == 422
+
+        res_ok = await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, cookies=cookies)
+        assert res_ok.status_code == 200
+        res_dup = await ac.put(f"/api/pagos/{pago_id}/aprobar", headers=HEADERS, content=b"{}", cookies=cookies)
+        assert res_dup.status_code == 409
+        assert "Idempotency-Key" in res_dup.json()["detail"]
+
+        # PRAGMA foreign_keys=ON impide crear recibos con unidad inexistente; validamos FK y la guardia 404 real.
+        async with factory() as session:
+            session.add(
+                Recibo(
+                    condominio_id=1,
+                    unidad_id=99999,
+                    periodo="2026-11",
+                    monto_usd=Decimal("10.00"),
+                )
+            )
+            with pytest.raises(IntegrityError):
+                await session.commit()
+            await session.rollback()
+
+            with pytest.raises(HTTPException) as exc_uni:
+                await _obtener_unidad_bloqueada(session, 99999)
+            assert exc_uni.value.status_code == 404
+            assert "Unidad" in exc_uni.value.detail
+
+
+@pytest.mark.asyncio
+async def test_reportar_pago_anti_idor_y_colision_integrity_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    async with _entorno_pagos() as (factory, ctx, ac):
+        recibo_id = await _sembrar_recibo(factory, ctx.unidad_a_id)
+        payload = {"recibo_id": recibo_id, "monto": "100.00", "moneda": "USD", "metodo_pago": "EFECTIVO"}
+
+        # Inquilino sin ContratoOcupacion sobre unidad_a_id -> 403 anti-IDOR
+        cookies_inq = _cookies_usuario("inq@condo.test", ctx.inquilino_id, "INQUILINO")
+        res_idor = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies_inq)
+        assert res_idor.status_code == 403
+        assert "autorización" in res_idor.json()["detail"]
+
+        # Propietario con ContratoOcupacion activo sobre unidad_a_id -> 201 OK
+        cookies_prop = _cookies_usuario("prop@condo.test", ctx.propietario_id, "PROPIETARIO")
+        res_ok = await ac.post("/api/pagos/reportar", json=payload, headers=HEADERS, cookies=cookies_prop)
+        assert res_ok.status_code == 201
+
+        # IntegrityError concurrente sobre referencia única parcial -> 409 Conflict
+        cookies_tes = _cookies_usuario("tes@condo.test", ctx.tesorero_id, "TESORERO")
+        async with factory() as real_session:
+
+            async def _fallar_integridad() -> None:
+                raise IntegrityError("dup", {}, Exception("uq_pagos_metodo_ref_activo"))
+
+            monkeypatch.setattr(real_session, "commit", _fallar_integridad)
+            app.dependency_overrides[get_db] = lambda: real_session
+            res_ie = await ac.post(
+                "/api/pagos/reportar",
+                json={
+                    "recibo_id": recibo_id,
+                    "monto": "100.00",
+                    "moneda": "USD",
+                    "metodo_pago": "ZELLE",
+                    "numero_referencia": "REF-RACE-01",
+                },
+                headers=HEADERS_ALT,
+                cookies=cookies_tes,
+            )
+
+        assert res_ie.status_code == 409
+        assert "referencia bancaria" in res_ie.json()["detail"]

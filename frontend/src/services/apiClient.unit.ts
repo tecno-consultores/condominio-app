@@ -15,6 +15,7 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     registerUnauthorizedCallback(null);
     resetCsrfToken();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('gestiona el token CSRF y envía credentials: include e Idempotency-Key en mutaciones', async () => {
@@ -411,5 +412,198 @@ describe('Cliente HTTP Resiliente (apiClient.ts)', () => {
     await expect(apiClient.get('/api/finanzas/resumen')).resolves.toEqual({ ok: true });
     const refreshCalls = seqFetch.mock.calls.filter(([u]) => u === '/api/auth/refresh');
     expect(refreshCalls).toHaveLength(2);
+  });
+
+  it('recorta espacios en cookie/header CSRF, tolera document undefined y headers sin .get', async () => {
+    vi.stubGlobal('document', { cookie: 'otra=1; csrf_token=  tok-espacios  ; fin=2' });
+    expect(readCsrfCookie()).toBe('tok-espacios');
+
+    vi.stubGlobal('document', undefined);
+    expect(readCsrfCookie()).toBeNull();
+    vi.unstubAllGlobals();
+
+    document.cookie = 'csrf_token=csrf-cookie-persistente';
+    resetCsrfToken();
+    expect(getCsrfToken()).toBe('csrf-cookie-persistente');
+    setCsrfToken('csrf-client-initialized');
+    expect(getCsrfToken()).toBe('csrf-cookie-persistente');
+    document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+
+    const headerMap: Record<string, string> = {
+      'x-csrf-token': '  csrf-crudo-espacios  ',
+      'content-type': 'application/json',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: { get: (name: string) => headerMap[name] ?? null },
+          json: async () => ({ ok: true }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: {},
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: undefined,
+        }),
+    );
+
+    await expect(apiClient.get('/api/health')).resolves.toEqual({ ok: true });
+    expect(getCsrfToken()).toBe('csrf-crudo-espacios');
+    await expect(apiClient.get('/api/health')).resolves.toBeNull();
+    await expect(apiClient.get('/api/health')).resolves.toBeNull();
+  });
+
+  it('ignora JSON primitivos/no-array en CSRF/detail, omite text/plain con json() y sincroniza cookie', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => 'cadena-plana',
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => 'cadena-error',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ok: true, csrf_token: 99999 }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 422,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ detail: { 0: { msg: 'falso' }, length: 1 } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'text/plain' }),
+          json: async () => ({ shouldNotParse: true }),
+        }),
+    );
+
+    await expect(apiClient.get('/api/ping')).resolves.toBe('cadena-plana');
+    await expect(apiClient.get('/api/ping')).rejects.toMatchObject({
+      status: 400,
+      detail: 'Error HTTP 400',
+    });
+    await expect(apiClient.get('/api/ping')).resolves.toEqual({ ok: true, csrf_token: 99999 });
+    await expect(apiClient.get('/api/ping')).rejects.toMatchObject({
+      status: 422,
+      detail: 'Error HTTP 422',
+    });
+    await expect(apiClient.get('/api/ping')).resolves.toBeNull();
+
+    resetCsrfToken();
+    document.cookie = 'csrf_token=csrf-cookie-get-demo';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      }),
+    );
+    await apiClient.get('/api/health');
+    document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    expect(getCsrfToken()).toBe('csrf-cookie-get-demo');
+  });
+
+  it('tolera ausencia de FormData/Blob, preserva headers custom y reenvía opciones get/put/login?query', async () => {
+    const spyFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ ok: true }),
+    });
+    vi.stubGlobal('fetch', spyFetch);
+    vi.stubGlobal('FormData', undefined);
+    await expect(apiClient.post('/api/test', { a: 1 })).resolves.toEqual({ ok: true });
+    vi.unstubAllGlobals();
+
+    vi.stubGlobal('fetch', spyFetch);
+    vi.stubGlobal('Blob', undefined);
+    await expect(apiClient.post('/api/test', { a: 1 })).resolves.toEqual({ ok: true });
+    vi.unstubAllGlobals();
+
+    vi.stubGlobal('fetch', spyFetch);
+    spyFetch.mockClear();
+
+    await apiClient.get('/api/health', { headers: { 'X-Trace': 'tr-1' } });
+    const [, getInit] = spyFetch.mock.calls[0] as [string, RequestInit];
+    const getHeaders = getInit.headers as Record<string, string>;
+    expect(getInit.method).toBe('GET');
+    expect(getHeaders['X-Trace']).toBe('tr-1');
+    expect(Object.prototype.hasOwnProperty.call(getHeaders, 'Idempotency-Key')).toBe(false);
+
+    await apiRequest('/api/custom', {
+      method: 'POST',
+      body: { hola: 1 },
+      headers: { 'Content-Type': 'text/plain' },
+    });
+    const [, postInit] = spyFetch.mock.calls[1] as [string, RequestInit];
+    expect((postInit.headers as Record<string, string>)['Content-Type']).toBe('text/plain');
+
+    await apiClient.put('/api/pagos/1/aprobar', { nota: 'ok' }, { idempotencyKey: 'put-key-1' });
+    const [, putInit] = spyFetch.mock.calls[2] as [string, RequestInit];
+    expect(putInit.method).toBe('PUT');
+    expect(putInit.body).toBe('{"nota":"ok"}');
+    expect((putInit.headers as Record<string, string>)['Idempotency-Key']).toBe('put-key-1');
+
+    await apiRequest('/api/auth/login?next=/dashboard', { method: 'POST', body: { a: 1 } });
+    const [, loginInit] = spyFetch.mock.calls[3] as [string, RequestInit];
+    const loginHeaders = loginInit.headers as Record<string, string>;
+    expect(Object.prototype.hasOwnProperty.call(loginHeaders, 'Idempotency-Key')).toBe(false);
+  });
+
+  it('no reintenta refresh por segunda vez si el reintento vuelve a responder 401', async () => {
+    let refreshCount = 0;
+    let apiCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/auth/refresh') {
+          refreshCount += 1;
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ ok: true }),
+          } as Response;
+        }
+        apiCalls += 1;
+        return {
+          ok: false,
+          status: 401,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ detail: 'Sigue sin sesión' }),
+        } as Response;
+      }),
+    );
+
+    await expect(apiClient.get('/api/finanzas/resumen')).rejects.toMatchObject({
+      status: 401,
+      detail: 'Sigue sin sesión',
+      refreshAttempted: true,
+    });
+    expect(refreshCount).toBe(1);
+    expect(apiCalls).toBe(2);
   });
 });

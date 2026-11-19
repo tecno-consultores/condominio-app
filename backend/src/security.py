@@ -97,20 +97,28 @@ def is_csrf_enforced() -> bool:
     return is_prod or explicit
 
 
-def validate_production_security_settings() -> None:
-    """Falla de inmediato (Fail-Fast) si producción usa secretos por defecto o DB en memoria."""
-    if os.getenv("APP_ENV", "development").strip().lower() != "production":
-        return
+def _validate_production_secret() -> None:
     secret = _get_secret_key().strip()
     if not secret or secret == DEFAULT_INSECURE_SECRET_KEY or len(secret) < 32:
         raise RuntimeError(
             "Configuración insegura en APP_ENV=production: defina SECRET_KEY criptográfica (>= 32 caracteres)."
         )
+
+
+def _validate_production_db_url() -> None:
     db_url = os.getenv("DATABASE_URL", "").strip()
     if not db_url or ":memory:" in db_url:
         raise RuntimeError(
             "Configuración insegura en APP_ENV=production: DATABASE_URL no puede estar vacía ni usar SQLite :memory:."
         )
+
+
+def validate_production_security_settings() -> None:
+    """Falla de inmediato (Fail-Fast) si producción usa secretos por defecto o DB en memoria."""
+    if os.getenv("APP_ENV", "development").strip().lower() != "production":
+        return
+    _validate_production_secret()
+    _validate_production_db_url()
 
 
 FORBIDDEN_CONTAINER_HOSTS = frozenset(
@@ -282,9 +290,7 @@ def validate_csrf_token(token: str, session_id: str) -> bool:
 
 def _is_forbidden_ip(ip_addr_str: str) -> bool:
     ip = ipaddress.ip_address(ip_addr_str)
-    return bool(
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-    )
+    return any((ip.is_private, ip.is_loopback, ip.is_link_local, ip.is_multicast, ip.is_reserved, ip.is_unspecified))
 
 
 _DEFAULT_TRUSTED_PROXY_CIDRS: tuple[str, ...] = (
@@ -316,19 +322,21 @@ def _resolve_trusted_proxy_entries(clean_host: str) -> tuple[bool, tuple[str, ..
     return clean_host in entries, entries
 
 
+def _ip_in_trusted_entries(clean_host: str, entries: tuple[str, ...]) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(clean_host)
+    except ValueError:
+        return False
+    return any(_host_matches_network(ip_obj, entry) for entry in entries)
+
+
 def is_trusted_proxy_ip(client_host: str | None) -> bool:
     """Determina si la IP directa del socket pertenece a un proxy inverso confiable."""
     clean_host = (client_host or "").strip()
     if not clean_host:
         return False
     direct_match, entries = _resolve_trusted_proxy_entries(clean_host)
-    if direct_match:
-        return True
-    try:
-        ip_obj = ipaddress.ip_address(clean_host)
-    except ValueError:
-        return False
-    return any(_host_matches_network(ip_obj, entry) for entry in entries)
+    return direct_match or _ip_in_trusted_entries(clean_host, entries)
 
 
 def _resolve_and_validate_ips(hostname: str) -> None:
@@ -376,19 +384,33 @@ async def validate_safe_outgoing_url_async(url_str: str) -> str:
     return normalized_url
 
 
+_MAGIC_PREFIX_MIMES: tuple[tuple[bytes | tuple[bytes, ...], str], ...] = (
+    (b"%PDF-", "application/pdf"),
+    ((b"\x89PNG\r\n\x1a\n", b"\x89PNG"), "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+)
+_AVIF_BRANDS = (b"ftypavif", b"ftypavis", b"ftypmif1")
+
+
+def _detect_container_mime(sample: bytes) -> str | None:
+    if len(sample) < 12:
+        return None
+    if (sample[:4], sample[8:12]) == (b"RIFF", b"WEBP"):
+        return "image/webp"
+    if sample[4:12] in _AVIF_BRANDS:
+        return "image/avif"
+    return None
+
+
 def validate_file_magic_bytes(header: bytes) -> str:
     """Inspecciona los primeros 16 bytes binarios del archivo para prevenir falsificación de MIME Type (Patrón 15)."""
     sample = header[:16]
-    if sample.startswith(b"%PDF-"):
-        return "application/pdf"
-    if sample.startswith((b"\x89PNG\r\n\x1a\n", b"\x89PNG")):
-        return "image/png"
-    if sample.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if len(sample) >= 12 and sample[:4] == b"RIFF" and sample[8:12] == b"WEBP":
-        return "image/webp"
-    if len(sample) >= 12 and sample[4:12] in (b"ftypavif", b"ftypavis", b"ftypmif1"):
-        return "image/avif"
+    for prefixes, mime in _MAGIC_PREFIX_MIMES:
+        if sample.startswith(prefixes):
+            return mime
+    container_mime = _detect_container_mime(sample)
+    if container_mime:
+        return container_mime
     raise HTTPException(
         status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
         detail="Formato binario de archivo no permitido (Magic Bytes inválidos).",

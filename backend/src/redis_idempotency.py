@@ -109,13 +109,17 @@ class IdempotencyResponsePayload:
     body: Any
 
 
+def _purge_expired_local_records(now: float) -> None:
+    expired = [k for k, (_, exp) in _local_idempotency_records.items() if exp <= now]
+    for k in expired:
+        _local_idempotency_records.pop(k, None)
+
+
 def _store_local_idemp_record(redis_key: str, encoded: str, ttl_seconds: int) -> None:
     if is_production_env():
         return
     now = time.monotonic()
-    expired = [k for k, (_, exp) in _local_idempotency_records.items() if exp <= now]
-    for k in expired:
-        _local_idempotency_records.pop(k, None)
+    _purge_expired_local_records(now)
     if redis_key not in _local_idempotency_records and len(_local_idempotency_records) >= MAX_LOCAL_SECURITY_ENTRIES:
         oldest = min(_local_idempotency_records, key=lambda k: _local_idempotency_records[k][1])
         _local_idempotency_records.pop(oldest, None)
@@ -288,18 +292,26 @@ async def rotate_refresh_token_with_grace_period(
         _local_grace_tokens[old_token_family_id] = (new_token, time.monotonic() + max(1, grace_seconds))
 
 
+def _get_local_grace_token(old_token_family_id: str) -> str | None:
+    if is_production_env():
+        return None
+    entry = _local_grace_tokens.get(old_token_family_id)
+    if entry is None:
+        return None
+    if entry[1] > time.monotonic():
+        return entry[0]
+    _local_grace_tokens.pop(old_token_family_id, None)
+    return None
+
+
 async def get_refresh_token_from_grace_period(
     client: redis.Redis | None,
     old_token_family_id: str,
 ) -> str | None:
     """Recupera el nuevo token si la rotación ocurrió dentro del grace period de 5s."""
-    if not is_production_env():
-        now = time.monotonic()
-        entry = _local_grace_tokens.get(old_token_family_id)
-        if entry is not None:
-            if entry[1] > now:
-                return entry[0]
-            _local_grace_tokens.pop(old_token_family_id, None)
+    local_token = _get_local_grace_token(old_token_family_id)
+    if local_token is not None:
+        return local_token
     if client is None:
         raise_if_prod()
         return None

@@ -4,7 +4,7 @@
 # 🏡 Guía Práctica del Residente y Propietario
 
 **Condominio App — Tu Comunidad al Alcance de tu Mano**  
-*Manual de Uso para Propietarios, Inquilinos y Conserjes*  
+*Manual de Uso para Propietarios, Inquilinos, Conserjes y Junta Directiva*  
 **Versión:** 1.0.0 (Lanzamiento Oficial)  
 **Fecha de Publicación:** Noviembre 2026
 
@@ -37,54 +37,55 @@
 Para comenzar a usar la plataforma, cada residente debe registrarse una única vez:
 
 1. **Ingreso a la App:** Abra en el navegador de su teléfono o computadora la dirección web de su condominio (ejemplo: `https://condominio.mi-comunidad.com`).
-2. **Crear Cuenta:** En la pantalla de bienvenida, pulse sobre el enlace **"Solicitar registro de unidad"**.
+2. **Crear Cuenta:** En la pantalla de bienvenida (`/login`), pulse sobre el enlace **"Solicitar registro de unidad"** (`/register`).
 3. **Formulario de Registro:**
-   - Escriba su **Nombre Completo** y **Cédula de Identidad**.
-   - Coloque su **Correo Electrónico** (será su usuario de acceso).
-   - Ingrese su número de **Teléfono Móvil** (para recibir notificaciones).
-   - Cree una **Contraseña Segura** de al menos 8 caracteres (con números y letras).
-   - Seleccione la **Torre y Apartamento** en el que habita.
-   - Indique si es **Propietario** o **Inquilino**.
-4. **Validación por Seguridad:** Al presionar **"Crear cuenta"**, su usuario quedará en estado de *Cuenta en Validación*. La Junta de Condominio o el Administrador validará sus datos para confirmar su condición de residente. Una vez aprobado, podrá iniciar sesión normalmente con su correo y contraseña.
+   - Escriba su **Nombre completo** y **Documento de identidad (Cédula)**.
+   - Coloque su **Correo electrónico** (será su usuario de acceso).
+   - Ingrese su número de **Teléfono móvil**.
+   - Seleccione su **Unidad Habitacional** en la lista desplegable.
+   - Indique su condición: **Propietario** o **Inquilino**.
+   - Cree una **Contraseña** segura de entre `8` y `128` caracteres.
+4. **Validación por Seguridad:** Al presionar **"Crear cuenta de residente"**, será redirigido a `/espera-aprobacion` (*Cuenta en Validación*: *"Registro completado. Esperando validación de la Junta"*). El **Presidente** o **Vicepresidente** validará su unidad y activará su cuenta; mientras tanto puede consultar el estado con **"Verificar estado de aprobación"**.
 
 ---
 
 ## 2. Tu Hogar Hoy: El Panel Principal
 
-Al ingresar al sistema, lo primero que verá es su **Panel Residencial**, donde encontrará un resumen claro del estado de su inmueble:
+Al ingresar al sistema (`/dashboard`, alias `/inicio`), lo primero que verá es su **Panel Residencial**, donde encontrará un resumen claro del estado de su inmueble:
 
-- **Tarjeta de Solvencia:** Indica si su apartamento se encuentra **Solvente** (al día con balance en `$0.00 USD`) o si presenta recibos pendientes de pago.
-- **Tasa Oficial del Día:** Muestra la tasa de cambio oficial del Banco Central de Venezuela (BCV), la cual se utiliza para calcular el monto exacto en bolívares de sus recibos emitidos en divisas.
-- **Semáforo de Cobranza:** Un gráfico visual que le permite verificar el porcentaje general de vecinos solventes en su edificio, promoviendo la puntualidad y transparencia colectiva.
-- **Gráfico de Gastos Comunes:** Muestra en qué se invirtieron los fondos del condominio durante el último mes (vigilancia, mantenimiento de bombas, electricidad común, limpieza, etc.).
-- **Comunicados Oficiales:** Cartelera digital con los avisos urgentes emitidos por la Junta de Condominio (cortes de agua de la red pública, fechas de fumigación o reuniones extraordinarias).
+- **Estado de Cuenta Consolidado:** Indica si su unidad se encuentra **Solvente / Al día** (`$0.00 USD`) o si presenta recibos pendientes de pago.
+- **Tasa Oficial del Día:** Muestra la tasa oficial del Banco Central de Venezuela (BCV) vigente en el sistema para calcular el monto equivalente en bolívares (VES).
+- **Banner de Cierre Mensual:** Cuando hay un cierre contable publicado entre los días 1 y 10 del mes, aparece un aviso destacado en la parte superior.
+- **Comunicados Oficiales:** Carrusel horizontal con los avisos oficiales publicados por Secretaría o la Junta Directiva.
+- **Pestaña "Semáforo de Cobranza":** Por privacidad, los residentes (`Propietario` e `Inquilino`) visualizan exclusivamente el estado de sus propias unidades activas (los miembros de la Junta Directiva ven el resumen general comunitario y `Conserje` no visualiza datos de cobranza).
+- **Pestaña "Gastos por Categoría":** Gráfica comparativa de los egresos comunes del condominio (seguridad, mantenimiento de bombas, electricidad común, limpieza, ascensores, jardinería, etc.).
 
 ---
 
 ## 3. Cómo Reportar tus Pagos Paso a Paso
 
-El reporte de pagos es un proceso guiado de **3 pasos sencillos**:
+El reporte de pagos en `/finanzas/reportar-pago` (alias `/pagar`) es un proceso guiado de **3 pasos sencillos** accesible desde el botón **"Reportar Pago"** o el botón flotante **"Pagar / Reportar"**:
 
-### Paso 1: Monto, Moneda y Cobertura
-1. Pulse el botón flotante **"Reportar Pago"** (o ingrese desde el menú en **Finanzas** $\rightarrow$ **Reportar Pago**).
-2. Indique la cantidad que canceló.
+### Paso 1: 1. Monto y Recibo
+1. Seleccione el recibo pendiente que desea abonar.
+2. Ingrese la cantidad que canceló.
 3. Seleccione la moneda en la que realizó la operación:
-   - **Bolívares (VES):** El sistema aplicará la tasa oficial BCV del día para calcular su equivalente exacto en dólares.
+   - **Bolívares (VES):** El sistema aplicará la tasa oficial BCV vigente para calcular su equivalente exacto en dólares.
    - **Dólares (USD):** Pago en divisas.
-4. El sistema le indicará en pantalla si el monto ingresado corresponde a un **PAGO TOTAL** de su deuda o a un **ABONO PARCIAL**.
+4. El sistema le indicará en pantalla si el monto cubre un **PAGO TOTAL** o un **ABONO PARCIAL** y luego pulse **"Continuar al Paso 2"**.
 
-### Paso 2: Método de Pago y Comprobante
+### Paso 2: 2. Método y Soporte
 1. Elija el método utilizado:
-   - **Pago Móvil:** Ingrese el número de referencia bancaria y adjunte la captura de pantalla.
+   - **Pago Móvil:** Ingrese el **Número de Referencia** bancaria (mínimo 4 caracteres).
    - **Transferencia Bancaria:** Ingrese el número de confirmación emitido por su banco.
-   - **Zelle:** Indique el nombre del titular de la cuenta Zelle emisora y código de confirmación.
-   - **Efectivo (USD):** Especifique que entregará el dinero en sobre cerrado a la tesorería o conserje.
-2. **Adjuntar Comprobante:** Tome una fotografía o seleccione la imagen de su recibo bancario (formatos permitidos: JPG, PNG o AVIF, con tamaño menor a 2 MB).
+   - **Zelle:** Indique el código de confirmación / referencia de la operación Zelle.
+   - **Efectivo (USD):** Especifique el pago en efectivo sin número de referencia obligatorio.
+2. **Adjuntar Comprobante:** Suba la fotografía o documento del recibo bancario (formatos permitidos: **AVIF, WebP, PNG, JPG o PDF**, máximo **2 MB**) y pulse **"Revisar y Confirmar"**.
 
-### Paso 3: Confirmación y Envío
+### Paso 3: 3. Confirmar Envío
 1. Revise el resumen con todos los datos de su pago.
 2. Presione **"Confirmar y Enviar Pago"**.
-3. **¿Qué sucede luego?:** El pago pasará a la mesa de tesorería para su conciliación bancaria. En cuanto sea aprobado (habitualmente el mismo día hábil), su balance se actualizará automáticamente y su recibo se marcará como pagado.
+3. **¿Qué sucede luego?:** El pago quedará en revisión para conciliación por Tesorería (`TESORERO` o `PRESIDENTE`). Al aprobarse, su saldo se actualizará automáticamente.
 
 > [!TIP]
 > **¿Qué pasa si pago de más?:** Si realizó un pago por un monto superior a su recibo, ¡no se preocupe! El sistema calculará el excedente y lo guardará automáticamente como **Crédito a Favor**, descontándolo de su próximo recibo mensual.
@@ -95,22 +96,22 @@ El reporte de pagos es un proceso guiado de **3 pasos sencillos**:
 
 ¿Notó una bombilla quemada en el pasillo, un ruido extraño en el portón o una fuga de agua en el jardín? No es necesario enviar múltiples quejas repetidas al grupo de WhatsApp:
 
-1. Ingrese a la sección **Incidencias** desde el menú lateral o inferior.
-2. **Revise si el problema ya fue publicado:** Si otro vecino ya reportó la misma avería, simplemente pulse el botón **"¡Me sumo!"**. Esto aumentará el contador de urgencia de la incidencia sin crear reportes duplicados.
-3. **Crear un Nuevo Reporte:** Si nadie lo ha reportado aún, pulse **"Reportar Incidencia"**, escriba un título corto, la ubicación exacta (ejemplo: *Piso 4, pasillo Torre B*) y una breve descripción del problema.
-4. **Seguimiento en Vivo:** Cuando el conserje o técnico repare la avería en su checklist diario, la incidencia se marcará automáticamente como **Resuelta**.
+1. Ingrese a **Comunidad y Gobernanza** $\rightarrow$ **Embudo de Incidencias** (`/incidencias`).
+2. **Revise si el problema ya fue publicado:** Si otro vecino ya reportó la misma avería, simplemente pulse el botón **"¡Me sumo!"**. Esto aumentará el contador de prioridad comunitaria sin crear reportes duplicados.
+3. **Crear un Nuevo Reporte:** Si nadie lo ha reportado aún, pulse **"Reportar Nueva Falla"**, seleccione el **Área afectada**, describa el problema (mínimo 5 caracteres), adjunte una foto opcional ($\le 2\text{ MB}$) y presione **"Publicar Incidencia"**.
+4. **Seguimiento:** Cuando el **Conserje** o la directiva complete la tarea vinculada en **Tareas de Conserjería** (`/operaciones/tareas`), la incidencia se marcará automáticamente como **Cerrada / Resuelta**.
 
 ---
 
 ## 5. Participación en Cartas Consulta y Votaciones Digitales
 
-De acuerdo con el Artículo 23 de la Ley de Propiedad Horizontal, las decisiones importantes del condominio (como la contratación de impermeabilización, cambio de vigilantes o reformas de normas) pueden votarse por escrito o de forma digital:
+De acuerdo con el Artículo 23 de la Ley de Propiedad Horizontal, las decisiones importantes del condominio (como impermeabilización, servicios de conserjería o reformas de normas) pueden votarse por escrito o de forma digital:
 
-1. Ingrese a **Gobernanza** $\rightarrow$ **Consultas**.
-2. Seleccione la consulta comunitaria abierta que desea revisar.
-3. Lea la exposición de motivos de la Junta, los presupuestos comparativos y la fecha límite para votar.
-4. Elija su opción preferida y presione **"Confirmar y Emitir Voto"**.
-5. **Recibo Criptográfico:** Al votar, la aplicación le mostrará un comprobante con un sello criptográfico **HMAC-SHA256**. Puede copiar este recibo como constancia inalterable de su participación. Cada voto es ponderado automáticamente por el porcentaje de alícuota de su inmueble.
+1. Ingrese a **Comunidad y Gobernanza** $\rightarrow$ **Cartas Consulta (Art. 23)** (`/consultas`).
+2. Pulse **"Ver Detalle y Votar"** en la consulta comunitaria abierta que desea revisar (`/consultas/:id`).
+3. Lea la descripción, el quórum requerido y las opciones disponibles.
+4. Seleccione su opción preferida, la **Unidad Inmobiliaria Representada** y presione **"Emitir Voto Firmado (HMAC-SHA256)"** (exclusivo para `PROPIETARIO` o representante con `puede_votar_asamblea` activo).
+5. **Recibo Criptográfico:** Al votar, podrá abrir **"Ver Recibo Criptográfico"** para consultar su comprobante inalterable con sello **HMAC-SHA256**. Cada voto se pondera automáticamente por la alícuota de su inmueble.
 
 ---
 
@@ -118,15 +119,14 @@ De acuerdo con el Artículo 23 de la Ley de Propiedad Horizontal, las decisiones
 
 Olvídese de llamar constantemente a la garita para autorizar la entrada de sus visitas:
 
-1. Vaya a la sección **Accesos y Pases** (`/accesos/pases`).
-2. Complete los datos de su visitante:
-   - Nombre y Apellido.
-   - Cédula de Identidad.
-   - Tipo de acceso: Peatonal o Vehicular (indicando el número de placa).
-   - Tiempo de validez: por ejemplo, válido por 4 horas, 8 horas o para todo el día.
-3. Pulse **"Generar Pase QR"**.
-4. Comparta la imagen del código QR o el token numérico con su invitado por WhatsApp.
-5. Al llegar al portón, el vigilante escaneará el código desde su tableta. Al ser validado, el pase se desactivará automáticamente para evitar que sea reutilizado por terceros.
+1. Vaya a **Operaciones y Junta Directiva** $\rightarrow$ **Pases de Visita QR** (`/accesos/pases`).
+2. Complete los datos de su autorización:
+   - **Unidad Anfitriona** y **Modalidad del Pase** (*Único Uso* o *Ventana Temporal*).
+   - **Vigencia** (`1` a `72` horas).
+   - **Nombre Completo del Visitante o Técnico**, **Cédula / Documento** y **Placa Vehicular (Opcional)**.
+3. Pulse **"Emitir Pase QR Firmado"**.
+4. Comparta el token generado mediante el botón **"Copiar Token QR"** (también puede anularlo en cualquier momento pulsando **"Revocar Pase"**).
+5. Al llegar al portón, el **Conserje** o un miembro autorizado de la Junta (`CONSERJE`, `PRESIDENTE` o `VOCERO`) verificará el token en **Escáner Garita QR** (`/operaciones/garita-qr`). Si el pase es de *Único Uso*, se quemará atómicamente en KeyDB para impedir su reutilización.
 
 ---
 
@@ -134,10 +134,10 @@ Olvídese de llamar constantemente a la garita para autorizar la entrada de sus 
 
 Cuando realice compras en línea o reciba correspondencia:
 
-1. La empresa de mensajería (MRW, Zoom, Tealca, MercadoLibre) entregará el paquete en la garita de vigilancia o conserjería.
-2. El personal registrará el número de guía y el apartamento destinatario en el sistema.
-3. Usted verá en su panel una alerta de **Paquete Pendiente por Retirar**.
-4. Al acudir a la conserjería a retirar su paquete, el personal presionará **"Confirmar Entrega"**, manteniendo un historial transparente de custodia.
+1. La empresa de mensajería (`ZOOM`, `MRW`, `TEALCA`, `MERCADOLIBRE`, `PEDIDOSYA` u `OTRO`) entregará el paquete en conserjería / garita.
+2. El **Conserje** o **Presidente** (`CONSERJE` o `PRESIDENTE`) registrará la unidad destinataria, courier y descripción/guía en **Paquetería en Garita** (`/operaciones/paqueteria`).
+3. Por privacidad, cada residente visualiza exclusivamente las encomiendas asignadas a sus unidades activas.
+4. Al acudir a retirar su paquete, tanto el conserje/Presidente como el residente de la unidad destinataria pueden pulsar **"Confirmar Retiro / Entrega"**, manteniendo un historial transparente de custodia.
 
 ---
 
@@ -145,12 +145,11 @@ Cuando realice compras en línea o reciba correspondencia:
 
 Para celebrar cumpleaños, reuniones familiares o usar los espacios recreativos comunes:
 
-1. Ingrese a **Amenidades** $\rightarrow$ **Reservas** (`/reservas/areas`).
-2. Elija el área social deseada (Salón de Fiestas, Churuata, Parrillera, Cancha).
-3. **Condición Obligatoria de Solvencia:** Por disposición de las normas de convivencia, sólo las unidades que se encuentren al día con el pago del condominio ($\$0.00\text{ de deuda}$) pueden solicitar reservas. Si posee recibos vencidos, deberá reportar su pago previamente.
-4. Escoja la fecha en el calendario y la cantidad estimada de asistentes.
-5. Envíe la solicitud para asegurar su fecha.
-6. Al día siguiente de su evento, el conserje realizará una breve inspección del estado de las instalaciones.
+1. Ingrese a **Comunidad y Gobernanza** $\rightarrow$ **Reserva de Áreas Sociales** (`/reservas/areas`).
+2. Elija el área social deseada, su unidad y la fecha del evento.
+3. **Condición Obligatoria de Solvencia:** Por disposición de las normas de convivencia, sólo las unidades que se encuentren al día con el pago del condominio (`$0.00 USD` de deuda) pueden solicitar reservas. Si posee recibos vencidos, deberá reportar su pago previamente.
+4. Presione **"Solicitar Reserva (Solvencia Estricta)"** para asegurar su fecha (si necesita anular mientras esté `CONFIRMADA`, use **"Cancelar Reserva"**).
+5. Tras el evento, el **Conserje**, **Presidente** o **Tesorero** registrará la inspección post-evento de las instalaciones.
 
 ---
 
@@ -158,25 +157,24 @@ Para celebrar cumpleaños, reuniones familiares o usar los espacios recreativos 
 
 Si necesita demostrar que su inmueble está libre de deudas para trámites legales, protocolización en Notaría, Registro Inmobiliario o contratos de arrendamiento:
 
-1. Diríjase a **Finanzas** $\rightarrow$ **Certificado de Solvencia**.
-2. Si su saldo es cero, presione el botón **"Emitir Certificado Digital"**.
-3. El sistema generará al instante un documento con:
-   - Folio único de emisión.
-   - Nombre del propietario y número de apartamento.
-   - Código QR de autenticidad.
-   - Firma criptográfica verificable en línea.
-4. Puede descargar el certificado o enviarlo por correo electrónico. Cualquier persona puede escanear el código QR con la cámara de su teléfono para comprobar que el documento es legítimo y vigente.
+1. Diríjase a **Mi Hogar y Finanzas** $\rightarrow$ **Certificado de Solvencia** (`/finanzas/solvencia`).
+2. Seleccione su **Unidad Habitacional** y, si su saldo es cero, presione **"Emitir Certificado de Solvencia"**.
+3. El sistema generará al instante un certificado con:
+   - Folio oficial único e identificador `jti`.
+   - Unidad verificada y fecha de vencimiento.
+   - Token QR y firma criptográfica **HMAC-SHA256**.
+4. Cualquier tercero puede comprobar la autenticidad y deuda viva cero ingresando folio y firma en la sección **Verificación Pública de Autenticidad** (**"Verificar Firma y Vigencia"**).
 
 ---
 
 ## 10. Preguntas Frecuentes y Ayuda en Pantalla
 
 - **¿Olvidé mi contraseña, cómo la recupero?**  
-  Comuníquese con el Administrador o miembro de la Junta para que restablezcan su contraseña o le generen una clave temporal de acceso.
+  Comuníquese con la Junta Directiva (`PRESIDENTE` o administrador) para coordinar un restablecimiento seguro (la recuperación autoservicio forma parte de la Spec 13 Fase 8).
 - **¿Puedo tener más de un usuario por apartamento?**  
-  Sí. Tanto el propietario como los inquilinos o familiares directos pueden solicitar su registro asociándolo a la misma unidad.
-- **¿Cómo abro la ayuda en cualquier pantalla?**  
-  En la parte superior de cada pantalla encontrará un botón con el signo de interrogación **`? Ayuda`**. Al pulsarlo, verá de inmediato una guía paso a paso explicándole el funcionamiento de esa sección.
+  Sí. Tanto el propietario como los inquilinos pueden solicitar su registro asociándolo a la misma unidad para su aprobación por la directiva.
+- **¿Cómo abro la ayuda en cualquier pantalla y cómo cierro sesión?**  
+  En la barra superior encontrará el botón **`? Ayuda`** (o **`?`** en pantallas de acceso) con la guía paso a paso de esa vista. Para cerrar sesión de forma segura, pulse **Salir** en la barra superior móvil (`< 768px`) o **Cerrar sesión** en el menú lateral / cajón móvil.
 
 ---
 

@@ -5,6 +5,7 @@ import type { Page, Route } from '@playwright/test';
 
 export type ProfileKey =
   | 'PROPIETARIO'
+  | 'INQUILINO'
   | 'TESORERO'
   | 'PRESIDENTE'
   | 'VICEPRESIDENTE'
@@ -35,28 +36,34 @@ export interface CondominioMockOptions {
 interface PagoState {
   id: number;
   recibo_id: number;
+  usuario_id: number;
   monto: string;
   moneda: string;
-  tasa_cambio: string;
   monto_usd: string;
+  tasa_cambio: string;
   metodo_pago: string;
   numero_referencia: string | null;
-  url_comprobante?: string | null;
+  url_comprobante: string | null;
   estado: string;
 }
 
 interface PaseState {
   id: number;
+  jti: string;
   unidad_id: number;
   identificador_unidad: string;
-  jti: string;
-  qr_token: string;
+  creado_por_id: number;
   nombre_visitante: string;
   cedula_visitante: string;
   placa_vehiculo: string | null;
   modalidad: string;
+  valido_desde: string;
+  valido_hasta: string;
   estado: string;
-  fecha_expiracion: string;
+  usado_en: string | null;
+  verificado_por_id: number | null;
+  firma_hmac: string;
+  qr_token: string;
 }
 
 interface ReservaState {
@@ -71,6 +78,7 @@ interface ReservaState {
   estado: string;
   tarea_inspeccion_id: number | null;
   observaciones_inspeccion: string | null;
+  creado_en: string;
 }
 
 export interface CondominioMockState {
@@ -85,8 +93,8 @@ export interface CondominioMockState {
     id: number;
     titulo: string;
     contenido: string;
-    enlace_externo?: string | null;
-    activo?: boolean;
+    enlace_externo: string | null;
+    activo: boolean;
   }>;
   unidades: Array<{
     id: number;
@@ -94,11 +102,11 @@ export interface CondominioMockState {
     estructura_id: number;
     alicuota: string;
     cuota_fija_usd: string | null;
+    credito_disponible_usd: string;
   }>;
   recibos: Array<{
     recibo_id: number;
     unidad_id: number;
-    identificador_unidad: string;
     periodo: string;
     monto_usd: string;
     estado: string;
@@ -111,25 +119,31 @@ export interface CondominioMockState {
     tipo: string;
     porcentaje_recargo: string;
     saldo_actual_usd: string;
+    es_activo: boolean;
   }>;
   usuariosPendientes: MockUserProfile[];
   incidencias: Array<{
     id: number;
+    usuario_creador_id: number;
     area: string;
     descripcion: string;
+    url_foto: string | null;
     estado: string;
     adhesiones_count: number;
-    url_foto: string | null;
   }>;
   tareas: Array<{
     id: number;
+    plantilla_id: number | null;
+    incidencia_id: number | null;
     titulo: string;
     area: string;
+    fecha: string;
     completada: boolean;
-    incidencia_id: number | null;
+    url_evidencia: string | null;
   }>;
   fotosVoceros: Array<{
     id: number;
+    usuario_id: number;
     periodo: string;
     area: string;
     comentario: string;
@@ -141,20 +155,24 @@ export interface CondominioMockState {
     hora: string;
     ubicacion: string;
     contenido: string;
+    autor_id: number;
   }>;
   consultas: Array<{
     id: number;
     titulo: string;
+    descripcion_legal: string;
     tipo_consulta: string;
     regla_quorum: string;
-    estado: string;
-    descripcion_legal: string;
-    fecha_cierre: string;
     quorum_minimo_alicuota: string;
     participacion_alicuota: string;
+    alicuota_aprobatoria: string;
     total_votos: number;
-    ya_voto_usuario: boolean;
+    fecha_apertura: string;
+    fecha_cierre: string;
+    estado: string;
+    creada_por_id: number;
     acta_bitacora_id: number | null;
+    ya_voto_usuario: boolean;
     mi_voto: Record<string, unknown> | null;
     opciones: Array<{
       id: number;
@@ -169,10 +187,14 @@ export interface CondominioMockState {
     id: number;
     unidad_id: number;
     identificador_unidad: string;
+    recibido_por_id: number;
     empresa_envio: string;
     descripcion: string;
-    estado: string;
     url_foto_evidencia: string | null;
+    estado: string;
+    fecha_recepcion: string;
+    fecha_entrega: string | null;
+    retirado_por_id: number | null;
   }>;
   areasSociales: Array<{
     id: number;
@@ -181,6 +203,7 @@ export interface CondominioMockState {
     costo_uso_usd: string;
     deposito_garantia_usd: string;
     requiere_solvencia_estricta: boolean;
+    es_activa: boolean;
   }>;
   reservas: ReservaState[];
   nextId: number;
@@ -195,6 +218,16 @@ const PROFILES: Record<ProfileKey, MockUserProfile> = {
     telefono: '0414-0000001',
     es_activo: true,
     rol: 'PROPIETARIO',
+    unidad_activa_id: 1,
+  },
+  INQUILINO: {
+    id: 109,
+    nombre: 'Luis Inquilino',
+    cedula: 'V-99999999',
+    correo: 'inquilino@condominio.test',
+    telefono: '0414-0000009',
+    es_activo: true,
+    rol: 'INQUILINO',
     unidad_activa_id: 1,
   },
   TESORERO: {
@@ -269,6 +302,31 @@ const PROFILES: Record<ProfileKey, MockUserProfile> = {
   },
 };
 
+const ROLES_JUNTA_LPH: readonly ProfileKey[] = [
+  'PRESIDENTE',
+  'VICEPRESIDENTE',
+  'TESORERO',
+  'SECRETARIO',
+  'VOCERO',
+];
+const ROLES_TESORERIA: readonly ProfileKey[] = ['TESORERO', 'PRESIDENTE'];
+const ROLES_DIRECTIVA: readonly ProfileKey[] = ['PRESIDENTE', 'VICEPRESIDENTE'];
+const ROLES_ALICUOTA: readonly ProfileKey[] = ['PRESIDENTE', 'VICEPRESIDENTE', 'TESORERO'];
+const ROLES_GOBERNANZA: readonly ProfileKey[] = ['PRESIDENTE', 'SECRETARIO'];
+const ROLES_CONSERJERIA: readonly ProfileKey[] = ['CONSERJE', 'PRESIDENTE', 'VICEPRESIDENTE'];
+const ROLES_GARITA: readonly ProfileKey[] = ['CONSERJE', 'PRESIDENTE', 'VOCERO'];
+const ROLES_PAQUETERIA: readonly ProfileKey[] = ['CONSERJE', 'PRESIDENTE'];
+const ROLES_VOCERIA: readonly ProfileKey[] = ['VOCERO', 'PRESIDENTE'];
+const ROLES_SECRETARIA: readonly ProfileKey[] = ['SECRETARIO', 'PRESIDENTE'];
+const ROLES_GESTION_AREAS: readonly ProfileKey[] = ['PRESIDENTE', 'TESORERO'];
+const ROLES_INSPECCION_RESERVA: readonly ProfileKey[] = ['CONSERJE', 'PRESIDENTE', 'TESORERO'];
+const ROLES_CANCELACION_JUNTA: readonly ProfileKey[] = [
+  'PRESIDENTE',
+  'VICEPRESIDENTE',
+  'TESORERO',
+  'SECRETARIO',
+];
+
 function resolveProfileByEmail(email: string): ProfileKey {
   const lower = email.toLowerCase();
   const keys: ProfileKey[] = [
@@ -278,6 +336,7 @@ function resolveProfileByEmail(email: string): ProfileKey {
     'SECRETARIO',
     'VOCERO',
     'CONSERJE',
+    'INQUILINO',
     'FANTASMA',
   ];
   return keys.find((k) => lower.includes(k.toLowerCase())) ?? 'PROPIETARIO';
@@ -297,8 +356,8 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
       {
         id: 1,
         titulo: 'Mantenimiento Preventivo',
-        contenido: 'Lavado de tanques este sábado.',
-        enlace_externo: '/consultas',
+        contenido: 'Lavado de tanques este sabado.',
+        enlace_externo: 'https://condominio.local/consultas',
         activo: true,
       },
     ],
@@ -309,6 +368,7 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         estructura_id: 1,
         alicuota: '10.0000',
         cuota_fija_usd: null,
+        credito_disponible_usd: '0.00',
       },
       {
         id: 2,
@@ -316,13 +376,13 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         estructura_id: 1,
         alicuota: '10.0000',
         cuota_fija_usd: null,
+        credito_disponible_usd: '0.00',
       },
     ],
     recibos: [
       {
         recibo_id: 1,
         unidad_id: 1,
-        identificador_unidad: 'A-101',
         periodo: '2026-10',
         monto_usd: '50.00',
         estado: 'PENDIENTE',
@@ -333,10 +393,11 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
       {
         id: 1,
         recibo_id: 1,
+        usuario_id: 101,
         monto: '1825.00',
         moneda: 'VES',
-        tasa_cambio: '45.50',
         monto_usd: '40.11',
+        tasa_cambio: '45.50',
         metodo_pago: 'PAGO_MOVIL',
         numero_referencia: '99881122',
         url_comprobante: null,
@@ -350,31 +411,37 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         tipo: 'RESERVA_LEGAL',
         porcentaje_recargo: '10.00',
         saldo_actual_usd: '1250.00',
+        es_activo: true,
       },
     ],
     usuariosPendientes: [{ ...PROFILES.FANTASMA, id: 501, nombre: 'Marcos Pendiente' }],
     incidencias: [
       {
         id: 1,
+        usuario_creador_id: 101,
         area: 'Bombas de Agua',
         descripcion: 'Fuga menor en sello mecanico bomba auxiliar',
-        estado: 'ABIERTA',
-        adhesiones_count: 3,
         url_foto: 's3://condominio-media/incidencias/1.avif',
+        estado: 'ABIERTO',
+        adhesiones_count: 3,
       },
     ],
     tareas: [
       {
         id: 1,
+        plantilla_id: null,
+        incidencia_id: 1,
         titulo: 'Inspeccionar presion de bomba auxiliar',
         area: 'Bombas de Agua',
+        fecha: '2026-10-30',
         completada: false,
-        incidencia_id: 1,
+        url_evidencia: null,
       },
     ],
     fotosVoceros: [
       {
         id: 1,
+        usuario_id: 106,
         periodo: '2026-10',
         area: 'Cuarto de Bombas',
         comentario: 'Valvulas lubricadas y sin humedad aparente',
@@ -388,23 +455,27 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         hora: '19:00',
         ubicacion: 'Salon de Usos Multiples',
         contenido: 'Aprobacion de mantenimiento preventivo anual.',
+        autor_id: 105,
       },
     ],
     consultas: [
       {
         id: 1,
         titulo: 'Aprobacion de Impermeabilizacion Azotea Torre A',
-        tipo_consulta: 'CARTA_CONSULTA_1RA',
-        regla_quorum: 'MAYORIA_SIMPLE',
-        estado: 'ABIERTA',
         descripcion_legal:
           'Contratacion de impermeabilizacion con manto asfaltico segun Art. 23 LPH.',
-        fecha_cierre: '2026-12-30T23:59:00Z',
+        tipo_consulta: 'CARTA_CONSULTA_1RA',
+        regla_quorum: 'MAYORIA_SIMPLE',
         quorum_minimo_alicuota: '50.0100',
         participacion_alicuota: '42.0000',
+        alicuota_aprobatoria: '42.0000',
         total_votos: 4,
-        ya_voto_usuario: false,
+        fecha_apertura: '2026-10-01T08:00:00Z',
+        fecha_cierre: '2026-12-30T23:59:00Z',
+        estado: 'ABIERTA',
+        creada_por_id: 104,
         acta_bitacora_id: null,
+        ya_voto_usuario: false,
         mi_voto: null,
         opciones: [
           {
@@ -427,16 +498,21 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
     pases: [
       {
         id: 1,
+        jti: 'jti-seed-0001-abcd',
         unidad_id: 1,
         identificador_unidad: 'A-101',
-        jti: 'jti-seed-0001-abcd',
-        qr_token: 'qr-seed-token-0001.hmac_valid_sig',
+        creado_por_id: 101,
         nombre_visitante: 'Tecnico Fibra Seed',
         cedula_visitante: 'V-19000111',
         placa_vehiculo: 'AA111BB',
         modalidad: 'UNICO_USO',
+        valido_desde: '2026-10-30T00:00:00Z',
+        valido_hasta: '2026-12-31T23:59:00Z',
         estado: 'ACTIVO',
-        fecha_expiracion: '2026-12-31T23:59:00Z',
+        usado_en: null,
+        verificado_por_id: null,
+        firma_hmac: 'hmac_valid_sig',
+        qr_token: 'qr-seed-token-0001.hmac_valid_sig',
       },
     ],
     paquetes: [
@@ -444,10 +520,14 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         id: 1,
         unidad_id: 1,
         identificador_unidad: 'A-101',
+        recibido_por_id: 107,
         empresa_envio: 'ZOOM',
         descripcion: 'Sobre certificado guia #90012',
-        estado: 'EN_GARITA',
         url_foto_evidencia: null,
+        estado: 'EN_GARITA',
+        fecha_recepcion: '2026-10-30T10:00:00Z',
+        fecha_entrega: null,
+        retirado_por_id: null,
       },
     ],
     areasSociales: [
@@ -458,6 +538,7 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         costo_uso_usd: '25.00',
         deposito_garantia_usd: '100.00',
         requiere_solvencia_estricta: true,
+        es_activa: true,
       },
     ],
     reservas: [
@@ -473,6 +554,7 @@ function createInitialState(options: CondominioMockOptions): CondominioMockState
         estado: 'CONFIRMADA',
         tarea_inspeccion_id: 10,
         observaciones_inspeccion: null,
+        creado_en: '2026-10-30T09:00:00Z',
       },
     ],
     nextId: 600,
@@ -493,13 +575,64 @@ function jsonResp(
   return { status, body, headers };
 }
 
+function requireActive(state: CondominioMockState): HttpMockResponse | null {
+  if (!state.currentUser) {
+    return jsonResp(401, { detail: 'No autenticado' });
+  }
+  if (!state.currentUser.es_activo || state.currentUser.rol === 'FANTASMA') {
+    return jsonResp(403, {
+      detail: 'Cuenta pendiente de aprobación por la Junta de Condominio.',
+    });
+  }
+  return null;
+}
+
+function withActive(
+  state: CondominioMockState,
+  handler: (user: MockUserProfile) => HttpMockResponse,
+): HttpMockResponse {
+  const activeError = requireActive(state);
+  return activeError ?? handler(state.currentUser!);
+}
+
+function withRoles(
+  state: CondominioMockState,
+  allowed: readonly ProfileKey[],
+  handler: (user: MockUserProfile) => HttpMockResponse,
+): HttpMockResponse {
+  const activeError = requireActive(state);
+  if (activeError) return activeError;
+  const user = state.currentUser!;
+  if (!allowed.includes(user.rol)) {
+    return jsonResp(403, { detail: 'No tiene permisos para ejecutar esta acción.' });
+  }
+  return handler(user);
+}
+
+function toPublicUserResponse(user: MockUserProfile): Omit<MockUserProfile, 'unidad_activa_id'> {
+  return {
+    id: user.id,
+    nombre: user.nombre,
+    cedula: user.cedula,
+    correo: user.correo,
+    telefono: user.telefono,
+    es_activo: user.es_activo,
+    rol: user.rol,
+  };
+}
+
 function loginUser(body: Record<string, unknown>, state: CondominioMockState): HttpMockResponse {
   const email = String(body.username ?? body.correo ?? 'residente@condominio.test');
   if (String(body.password ?? '') === 'ClaveInvalida999') {
-    return jsonResp(401, { detail: 'Credenciales invalidas.' });
+    return jsonResp(401, { detail: 'Credenciales inválidas' });
   }
-  state.currentUser = { ...PROFILES[resolveProfileByEmail(email)] };
-  return jsonResp(200, { message: 'ok' }, { 'x-csrf-token': 'csrf-e2e-token' });
+  const user = { ...PROFILES[resolveProfileByEmail(email)] };
+  state.currentUser = user;
+  return jsonResp(
+    200,
+    { message: 'Login exitoso', rol: user.rol, csrf_token: 'csrf-e2e-token' },
+    { 'x-csrf-token': 'csrf-e2e-token' },
+  );
 }
 
 function registerUser(body: Record<string, unknown>, state: CondominioMockState): HttpMockResponse {
@@ -515,7 +648,7 @@ function registerUser(body: Record<string, unknown>, state: CondominioMockState)
   };
   state.usuariosPendientes.push(created);
   state.currentUser = created;
-  return jsonResp(201, created, { 'x-csrf-token': 'csrf-e2e-token' });
+  return jsonResp(201, toPublicUserResponse(created), { 'x-csrf-token': 'csrf-e2e-token' });
 }
 
 function handleAuthRoute(
@@ -533,9 +666,53 @@ function handleAuthRoute(
   if (path === '/api/auth/register' && method === 'POST') return registerUser(body, state);
   if (path === '/api/auth/logout' && method === 'POST') {
     state.currentUser = null;
-    return jsonResp(200, { message: 'ok' });
+    return jsonResp(200, { message: 'Sesión cerrada exitosamente.' });
   }
   return null;
+}
+
+function handleComunicadosRoute(
+  method: string,
+  path: string,
+  body: Record<string, unknown>,
+  state: CondominioMockState,
+): HttpMockResponse | null {
+  if (path === '/api/comunicados/recientes' && method === 'GET') {
+    return withActive(state, () => jsonResp(200, state.comunicados));
+  }
+  if (path === '/api/comunicados' && method === 'POST') {
+    return withRoles(state, ROLES_SECRETARIA, () => {
+      const created = {
+        id: ++state.nextId,
+        titulo: String(body.titulo ?? 'Comunicado'),
+        contenido: String(body.contenido ?? ''),
+        enlace_externo: (body.enlace_externo as string | null) ?? null,
+        activo: true,
+      };
+      state.comunicados.unshift(created);
+      return jsonResp(201, created);
+    });
+  }
+  return null;
+}
+
+function getDailyRateResponse(state: CondominioMockState): HttpMockResponse {
+  if (state.omitDailyRate) {
+    return jsonResp(404, { detail: 'No hay tasa BCV registrada para hoy.' });
+  }
+  return jsonResp(200, { fecha: '2026-10-30', tasa_usd_ves: state.tasaUsdVes });
+}
+
+function getFinanceSummaryResponse(state: CondominioMockState): HttpMockResponse {
+  if (state.omitResumen) {
+    return jsonResp(503, { detail: 'Resumen financiero temporalmente no disponible.' });
+  }
+  return jsonResp(200, {
+    deuda_total_usd: state.recibos[0]?.saldo_usd ?? '0.00',
+    total_egresos_usd: '450.00',
+    gastos_por_categoria: { 'Bombas de Agua': '250.00', Vigilancia: '200.00' },
+    estado_cobranza: state.recibos,
+  });
 }
 
 function handleFinanceCore(
@@ -545,50 +722,32 @@ function handleFinanceCore(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/finanzas/tasa' && method === 'GET') {
-    if (state.omitDailyRate) {
-      return jsonResp(404, { detail: 'No hay tasa BCV registrada para hoy.' });
-    }
-    return jsonResp(200, { id: 1, fecha: '2026-10-30', tasa_usd_ves: state.tasaUsdVes });
+    return withActive(state, () => getDailyRateResponse(state));
   }
   if (path === '/api/finanzas/tasa' && method === 'POST') {
-    state.tasaUsdVes = String(body.tasa_usd_ves ?? state.tasaUsdVes);
-    return jsonResp(201, { id: 2, fecha: '2026-10-30', tasa_usd_ves: state.tasaUsdVes });
-  }
-  if (path === '/api/finanzas/resumen' && method === 'GET') {
-    if (state.omitResumen) {
-      return jsonResp(503, { detail: 'Resumen financiero temporalmente no disponible.' });
-    }
-    return jsonResp(200, {
-      deuda_total_usd: state.recibos[0]?.saldo_usd ?? '0.00',
-      total_egresos_usd: '450.00',
-      gastos_por_categoria: { 'Bombas de Agua': '250.00', Vigilancia: '200.00' },
-      estado_cobranza: state.recibos,
+    return withRoles(state, ROLES_TESORERIA, () => {
+      state.tasaUsdVes = String(body.tasa_usd_ves ?? state.tasaUsdVes);
+      return jsonResp(201, {
+        fecha: String(body.fecha ?? '2026-10-30'),
+        tasa_usd_ves: state.tasaUsdVes,
+      });
     });
   }
-  if (path === '/api/comunicados/recientes' && method === 'GET') {
-    return jsonResp(200, state.comunicados);
-  }
-  if (path === '/api/comunicados' && method === 'POST') {
-    const created = {
-      id: ++state.nextId,
-      titulo: String(body.titulo ?? 'Comunicado'),
-      contenido: String(body.contenido ?? ''),
-      enlace_externo: (body.enlace_externo as string | null) ?? null,
-      activo: true,
-    };
-    state.comunicados.unshift(created);
-    return jsonResp(201, created);
+  if (path === '/api/finanzas/resumen' && method === 'GET') {
+    return withActive(state, () => getFinanceSummaryResponse(state));
   }
   if (path === '/api/finanzas/egresos' && method === 'POST') {
-    return jsonResp(201, { id: ++state.nextId, monto_usd: String(body.monto ?? '50.00') });
+    return withRoles(state, ROLES_TESORERIA, () =>
+      jsonResp(201, { id: ++state.nextId, monto_usd: String(body.monto ?? '50.00') }),
+    );
   }
   if (path === '/api/finanzas/cierre-mensual' && method === 'POST') {
-    state.closingActive = true;
-    return jsonResp(200, {
-      id: 1,
-      periodo: String(body.periodo ?? '2026-10'),
-      estado: 'CERRADO',
-      bloqueado: true,
+    return withRoles(state, ROLES_TESORERIA, () => {
+      state.closingActive = true;
+      return jsonResp(200, {
+        periodo: String(body.periodo ?? '2026-10'),
+        estado: 'CERRADO',
+      });
     });
   }
   return null;
@@ -600,18 +759,21 @@ function resolveUpdatedPago(pagoId: number, action: string, state: CondominioMoc
   const base: PagoState = existing ?? {
     id: pagoId,
     recibo_id: 1,
+    usuario_id: 101,
     monto: '50.00',
     moneda: 'USD',
-    tasa_cambio: state.tasaUsdVes,
     monto_usd: '50.00',
+    tasa_cambio: state.tasaUsdVes,
     metodo_pago: 'PAGO_MOVIL',
     numero_referencia: '123456',
+    url_comprobante: null,
     estado: 'EN_REVISION',
   };
   return { ...base, estado: action === 'aprobar' ? 'APROBADO' : 'RECHAZADO' };
 }
 
 function reportPayment(
+  user: MockUserProfile,
   body: Record<string, unknown>,
   state: CondominioMockState,
 ): HttpMockResponse {
@@ -623,10 +785,11 @@ function reportPayment(
   const pago: PagoState = {
     id: ++state.nextId,
     recibo_id: Number(body.recibo_id ?? 1),
+    usuario_id: user.id,
     monto,
     moneda,
-    tasa_cambio: state.tasaUsdVes,
     monto_usd: moneda === 'USD' ? monto : '40.00',
+    tasa_cambio: state.tasaUsdVes,
     metodo_pago: String(body.metodo_pago ?? 'PAGO_MOVIL'),
     numero_referencia: (body.numero_referencia as string | null) ?? null,
     url_comprobante: (body.url_comprobante as string | null) ?? null,
@@ -656,14 +819,16 @@ function handlePagosRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/pagos/revision' && method === 'GET') {
-    return jsonResp(200, state.pagos);
+    return withRoles(state, ROLES_TESORERIA, () => jsonResp(200, state.pagos));
   }
   if (path === '/api/pagos/reportar' && method === 'POST') {
-    return reportPayment(body, state);
+    return withActive(state, (user) => reportPayment(user, body, state));
   }
   const pagoMatch = /^\/api\/pagos\/(\d+)\/(aprobar|rechazar)$/.exec(path);
   if (pagoMatch && method === 'PUT') {
-    return mutatePaymentStatus(Number(pagoMatch[1]), pagoMatch[2]!, state);
+    return withRoles(state, ROLES_TESORERIA, () =>
+      mutatePaymentStatus(Number(pagoMatch[1]), pagoMatch[2]!, state),
+    );
   }
   return null;
 }
@@ -675,20 +840,81 @@ function handleFondosRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/finanzas/fondos' && method === 'GET') {
-    return jsonResp(200, state.fondos);
+    return withActive(state, () => jsonResp(200, state.fondos));
   }
   if (path === '/api/finanzas/fondos' && method === 'POST') {
-    const created = {
-      id: ++state.nextId,
-      nombre: String(body.nombre ?? 'Fondo Especial'),
-      tipo: String(body.tipo ?? 'PROVISION_ESPECIAL'),
-      porcentaje_recargo: String(body.porcentaje_recargo ?? '5.00'),
-      saldo_actual_usd: '0.00',
-    };
-    state.fondos.push(created);
-    return jsonResp(201, created);
+    return withRoles(state, ROLES_TESORERIA, () => {
+      const created = {
+        id: ++state.nextId,
+        nombre: String(body.nombre ?? 'Fondo Especial'),
+        tipo: String(body.tipo ?? 'ESPECIAL'),
+        porcentaje_recargo: String(body.porcentaje_recargo ?? '5.00'),
+        saldo_actual_usd: '0.00',
+        es_activo: true,
+      };
+      state.fondos.push(created);
+      return jsonResp(201, created);
+    });
   }
   return null;
+}
+
+function buildReciboDesglose(reciboId: number, state: CondominioMockState): HttpMockResponse {
+  const recibo = state.recibos.find((r) => r.recibo_id === reciboId) ?? state.recibos[0];
+  const unidadId = recibo?.unidad_id ?? 1;
+  const ident = state.unidades.find((u) => u.id === unidadId)?.identificador ?? 'A-101';
+  return jsonResp(200, {
+    recibo_id: reciboId,
+    unidad_id: unidadId,
+    identificador_unidad: ident,
+    alicuota_aplicada: '10.0000',
+    periodo: recibo?.periodo ?? '2026-10',
+    monto_usd: '50.00',
+    monto_pagado_usd: '5.00',
+    saldo_pendiente_usd: '45.00',
+    credito_descontado_usd: '5.00',
+    estado: recibo?.estado ?? 'PENDIENTE',
+    bloqueado: state.closingActive,
+    items: [
+      {
+        id: 1,
+        recibo_id: reciboId,
+        tipo_item: 'GASTO_COMUN',
+        descripcion: 'Mantenimiento Bombas',
+        monto_usd: '55.00',
+      },
+      {
+        id: 2,
+        recibo_id: reciboId,
+        tipo_item: 'ABONO_CREDITO_PREVIO',
+        descripcion: 'Saldo previo',
+        monto_usd: '-5.00',
+      },
+    ],
+  });
+}
+
+function emitSolvencyCertificate(
+  uid: number,
+  user: MockUserProfile,
+  state: CondominioMockState,
+): HttpMockResponse {
+  const ident = state.unidades.find((u) => u.id === uid)?.identificador ?? 'A-101';
+  const folio = `SOLV-202610-000${uid}-ABCD`;
+  const firma = 'hmac_sha256_solvencia_e2e_sig_001122';
+  return jsonResp(201, {
+    id: ++state.nextId,
+    jti: `jti-solv-e2e-${uid}`,
+    folio,
+    unidad_id: uid,
+    identificador_unidad: ident,
+    emitido_por_id: user.id,
+    fecha_emision: '2026-10-30T12:00:00Z',
+    fecha_vencimiento: '2026-11-30',
+    deuda_verificada_usd: '0.00',
+    firma_hmac: firma,
+    qr_token: `${folio}.${firma}`,
+  });
 }
 
 function handleBillingAndSolvency(
@@ -698,63 +924,43 @@ function handleBillingAndSolvency(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/finanzas/facturar-periodo' && method === 'POST') {
-    return jsonResp(201, {
-      periodo: String(body.periodo ?? '2026-10'),
-      modalidad: String(body.modalidad ?? 'ALICUOTA'),
-      recibos_emitidos: state.unidades.length,
-      total_facturado_neto_usd: '100.00',
-    });
+    return withRoles(state, ROLES_TESORERIA, () =>
+      jsonResp(201, {
+        periodo: String(body.periodo ?? '2026-10'),
+        modalidad: String(body.modalidad ?? 'ALICUOTA'),
+        recibos_emitidos: state.unidades.length,
+        total_egresos_comunes_usd: '100.00',
+        recargo_fondo_reserva_usd: '10.00',
+        cuota_extraordinaria_total_usd: '0.00',
+        total_facturado_bruto_usd: '110.00',
+        total_credito_descontado_usd: '10.00',
+        total_facturado_neto_usd: '100.00',
+        superavit_conciliado_fondo_usd: '0.00',
+      }),
+    );
   }
   const desgloseMatch = /^\/api\/finanzas\/recibos\/(\d+)\/desglose$/.exec(path);
   if (desgloseMatch && method === 'GET') {
-    return jsonResp(200, {
-      recibo_id: Number(desgloseMatch[1]),
-      identificador_unidad: 'A-101',
-      periodo: '2026-10',
-      alicuota_aplicada: '10.0000',
-      estado: 'PENDIENTE',
-      monto_usd: '50.00',
-      credito_descontado_usd: '5.00',
-      saldo_pendiente_usd: '45.00',
-      items: [
-        {
-          id: 1,
-          tipo_item: 'GASTO_COMUN',
-          descripcion: 'Mantenimiento Bombas',
-          monto_usd: '55.00',
-        },
-        {
-          id: 2,
-          tipo_item: 'ABONO_CREDITO_PREVIO',
-          descripcion: 'Saldo previo',
-          monto_usd: '-5.00',
-        },
-      ],
-    });
+    return withActive(state, () => buildReciboDesglose(Number(desgloseMatch[1]), state));
   }
   const solvEmitMatch = /^\/api\/finanzas\/solvencia\/(\d+)$/.exec(path);
   if (solvEmitMatch && method === 'POST') {
-    const uid = Number(solvEmitMatch[1]);
-    return jsonResp(201, {
-      folio: `SOLV-202610-000${uid}-ABCD`,
-      unidad_id: uid,
-      identificador_unidad: 'A-101',
-      deuda_verificada_usd: '0.00',
-      fecha_emision: '2026-10-30',
-      fecha_vencimiento: '2026-11-30',
-      firma_hmac: 'hmac_sha256_solvencia_e2e_sig_001122',
-      qr_token: `SOLV-202610-000${uid}-ABCD.hmac_sha256_solvencia_e2e_sig_001122`,
-    });
+    return withActive(state, (user) =>
+      emitSolvencyCertificate(Number(solvEmitMatch[1]), user, state),
+    );
   }
   const solvVerifMatch = /^\/api\/finanzas\/solvencia\/verificar\/([^/]+)$/.exec(path);
   if (solvVerifMatch && method === 'GET') {
     return jsonResp(200, {
       valido: true,
-      vigente: true,
+      jti: 'jti-solv-e2e-1',
       folio: solvVerifMatch[1],
+      unidad_id: 1,
       identificador_unidad: 'A-101',
-      vigente_hasta: '2026-11-30',
-      mensaje: 'Certificado verificado criptograficamente.',
+      fecha_vencimiento: '2026-11-30',
+      vigente: true,
+      deuda_verificada_usd: '0.00',
+      firma_hmac: 'hmac_sha256_solvencia_e2e_sig_001122',
     });
   }
   return null;
@@ -771,11 +977,13 @@ function generateStructureUnits(
     estructura_id: 2,
     alicuota: '10.0000',
     cuota_fija_usd: null,
+    credito_disponible_usd: '0.00',
   }));
   state.unidades.push(...createdUnits);
   return jsonResp(201, {
     estructura_id: 2,
     nombre: String(body.nombre ?? 'Torre B'),
+    tipo: String(body.tipo ?? 'TORRE'),
     unidades_creadas: createdUnits.length,
     unidades: createdUnits,
   });
@@ -789,12 +997,27 @@ function assignPendingUser(
   const pending = state.usuariosPendientes.find((u) => u.id === uid) ?? PROFILES.FANTASMA;
   state.usuariosPendientes = state.usuariosPendientes.filter((u) => u.id !== uid);
   return jsonResp(200, {
-    ...pending,
+    ...toPublicUserResponse(pending),
     id: uid,
     es_activo: true,
     rol: String(body.rol ?? 'PROPIETARIO') as ProfileKey,
-    unidad_activa_id: Number(body.unidad_id ?? 1),
   });
+}
+
+function listUnitsByRole(state: CondominioMockState): HttpMockResponse {
+  const user = state.currentUser;
+  const isActiveJunta = Boolean(user && user.es_activo && ROLES_JUNTA_LPH.includes(user.rol));
+  if (isActiveJunta) {
+    return jsonResp(200, state.unidades);
+  }
+  return jsonResp(
+    200,
+    state.unidades.map((u) => ({
+      id: u.id,
+      identificador: u.identificador,
+      estructura_id: u.estructura_id,
+    })),
+  );
 }
 
 function handleStructureRoute(
@@ -804,17 +1027,19 @@ function handleStructureRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/estructura/unidades' && method === 'GET') {
-    return jsonResp(200, state.unidades);
+    return listUnitsByRole(state);
   }
   if (path === '/api/estructura/generar' && method === 'POST') {
-    return generateStructureUnits(body, state);
+    return withRoles(state, ROLES_DIRECTIVA, () => generateStructureUnits(body, state));
   }
   const alicuotaMatch = /^\/api\/estructura\/unidades\/(\d+)\/alicuota$/.exec(path);
   if (alicuotaMatch && method === 'PUT') {
-    const unit =
-      state.unidades.find((u) => u.id === Number(alicuotaMatch[1])) ?? state.unidades[0]!;
-    unit.alicuota = String(body.alicuota ?? unit.alicuota);
-    return jsonResp(200, unit);
+    return withRoles(state, ROLES_ALICUOTA, () => {
+      const unit =
+        state.unidades.find((u) => u.id === Number(alicuotaMatch[1])) ?? state.unidades[0]!;
+      unit.alicuota = String(body.alicuota ?? unit.alicuota);
+      return jsonResp(200, unit);
+    });
   }
   return null;
 }
@@ -828,18 +1053,24 @@ function handleAdminRoute(
   const structureResp = handleStructureRoute(method, path, body, state);
   if (structureResp) return structureResp;
   if (path === '/api/usuarios/pendientes' && method === 'GET') {
-    return jsonResp(200, state.usuariosPendientes);
+    return withRoles(state, ROLES_DIRECTIVA, () =>
+      jsonResp(200, state.usuariosPendientes.map(toPublicUserResponse)),
+    );
   }
   const asignarMatch = /^\/api\/usuarios\/(\d+)\/asignar$/.exec(path);
   if (asignarMatch && method === 'PUT') {
-    return assignPendingUser(Number(asignarMatch[1]), body, state);
+    return withRoles(state, ROLES_DIRECTIVA, () =>
+      assignPendingUser(Number(asignarMatch[1]), body, state),
+    );
   }
   if (path === '/api/junta/cargos' && method === 'PUT') {
-    return jsonResp(200, {
-      id: Number(body.usuario_id ?? 101),
-      nombre: 'Ana Residente',
-      rol: String(body.cargo ?? 'TESORERO'),
-    });
+    return withRoles(state, ['PRESIDENTE'], () =>
+      jsonResp(200, {
+        ...toPublicUserResponse(PROFILES.PROPIETARIO),
+        id: Number(body.usuario_id ?? 101),
+        rol: String(body.cargo ?? 'TESORERO'),
+      }),
+    );
   }
   return null;
 }
@@ -851,26 +1082,31 @@ function handleIncidenciasRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/incidencias/abiertas' && method === 'GET') {
-    return jsonResp(200, state.incidencias);
+    return withActive(state, () => jsonResp(200, state.incidencias));
   }
   if (path === '/api/incidencias/crear' && method === 'POST') {
-    const created = {
-      id: ++state.nextId,
-      area: String(body.area ?? 'Bombas de Agua'),
-      descripcion: String(body.descripcion ?? 'Falla reportada'),
-      estado: 'ABIERTA',
-      adhesiones_count: 1,
-      url_foto: null,
-    };
-    state.incidencias.unshift(created);
-    return jsonResp(201, created);
+    return withActive(state, (user) => {
+      const created = {
+        id: ++state.nextId,
+        usuario_creador_id: user.id,
+        area: String(body.area ?? 'Bombas de Agua'),
+        descripcion: String(body.descripcion ?? 'Falla reportada'),
+        url_foto: (body.url_foto as string | null) ?? null,
+        estado: 'ABIERTO',
+        adhesiones_count: 1,
+      };
+      state.incidencias.unshift(created);
+      return jsonResp(201, created);
+    });
   }
   const adherirMatch = /^\/api\/incidencias\/(\d+)\/adherir$/.exec(path);
   if (adherirMatch && method === 'POST') {
-    const id = Number(adherirMatch[1]);
-    const item = state.incidencias.find((i) => i.id === id) ?? state.incidencias[0]!;
-    item.adhesiones_count += 1;
-    return jsonResp(200, item);
+    return withActive(state, () => {
+      const id = Number(adherirMatch[1]);
+      const item = state.incidencias.find((i) => i.id === id) ?? state.incidencias[0]!;
+      item.adhesiones_count += 1;
+      return jsonResp(200, item);
+    });
   }
   return null;
 }
@@ -882,39 +1118,45 @@ function handleTareasRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/tareas/diarias' && method === 'GET') {
-    return jsonResp(200, state.tareas);
+    return withActive(state, () => jsonResp(200, state.tareas));
   }
   if (path === '/api/tareas/plantillas' && method === 'POST') {
-    return jsonResp(201, {
-      id: ++state.nextId,
-      titulo: String(body.titulo ?? 'Rutina de mantenimiento'),
-      area: String(body.area ?? 'General'),
-      frecuencia: String(body.frecuencia ?? 'DIARIA'),
-      activa: true,
-    });
+    return withRoles(state, ROLES_DIRECTIVA, () =>
+      jsonResp(201, {
+        id: ++state.nextId,
+        titulo: String(body.titulo ?? 'Rutina de mantenimiento'),
+        area: String(body.area ?? 'General'),
+        frecuencia: String(body.frecuencia ?? 'DIARIA'),
+        activa: true,
+      }),
+    );
   }
   if (path === '/api/tareas/diarias' && method === 'POST') {
-    const created = {
-      id: ++state.nextId,
-      plantilla_id: null,
-      incidencia_id: (body.incidencia_id as number | null) ?? null,
-      titulo: String(body.titulo ?? 'Tarea puntual'),
-      area: String(body.area ?? 'General'),
-      fecha: '2026-10-30',
-      completada: false,
-      url_evidencia: null,
-    };
-    state.tareas.push(created);
-    return jsonResp(201, created);
+    return withRoles(state, ROLES_DIRECTIVA, () => {
+      const created = {
+        id: ++state.nextId,
+        plantilla_id: null,
+        incidencia_id: (body.incidencia_id as number | null) ?? null,
+        titulo: String(body.titulo ?? 'Tarea puntual'),
+        area: String(body.area ?? 'General'),
+        fecha: '2026-10-30',
+        completada: false,
+        url_evidencia: null,
+      };
+      state.tareas.push(created);
+      return jsonResp(201, created);
+    });
   }
   if (path === '/api/tareas/generar-diarias' && method === 'POST') {
-    return jsonResp(200, { tareas_generadas: 1 });
+    return withRoles(state, ROLES_DIRECTIVA, () => jsonResp(200, { tareas_generadas: 1 }));
   }
   const tareaMatch = /^\/api\/tareas\/(\d+)\/completar$/.exec(path);
   if (tareaMatch && method === 'PUT') {
-    const tarea = state.tareas.find((t) => t.id === Number(tareaMatch[1])) ?? state.tareas[0]!;
-    tarea.completada = true;
-    return jsonResp(200, tarea);
+    return withRoles(state, ROLES_CONSERJERIA, () => {
+      const tarea = state.tareas.find((t) => t.id === Number(tareaMatch[1])) ?? state.tareas[0]!;
+      tarea.completada = true;
+      return jsonResp(200, tarea);
+    });
   }
   return null;
 }
@@ -926,23 +1168,28 @@ function handleVocerosRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/voceros/galeria' && method === 'GET') {
-    return jsonResp(200, {
-      periodo: '2026-10',
-      fotos_usadas_mes: state.fotosVoceros.length,
-      limite_mensual: 30,
-      fotos: state.fotosVoceros,
-    });
+    return withActive(state, () =>
+      jsonResp(200, {
+        periodo: '2026-10',
+        fotos_usadas_mes: state.fotosVoceros.length,
+        limite_mensual: 30,
+        fotos: state.fotosVoceros,
+      }),
+    );
   }
   if (path === '/api/voceros/fotos' && method === 'POST') {
-    const foto = {
-      id: ++state.nextId,
-      periodo: String(body.periodo ?? '2026-10'),
-      area: String(body.area ?? 'Cuarto de Bombas'),
-      comentario: String(body.comentario ?? 'Sin novedades'),
-      url_foto: String(body.url_foto ?? 'https://cdn.condominio.local/voceros/ok.avif'),
-    };
-    state.fotosVoceros.unshift(foto);
-    return jsonResp(201, foto);
+    return withRoles(state, ROLES_VOCERIA, (user) => {
+      const foto = {
+        id: ++state.nextId,
+        usuario_id: user.id,
+        periodo: String(body.periodo ?? '2026-10'),
+        area: String(body.area ?? 'Cuarto de Bombas'),
+        comentario: String(body.comentario ?? 'Sin novedades'),
+        url_foto: String(body.url_foto ?? 'https://cdn.condominio.local/voceros/ok.avif'),
+      };
+      state.fotosVoceros.unshift(foto);
+      return jsonResp(201, foto);
+    });
   }
   return null;
 }
@@ -954,31 +1201,40 @@ function handleBitacoraRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/bitacora/historial' && method === 'GET') {
-    return jsonResp(200, state.bitacora);
+    return withActive(state, () => jsonResp(200, state.bitacora));
   }
   if (path === '/api/bitacora/acta' && method === 'POST') {
-    const acta = {
-      id: ++state.nextId,
-      fecha: String(body.fecha ?? '2026-10-30'),
-      hora: String(body.hora ?? '19:30'),
-      ubicacion: String(body.ubicacion ?? 'Salon Social'),
-      contenido: String(body.contenido ?? 'Acuerdo registrado'),
-    };
-    state.bitacora.unshift(acta);
-    return jsonResp(201, acta);
+    return withRoles(state, ROLES_SECRETARIA, (user) => {
+      const acta = {
+        id: ++state.nextId,
+        fecha: String(body.fecha ?? '2026-10-30'),
+        hora: String(body.hora ?? '19:30'),
+        ubicacion: String(body.ubicacion ?? 'Salon Social'),
+        contenido: String(body.contenido ?? 'Acuerdo registrado'),
+        autor_id: user.id,
+      };
+      state.bitacora.unshift(acta);
+      return jsonResp(201, acta);
+    });
   }
   return null;
 }
 
-function handleEvidenciasRoute(method: string, path: string): HttpMockResponse | null {
+function handleEvidenciasRoute(
+  method: string,
+  path: string,
+  state: CondominioMockState,
+): HttpMockResponse | null {
   if (path === '/api/evidencias/subir' && method === 'POST') {
-    return jsonResp(202, {
-      url: '/api/evidencias/comprobantes/mock.webp',
-      mime_origen: 'image/png',
-      formato_destino: 'webp',
-      bytes_recibidos: 1024,
-      estado: 'ENCOLADO',
-    });
+    return withActive(state, () =>
+      jsonResp(202, {
+        url: '/api/evidencias/comprobantes/mock.webp',
+        mime_origen: 'image/png',
+        formato_destino: 'webp',
+        bytes_recibidos: 1024,
+        estado: 'ENCOLADO',
+      }),
+    );
   }
   return null;
 }
@@ -990,11 +1246,89 @@ function handleTareasVocerosBitacoraRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   return (
-    handleEvidenciasRoute(method, path) ??
+    handleEvidenciasRoute(method, path, state) ??
     handleTareasRoute(method, path, body, state) ??
     handleVocerosRoute(method, path, body, state) ??
     handleBitacoraRoute(method, path, body, state)
   );
+}
+
+function castConsultationVote(
+  consultaId: number,
+  user: MockUserProfile,
+  body: Record<string, unknown>,
+  state: CondominioMockState,
+): HttpMockResponse {
+  if (user.rol === 'INQUILINO') {
+    return jsonResp(403, {
+      detail:
+        'Solo el propietario titular o un representante con poder registrado puede votar en Cartas Consulta.',
+    });
+  }
+  const consulta = state.consultas.find((c) => c.id === consultaId) ?? state.consultas[0]!;
+  const option =
+    consulta.opciones.find((o) => o.id === Number(body.opcion_id)) ?? consulta.opciones[0]!;
+  option.votos_cantidad += 1;
+  option.alicuota_acumulada = '52.0000';
+  consulta.total_votos += 1;
+  consulta.participacion_alicuota = '52.0000';
+  consulta.ya_voto_usuario = true;
+
+  const unidadId = Number(body.unidad_id ?? user.unidad_activa_id ?? 1);
+  const ident = state.unidades.find((u) => u.id === unidadId)?.identificador ?? 'A-101';
+  const votoId = ++state.nextId;
+  const fechaVoto = '2026-10-30T14:00:00Z';
+  const jti = `jti-voto-e2e-${votoId}`;
+  const firma = 'hmac_sha256_voto_emitido_e2e_009911';
+
+  consulta.mi_voto = {
+    voto_id: votoId,
+    jti,
+    unidad_id: unidadId,
+    identificador_unidad: ident,
+    opcion_id: option.id,
+    opcion_etiqueta: option.etiqueta,
+    alicuota_capturada: '10.0000',
+    fecha_voto: fechaVoto,
+    firma_hmac: firma,
+  };
+
+  return jsonResp(201, {
+    voto_id: votoId,
+    jti,
+    consulta_id: consulta.id,
+    titulo_consulta: consulta.titulo,
+    unidad_id: unidadId,
+    identificador_unidad: ident,
+    usuario_id: user.id,
+    opcion_id: option.id,
+    opcion_etiqueta: option.etiqueta,
+    alicuota_capturada: '10.0000',
+    participacion_total_alicuota: consulta.participacion_alicuota,
+    quorum_minimo_alicuota: consulta.quorum_minimo_alicuota,
+    fecha_voto: fechaVoto,
+    ip_hash: 'e2e_ip_hash_001',
+    firma_hmac: firma,
+    mensaje_verificacion: 'Voto ponderado registrado en urna inmutable.',
+  });
+}
+
+function closeConsultation(consultaId: number, state: CondominioMockState): HttpMockResponse {
+  const consulta = state.consultas.find((c) => c.id === consultaId) ?? state.consultas[0]!;
+  consulta.estado = 'CERRADA_APROBADA';
+  consulta.acta_bitacora_id = 301;
+  return jsonResp(200, {
+    consulta_id: consulta.id,
+    titulo: consulta.titulo,
+    estado: consulta.estado,
+    regla_quorum: consulta.regla_quorum,
+    quorum_minimo_alicuota: consulta.quorum_minimo_alicuota,
+    participacion_alicuota: consulta.participacion_alicuota,
+    alicuota_aprobatoria: consulta.alicuota_aprobatoria,
+    total_votos: consulta.total_votos,
+    acta_bitacora_id: 301,
+    hash_global_escrutinio: 'sha256_escrutinio_e2e_001',
+  });
 }
 
 function handleGovernanceRoute(
@@ -1004,84 +1338,82 @@ function handleGovernanceRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/consultas' && method === 'GET') {
-    return jsonResp(200, state.consultas);
+    return withActive(state, () => jsonResp(200, state.consultas));
   }
   const detailMatch = /^\/api\/consultas\/(\d+)$/.exec(path);
   if (detailMatch && method === 'GET') {
-    const id = Number(detailMatch[1]);
-    return jsonResp(200, state.consultas.find((c) => c.id === id) ?? state.consultas[0]);
+    return withActive(state, () => {
+      const id = Number(detailMatch[1]);
+      return jsonResp(200, state.consultas.find((c) => c.id === id) ?? state.consultas[0]);
+    });
   }
   if (path === '/api/consultas' && method === 'POST') {
-    const created = {
-      ...state.consultas[0]!,
-      id: ++state.nextId,
-      titulo: String(body.titulo ?? 'Nueva Carta Consulta'),
-      estado: 'ABIERTA',
-      participacion_alicuota: '0.0000',
-      total_votos: 0,
-      ya_voto_usuario: false,
-      mi_voto: null,
-      acta_bitacora_id: null,
-    };
-    state.consultas.unshift(created);
-    return jsonResp(201, created);
+    return withRoles(state, ROLES_GOBERNANZA, (user) => {
+      const created = {
+        ...state.consultas[0]!,
+        id: ++state.nextId,
+        titulo: String(body.titulo ?? 'Nueva Carta Consulta'),
+        estado: 'ABIERTA',
+        participacion_alicuota: '0.0000',
+        alicuota_aprobatoria: '0.0000',
+        total_votos: 0,
+        creada_por_id: user.id,
+        ya_voto_usuario: false,
+        mi_voto: null,
+        acta_bitacora_id: null,
+      };
+      state.consultas.unshift(created);
+      return jsonResp(201, created);
+    });
   }
   const voteMatch = /^\/api\/consultas\/(\d+)\/votar$/.exec(path);
   if (voteMatch && method === 'POST') {
-    const consulta =
-      state.consultas.find((c) => c.id === Number(voteMatch[1])) ?? state.consultas[0]!;
-    const option =
-      consulta.opciones.find((o) => o.id === Number(body.opcion_id)) ?? consulta.opciones[0]!;
-    option.votos_cantidad += 1;
-    option.alicuota_acumulada = '52.0000';
-    consulta.total_votos += 1;
-    consulta.participacion_alicuota = '52.0000';
-    consulta.ya_voto_usuario = true;
-    const recibo = {
-      voto_id: ++state.nextId,
-      identificador_unidad: 'A-101',
-      opcion_etiqueta: option.etiqueta,
-      alicuota_capturada: '10.0000',
-      firma_hmac: 'hmac_sha256_voto_emitido_e2e_009911',
-      mensaje_verificacion: 'Voto ponderado registrado en urna inmutable.',
-    };
-    consulta.mi_voto = recibo;
-    return jsonResp(201, recibo);
+    return withActive(state, (user) =>
+      castConsultationVote(Number(voteMatch[1]), user, body, state),
+    );
   }
   const closeMatch = /^\/api\/consultas\/(\d+)\/cerrar$/.exec(path);
   if (closeMatch && method === 'POST') {
-    const consulta =
-      state.consultas.find((c) => c.id === Number(closeMatch[1])) ?? state.consultas[0]!;
-    consulta.estado = 'CERRADA_APROBADA';
-    consulta.acta_bitacora_id = 301;
-    return jsonResp(200, { estado: consulta.estado, acta_bitacora_id: 301 });
+    return withRoles(state, ROLES_GOBERNANZA, () =>
+      closeConsultation(Number(closeMatch[1]), state),
+    );
   }
   return null;
 }
 
 function createVisitorPass(
+  user: MockUserProfile,
   body: Record<string, unknown>,
   state: CondominioMockState,
 ): HttpMockResponse {
   const id = ++state.nextId;
+  const unidadId = Number(body.unidad_id ?? user.unidad_activa_id ?? 1);
+  const ident = state.unidades.find((u) => u.id === unidadId)?.identificador ?? 'A-101';
+  const firma = 'hmac_sha256_sig';
   const pase: PaseState = {
     id,
-    unidad_id: Number(body.unidad_id ?? 1),
-    identificador_unidad: 'A-101',
     jti: `jti-e2e-${id}`,
-    qr_token: `qr-e2e-${id}.hmac_sha256_sig`,
+    unidad_id: unidadId,
+    identificador_unidad: ident,
+    creado_por_id: user.id,
     nombre_visitante: String(body.nombre_visitante ?? 'Visitante'),
     cedula_visitante: String(body.cedula_visitante ?? 'V-20000000'),
     placa_vehiculo: (body.placa_vehiculo as string | null) ?? null,
     modalidad: String(body.modalidad ?? 'UNICO_USO'),
+    valido_desde: '2026-10-30T00:00:00Z',
+    valido_hasta: '2026-12-31T23:59:00Z',
     estado: 'ACTIVO',
-    fecha_expiracion: '2026-12-31T23:59:00Z',
+    usado_en: null,
+    verificado_por_id: null,
+    firma_hmac: firma,
+    qr_token: `qr-e2e-${id}.${firma}`,
   };
   state.pases.unshift(pase);
   return jsonResp(201, pase);
 }
 
 function verifyVisitorQr(
+  user: MockUserProfile,
   body: Record<string, unknown>,
   state: CondominioMockState,
 ): HttpMockResponse {
@@ -1089,14 +1421,25 @@ function verifyVisitorQr(
   if (!pase || pase.estado !== 'ACTIVO') {
     return jsonResp(409, { detail: 'Pase QR invalido, revocado o ya quemado (Anti-Replay).' });
   }
-  if (pase.modalidad === 'UNICO_USO') pase.estado = 'USADO';
+  const usadoEn = '2026-10-30T15:30:00Z';
+  if (pase.modalidad === 'UNICO_USO') {
+    pase.estado = 'USADO';
+    pase.usado_en = usadoEn;
+    pase.verificado_por_id = user.id;
+  }
   return jsonResp(200, {
     autorizado: true,
+    pase_id: pase.id,
     jti: pase.jti,
+    unidad_id: pase.unidad_id,
+    identificador_unidad: pase.identificador_unidad,
     nombre_visitante: pase.nombre_visitante,
     cedula_visitante: pase.cedula_visitante,
-    identificador_unidad: pase.identificador_unidad,
     placa_vehiculo: pase.placa_vehiculo,
+    modalidad: pase.modalidad,
+    estado: pase.estado,
+    usado_en: usadoEn,
+    verificado_por_id: user.id,
     mensaje: 'Ingreso autorizado en garita con proteccion Anti-Replay.',
   });
 }
@@ -1108,21 +1451,51 @@ function handlePassesRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/accesos/pases/mios' && method === 'GET') {
-    return jsonResp(200, state.pases);
+    return withActive(state, () => jsonResp(200, state.pases));
   }
   if (path === '/api/accesos/pases' && method === 'POST') {
-    return createVisitorPass(body, state);
+    return withActive(state, (user) => createVisitorPass(user, body, state));
   }
   const revMatch = /^\/api\/accesos\/pases\/(\d+)$/.exec(path);
   if (revMatch && method === 'DELETE') {
-    const pase = state.pases.find((p) => p.id === Number(revMatch[1])) ?? state.pases[0]!;
-    pase.estado = 'REVOCADO';
-    return jsonResp(200, pase);
+    return withActive(state, () => {
+      const pase = state.pases.find((p) => p.id === Number(revMatch[1])) ?? state.pases[0]!;
+      pase.estado = 'REVOCADO';
+      return jsonResp(200, pase);
+    });
   }
   if (path === '/api/accesos/verificar-qr' && method === 'POST') {
-    return verifyVisitorQr(body, state);
+    return withRoles(state, ROLES_GARITA, (user) => verifyVisitorQr(user, body, state));
   }
   return null;
+}
+
+function listParcelsForUser(user: MockUserProfile, state: CondominioMockState): HttpMockResponse {
+  if (ROLES_PAQUETERIA.includes(user.rol)) {
+    return jsonResp(200, state.paquetes);
+  }
+  return jsonResp(
+    200,
+    state.paquetes.filter((p) => p.unidad_id === user.unidad_activa_id),
+  );
+}
+
+function deliverParcel(
+  paqueteId: number,
+  user: MockUserProfile,
+  state: CondominioMockState,
+): HttpMockResponse {
+  const paq = state.paquetes.find((p) => p.id === paqueteId) ?? state.paquetes[0]!;
+  if (!ROLES_PAQUETERIA.includes(user.rol) && paq.unidad_id !== user.unidad_activa_id) {
+    return jsonResp(403, {
+      detail:
+        'Solo el conserje o el residente de la unidad destinataria pueden confirmar la entrega.',
+    });
+  }
+  paq.estado = 'ENTREGADO';
+  paq.fecha_entrega = '2026-10-30T16:00:00Z';
+  paq.retirado_por_id = user.id;
+  return jsonResp(200, paq);
 }
 
 function handleParcelsRoute(
@@ -1132,26 +1505,32 @@ function handleParcelsRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/paqueteria' && method === 'GET') {
-    return jsonResp(200, state.paquetes);
+    return withActive(state, (user) => listParcelsForUser(user, state));
   }
   if (path === '/api/paqueteria/registrar' && method === 'POST') {
-    const created = {
-      id: ++state.nextId,
-      unidad_id: Number(body.unidad_id ?? 1),
-      identificador_unidad: 'A-101',
-      empresa_envio: String(body.empresa_envio ?? 'ZOOM'),
-      descripcion: String(body.descripcion ?? 'Paquete registrado'),
-      estado: 'EN_GARITA',
-      url_foto_evidencia: (body.url_foto_evidencia as string | null) ?? null,
-    };
-    state.paquetes.unshift(created);
-    return jsonResp(201, created);
+    return withRoles(state, ROLES_PAQUETERIA, (user) => {
+      const unidadId = Number(body.unidad_id ?? 1);
+      const ident = state.unidades.find((u) => u.id === unidadId)?.identificador ?? 'A-101';
+      const created = {
+        id: ++state.nextId,
+        unidad_id: unidadId,
+        identificador_unidad: ident,
+        recibido_por_id: user.id,
+        empresa_envio: String(body.empresa_envio ?? 'ZOOM'),
+        descripcion: String(body.descripcion ?? 'Paquete registrado'),
+        url_foto_evidencia: (body.url_foto_evidencia as string | null) ?? null,
+        estado: 'EN_GARITA',
+        fecha_recepcion: '2026-10-30T10:00:00Z',
+        fecha_entrega: null,
+        retirado_por_id: null,
+      };
+      state.paquetes.unshift(created);
+      return jsonResp(201, created);
+    });
   }
   const pacMatch = /^\/api\/paqueteria\/(\d+)\/entregar$/.exec(path);
   if (pacMatch && method === 'PUT') {
-    const paq = state.paquetes.find((p) => p.id === Number(pacMatch[1])) ?? state.paquetes[0]!;
-    paq.estado = 'ENTREGADO';
-    return jsonResp(200, paq);
+    return withActive(state, (user) => deliverParcel(Number(pacMatch[1]), user, state));
   }
   return null;
 }
@@ -1163,24 +1542,28 @@ function handleAmenitiesRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/reservas/areas' && method === 'GET') {
-    return jsonResp(200, state.areasSociales);
+    return withActive(state, () => jsonResp(200, state.areasSociales));
   }
   if (path === '/api/reservas/areas' && method === 'POST') {
-    const area = {
-      id: ++state.nextId,
-      nombre: String(body.nombre ?? 'Parrillera Norte'),
-      aforo_maximo: Number(body.aforo_maximo ?? 30),
-      costo_uso_usd: String(body.costo_uso_usd ?? '25.00'),
-      deposito_garantia_usd: String(body.deposito_garantia_usd ?? '100.00'),
-      requiere_solvencia_estricta: Boolean(body.requiere_solvencia_estricta ?? true),
-    };
-    state.areasSociales.push(area);
-    return jsonResp(201, area);
+    return withRoles(state, ROLES_GESTION_AREAS, () => {
+      const area = {
+        id: ++state.nextId,
+        nombre: String(body.nombre ?? 'Parrillera Norte'),
+        aforo_maximo: Number(body.aforo_maximo ?? 30),
+        costo_uso_usd: String(body.costo_uso_usd ?? '25.00'),
+        deposito_garantia_usd: String(body.deposito_garantia_usd ?? '100.00'),
+        requiere_solvencia_estricta: Boolean(body.requiere_solvencia_estricta ?? true),
+        es_activa: true,
+      };
+      state.areasSociales.push(area);
+      return jsonResp(201, area);
+    });
   }
   return null;
 }
 
 function requestReservation(
+  user: MockUserProfile,
   body: Record<string, unknown>,
   state: CondominioMockState,
 ): HttpMockResponse {
@@ -1191,18 +1574,21 @@ function requestReservation(
   }
   const area =
     state.areasSociales.find((a) => a.id === Number(body.area_id)) ?? state.areasSociales[0]!;
+  const unidadId = Number(body.unidad_id ?? user.unidad_activa_id ?? 1);
+  const ident = state.unidades.find((u) => u.id === unidadId)?.identificador ?? 'A-101';
   const created: ReservaState = {
     id: ++state.nextId,
     area_id: area.id,
     nombre_area: area.nombre,
-    unidad_id: Number(body.unidad_id ?? 1),
-    identificador_unidad: 'A-101',
-    solicitante_id: state.currentUser?.id ?? 101,
+    unidad_id: unidadId,
+    identificador_unidad: ident,
+    solicitante_id: user.id,
     fecha_evento: String(body.fecha_evento ?? '2026-12-20'),
     motivo_evento: String(body.motivo_evento ?? 'Evento familiar'),
     estado: 'CONFIRMADA',
     tarea_inspeccion_id: 88,
     observaciones_inspeccion: null,
+    creado_en: '2026-10-30T12:00:00Z',
   };
   state.reservas.unshift(created);
   return jsonResp(201, created);
@@ -1211,16 +1597,23 @@ function requestReservation(
 function mutateReservation(
   id: number,
   action: string,
+  user: MockUserProfile,
   body: Record<string, unknown>,
   state: CondominioMockState,
 ): HttpMockResponse {
   const reserva = state.reservas.find((r) => r.id === id) ?? state.reservas[0]!;
   if (action === 'cancelar') {
+    if (!ROLES_CANCELACION_JUNTA.includes(user.rol) && reserva.solicitante_id !== user.id) {
+      return jsonResp(403, { detail: 'No tiene permisos para cancelar esta reserva.' });
+    }
     reserva.estado = 'CANCELADA';
-  } else {
-    reserva.estado = String(body.estado ?? 'FINALIZADA_SIN_DANOS');
-    reserva.observaciones_inspeccion = String(body.observaciones_inspeccion ?? 'Sin novedades');
+    return jsonResp(200, reserva);
   }
+  if (!ROLES_INSPECCION_RESERVA.includes(user.rol)) {
+    return jsonResp(403, { detail: 'No tiene permisos para ejecutar esta acción.' });
+  }
+  reserva.estado = String(body.estado ?? 'FINALIZADA_SIN_DANOS');
+  reserva.observaciones_inspeccion = String(body.observaciones_inspeccion ?? 'Sin novedades');
   return jsonResp(200, reserva);
 }
 
@@ -1231,14 +1624,16 @@ function handleReservasRoute(
   state: CondominioMockState,
 ): HttpMockResponse | null {
   if (path === '/api/reservas' && method === 'GET') {
-    return jsonResp(200, state.reservas);
+    return withActive(state, () => jsonResp(200, state.reservas));
   }
   if (path === '/api/reservas/solicitar' && method === 'POST') {
-    return requestReservation(body, state);
+    return withActive(state, (user) => requestReservation(user, body, state));
   }
   const resMatch = /^\/api\/reservas\/(\d+)\/(inspeccionar|cancelar)$/.exec(path);
   if (resMatch && method === 'PUT') {
-    return mutateReservation(Number(resMatch[1]), resMatch[2]!, body, state);
+    return withActive(state, (user) =>
+      mutateReservation(Number(resMatch[1]), resMatch[2]!, user, body, state),
+    );
   }
   return null;
 }
@@ -1251,6 +1646,7 @@ function dispatchMockRoute(
 ): HttpMockResponse {
   const handlers = [
     handleAuthRoute,
+    handleComunicadosRoute,
     handleFinanceCore,
     handlePagosRoute,
     handleFondosRoute,

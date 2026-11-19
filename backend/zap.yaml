@@ -1,33 +1,53 @@
 env:
   contexts:
-  - excludePaths: []
+  - excludePaths:
+    - http://api:8000/docs.*
+    - http://api:8000/redoc.*
     name: baseline
     urls:
     - http://api:8000
   parameters:
     failOnError: true
-    progressToStdout: false
+    progressToStdout: true
 jobs:
 - parameters:
     enableTags: false
     maxAlertsPerRule: 10
   type: passiveScan-config
+- alertFilters:
+  - newRisk: False Positive
+    ruleId: 10096
+    url: http://api:8000/openapi.json
+    urlRegex: false
+  parameters:
+    deleteGlobalAlerts: true
+  type: alertFilter
 - parameters:
-    maxDuration: 1
-    url: http://api:8000
-  type: spider
+    apiUrl: http://api:8000/openapi.json
+    targetUrl: http://api:8000
+  type: openapi
+- parameters: {}
+  requests:
+  - method: GET
+    responseCode: 200
+    url: http://api:8000/health
+  type: requestor
 - parameters:
     maxDuration: 0
   type: passiveScan-wait
 - parameters:
     format: Long
-    summaryFile: /home/zap/zap_out.json
+    summaryFile: /tmp/zap_out.json
   rules: []
   type: outputSummary
 - parameters:
     reportDescription: ''
-    reportDir: /zap/wrk/
+    reportDir: /tmp
     reportFile: zap-report.html
     reportTitle: ZAP Scanning Report
     template: traditional-html
   type: report
+- parameters:
+    errorLevel: Medium
+    warnLevel: Low
+  type: exitStatus

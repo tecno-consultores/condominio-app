@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import socket
+from collections.abc import AsyncIterator, Generator
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import jwt
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -22,10 +24,10 @@ from src.database import Base, bind_rls_tenant, get_db, sellar_cadena_worm
 from src.dependencies import verificar_usuario_activo
 from src.main import app
 from src.models import (
+    AreaSocial,
     AuditoriaRecibo,
     ContratoOcupacion,
     Estructura,
-    PagoReportado,
     PaqueteRecibido,
     PaseVisita,
     Recibo,
@@ -41,13 +43,11 @@ from src.redis_client import (
     REVOKED_USER_TTL_SECONDS,
     get_redis_client,
     is_login_locked_out,
-    is_session_id_revoked,
     record_login_failure,
     reset_local_security_state,
     revoke_session_id,
     revoke_user_session,
 )
-from src.routers import accesos as accesos_router
 from src.routers.auth import _resolver_unidad_activa_id
 from src.schemas import ComunicadoCreate, PaqueteCreate
 from src.security import (
@@ -60,7 +60,6 @@ from src.security import (
     decode_refresh_token,
     decode_token_unverified_exp,
     derive_subkey,
-    generate_csrf_token,
     get_password_hash,
     get_qr_signing_key,
     get_solvency_signing_key,
@@ -68,17 +67,41 @@ from src.security import (
     is_trusted_proxy_ip,
     validate_safe_outgoing_url_async,
 )
+from tests._sqlite_helpers import SeededCondoContext, create_sqlite_fk_factory, seed_condo_base
 
 
 @pytest.fixture(autouse=True)
-def _limpiar_h20(client: TestClient) -> Any:
-    client.cookies.clear()
+def _limpiar_h20() -> Generator[None]:
     app.dependency_overrides.clear()
     reset_local_security_state()
-    yield
-    client.cookies.clear()
-    app.dependency_overrides.clear()
-    reset_local_security_state()
+    try:
+        yield
+    finally:
+        app.dependency_overrides.clear()
+        reset_local_security_state()
+
+
+@asynccontextmanager
+async def _entorno_h20(
+    *,
+    con_semilla: bool = True,
+) -> AsyncIterator[tuple[async_sessionmaker[AsyncSession], SeededCondoContext | None, AsyncClient]]:
+    """Prepara SQLite FK real y AsyncClient con limpieza garantizada en try...finally."""
+    engine, factory = await create_sqlite_fk_factory()
+    try:
+        ctx = await seed_condo_base(factory) if con_semilla else None
+
+        async def _override_get_db() -> AsyncIterator[AsyncSession]:
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_redis_client] = lambda: None
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as ac:
+            yield factory, ctx, ac
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 def test_hkdf_subclaves_independientes_y_claims_jwt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -253,57 +276,54 @@ async def test_keydb_ttl_7d_lockout_cuenta_global_y_limite_local(monkeypatch: py
     assert await is_login_locked_out(None, "203.0.113.250", correo) is True
 
 
-def test_login_no_limpia_revocacion_y_logout_aisla_dispositivo(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.asyncio
+async def test_login_no_limpia_revocacion_y_logout_aisla_dispositivo(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """login bloquea usuario revocado/deshabilitado y logout solo revoca el sid del dispositivo actual."""
     monkeypatch.setenv("APP_ENV", "development")
-    mock_session = AsyncMock()
-    user_activo = Usuario(
-        id=88,
-        condominio_id=1,
-        nombre="Multi Device",
-        cedula="V-88008800",
-        correo="multi@condo.test",
-        telefono="0414",
-        password_hash=get_password_hash("ClaveMulti2026!"),
-        es_activo=True,
-        rol="PROPIETARIO",
-    )
-    res_usr = MagicMock()
-    res_usr.scalars().first.return_value = user_activo
-    mock_session.execute.return_value = res_usr
-    app.dependency_overrides[get_db] = lambda: mock_session
+    async with _entorno_h20(con_semilla=False) as (factory, _, ac):
+        async with factory() as session:
+            user_activo = Usuario(
+                condominio_id=1,
+                nombre="Multi Device",
+                cedula="V-88008800",
+                correo="multi@condo.test",
+                telefono="0414",
+                password_hash=get_password_hash("ClaveMulti2026!"),
+                es_activo=True,
+                rol="PROPIETARIO",
+            )
+            session.add(user_activo)
+            await session.commit()
+            user_id = user_activo.id
 
-    # 1. Logout de dispositivo A (sid-A) no invalida dispositivo B (sid-B)
-    tok_a = create_access_token({"sub": "multi@condo.test", "id": 88, "sid": "sid-A", "rol": "PROPIETARIO"})
-    tok_b = create_access_token({"sub": "multi@condo.test", "id": 88, "sid": "sid-B", "rol": "PROPIETARIO"})
-    client.cookies.set("access_token", f"Bearer {tok_a}")
-    assert client.post("/api/auth/logout").status_code == 200
-    client.cookies.clear()
+        # 1. Logout de dispositivo A (sid-A) no invalida dispositivo B (sid-B)
+        tok_a = create_access_token({"sub": "multi@condo.test", "id": user_id, "sid": "sid-A", "rol": "PROPIETARIO"})
+        tok_b = create_access_token({"sub": "multi@condo.test", "id": user_id, "sid": "sid-B", "rol": "PROPIETARIO"})
+        ac.cookies.set("access_token", f"Bearer {tok_a}")
+        assert (await ac.post("/api/auth/logout")).status_code == 200
+        ac.cookies.clear()
 
-    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {tok_a}"}).status_code == 401
-    res_unidad = MagicMock()
-    res_unidad.scalars().first.return_value = None
-    mock_session.execute.side_effect = [res_usr, res_unidad]
-    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {tok_b}"}).status_code == 200
+        assert (await ac.get("/api/auth/me", headers={"Authorization": f"Bearer {tok_a}"})).status_code == 401
+        assert (await ac.get("/api/auth/me", headers={"Authorization": f"Bearer {tok_b}"})).status_code == 200
 
-    # 2. Usuario revocado administrativamente NO puede hacer login ni borrar su propia revocación
-    mock_session.execute.side_effect = None
-    mock_session.execute.return_value = res_usr
-    import asyncio
+        # 2. Usuario revocado administrativamente NO puede hacer login ni borrar su propia revocación
+        await revoke_user_session(None, user_id)
+        r_rev = await ac.post("/api/auth/login", json={"correo": "multi@condo.test", "password": "ClaveMulti2026!"})
+        assert r_rev.status_code == 403
+        assert await rc_is_user_revoked(user_id) is True
 
-    asyncio.run(revoke_user_session(None, 88))
-    r_rev = client.post("/api/auth/login", json={"correo": "multi@condo.test", "password": "ClaveMulti2026!"})
-    assert r_rev.status_code == 403
-    assert asyncio.run(rc_is_user_revoked(88)) is True
-
-    # 3. Cuenta deshabilitada no-fantasma rechazada en login
-    reset_local_security_state()
-    user_activo.es_activo = False
-    user_activo.rol = "PROPIETARIO"
-    r_dis = client.post("/api/auth/login", json={"correo": "multi@condo.test", "password": "ClaveMulti2026!"})
-    assert r_dis.status_code == 403
+        # 3. Cuenta deshabilitada no-fantasma rechazada en login
+        reset_local_security_state()
+        async with factory() as session:
+            user_db = await session.get(Usuario, user_id)
+            assert user_db is not None
+            user_db.es_activo = False
+            user_db.rol = "PROPIETARIO"
+            await session.commit()
+        r_dis = await ac.post("/api/auth/login", json={"correo": "multi@condo.test", "password": "ClaveMulti2026!"})
+        assert r_dis.status_code == 403
 
 
 async def rc_is_user_revoked(uid: int) -> bool:
@@ -357,62 +377,67 @@ async def test_esquemas_urls_peligrosas_y_anti_ssrf_async_mayusculas(monkeypatch
         await validate_safe_outgoing_url_async("HTTP://PUBLIC-ALIAS.EXAMPLE.COM/ssrf.png")
 
 
-def test_middleware_http_host_metrics_proxies_csrf_corrupta_y_500_oshp(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.asyncio
+async def test_middleware_http_host_metrics_proxies_csrf_corrupta_y_500_oshp(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Valida ALLOWED_HOSTS, /metrics protegido, TRUSTED_PROXY_IPS, CSRF corrupta y cabeceras OSHP en 500."""
-    # 1. ALLOWED_HOSTS
-    monkeypatch.setenv("ALLOWED_HOSTS", "api.condominio.test")
-    bad_host = client.get("/health", headers={"Host": "evil.attacker.com"})
-    assert bad_host.status_code == 400
-    assert bad_host.headers["x-frame-options"] == "DENY"
-    assert client.get("/health", headers={"Host": "api.condominio.test"}).status_code == 200
-    monkeypatch.delenv("ALLOWED_HOSTS", raising=False)
+    async with _entorno_h20(con_semilla=False) as (factory, _, ac):
+        # 1. ALLOWED_HOSTS
+        monkeypatch.setenv("ALLOWED_HOSTS", "api.condominio.test")
+        bad_host = await ac.get("/health", headers={"Host": "evil.attacker.com"})
+        assert bad_host.status_code == 400
+        assert bad_host.headers["x-frame-options"] == "DENY"
+        assert (await ac.get("/health", headers={"Host": "api.condominio.test"})).status_code == 200
+        monkeypatch.delenv("ALLOWED_HOSTS", raising=False)
 
-    # 2. /metrics protegido por METRICS_AUTH_TOKEN
-    monkeypatch.setenv("METRICS_AUTH_TOKEN", "secreto-metrics-11x")
-    m_401 = client.get("/metrics")
-    assert m_401.status_code == 401
-    assert m_401.headers["cache-control"] == "no-store"
-    assert client.get("/metrics", headers={"Authorization": "Bearer secreto-metrics-11x"}).status_code == 200
-    assert client.get("/metrics", headers={"X-Metrics-Token": "secreto-metrics-11x"}).status_code == 200
-    monkeypatch.delenv("METRICS_AUTH_TOKEN", raising=False)
+        # 2. /metrics protegido por METRICS_AUTH_TOKEN
+        monkeypatch.setenv("METRICS_AUTH_TOKEN", "secreto-metrics-11x")
+        m_401 = await ac.get("/metrics")
+        assert m_401.status_code == 401
+        assert m_401.headers["cache-control"] == "no-store"
+        assert (await ac.get("/metrics", headers={"Authorization": "Bearer secreto-metrics-11x"})).status_code == 200
+        assert (await ac.get("/metrics", headers={"X-Metrics-Token": "secreto-metrics-11x"})).status_code == 200
+        monkeypatch.delenv("METRICS_AUTH_TOKEN", raising=False)
 
-    # 3. TRUSTED_PROXY_IPS rechaza X-Forwarded-Proto de origen no confiable
-    monkeypatch.setenv("TRUSTED_PROXY_IPS", "10.99.99.99")
-    assert is_trusted_proxy_ip("198.51.100.10") is False
-    assert is_trusted_proxy_ip("10.99.99.99") is True
-    res_no_hsts = client.get("/health", headers={"X-Forwarded-Proto": "https"})
-    assert "strict-transport-security" not in res_no_hsts.headers
-    monkeypatch.delenv("TRUSTED_PROXY_IPS", raising=False)
+        # 3. TRUSTED_PROXY_IPS rechaza X-Forwarded-Proto de origen no confiable
+        monkeypatch.setenv("TRUSTED_PROXY_IPS", "10.99.99.99")
+        assert is_trusted_proxy_ip("198.51.100.10") is False
+        assert is_trusted_proxy_ip("10.99.99.99") is True
+        res_no_hsts = await ac.get("/health", headers={"X-Forwarded-Proto": "https"})
+        assert "strict-transport-security" not in res_no_hsts.headers
+        monkeypatch.delenv("TRUSTED_PROXY_IPS", raising=False)
 
-    # 4. Cookie corrupta en ruta mutante bloqueada con 403 si CSRF_ENFORCE=true (pero /logout permitido)
-    monkeypatch.setenv("CSRF_ENFORCE", "true")
-    client.cookies.set("access_token", "Bearer corrupto.jwt.invalido")
-    res_corrupt = client.post("/api/finanzas/tasa", json={})
-    assert res_corrupt.status_code == 403
-    res_logout_corrupt = client.post("/api/auth/logout")
-    assert res_logout_corrupt.status_code == 200
-    client.cookies.clear()
-    monkeypatch.delenv("CSRF_ENFORCE", raising=False)
+        # 4. Cookie corrupta en ruta mutante bloqueada con 403 si CSRF_ENFORCE=true (pero /logout permitido)
+        monkeypatch.setenv("CSRF_ENFORCE", "true")
+        ac.cookies.set("access_token", "Bearer corrupto.jwt.invalido")
+        res_corrupt = await ac.post("/api/finanzas/tasa", json={})
+        assert res_corrupt.status_code == 403
+        res_logout_corrupt = await ac.post("/api/auth/logout")
+        assert res_logout_corrupt.status_code == 200
+        ac.cookies.clear()
+        monkeypatch.delenv("CSRF_ENFORCE", raising=False)
 
-    # 5. Cabeceras OSHP garantizadas incluso cuando un endpoint dispara 500 no capturado
-    broken_db = AsyncMock()
-    broken_db.execute.side_effect = RuntimeError("Fallo inesperado en motor")
-    app.dependency_overrides[get_db] = lambda: broken_db
-    res_500 = client.get("/api/estructura/unidades")
-    assert res_500.status_code == 500
-    assert res_500.headers["x-content-type-options"] == "nosniff"
-    assert res_500.headers["x-frame-options"] == "DENY"
-    assert res_500.headers["cache-control"] == "no-store"
+        # 5. Cabeceras OSHP garantizadas incluso cuando una sesión SQLite real dispara 500 no capturado
+        async with factory() as real_db:
+
+            async def _fallo_motor(*args: object, **kwargs: object) -> Any:
+                raise RuntimeError("Fallo inesperado en motor")
+
+            monkeypatch.setattr(real_db, "execute", _fallo_motor)
+            app.dependency_overrides[get_db] = lambda: real_db
+            res_500 = await ac.get("/api/estructura/unidades")
+
+        assert res_500.status_code == 500
+        assert res_500.headers["x-content-type-options"] == "nosniff"
+        assert res_500.headers["x-frame-options"] == "DENY"
+        assert res_500.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.asyncio
-async def test_rbac_idor_fail_closed_fecha_fin_y_aislamiento_horizontal(client: TestClient) -> None:
+async def test_rbac_idor_fail_closed_fecha_fin_y_aislamiento_horizontal() -> None:
     """Cierra escalación VP->Presidente, verificar_usuario_activo fail-closed, fecha_fin y listados."""
     from fastapi import HTTPException
-
-    from src.dependencies import get_current_user
 
     # 1. verificar_usuario_activo fail-closed ante falta de es_activo o rol desconocido
     with pytest.raises(HTTPException) as exc_no_attr:
@@ -420,138 +445,177 @@ async def test_rbac_idor_fail_closed_fecha_fin_y_aislamiento_horizontal(client: 
     assert exc_no_attr.value.status_code == 403
 
     with pytest.raises(HTTPException) as exc_bad_rol:
-        verificar_usuario_activo(SimpleNamespace(id=1, es_activo=True, rol="RESIDENTE"))  # type: ignore[arg-type]
+        usuario_rol_invalido = SimpleNamespace(id=1, es_activo=True, rol="ROL_INEXISTENTE")
+        verificar_usuario_activo(usuario_rol_invalido)  # type: ignore[arg-type]
     assert exc_bad_rol.value.status_code == 403
 
-    # 2. _resolver_unidad_activa_id filtra fecha_fin.is_(None)
-    orm_user = Usuario(
-        id=5,
-        condominio_id=1,
-        nombre="U",
-        cedula="V-5",
-        correo="u5@condo.test",
-        telefono="0414",
-        password_hash="h",
-        es_activo=True,
-        rol="PROPIETARIO",
-    )
-    mock_db_fin = AsyncMock()
-    res_none = MagicMock()
-    res_none.scalars().first.return_value = None
-    mock_db_fin.execute.return_value = res_none
-    assert await _resolver_unidad_activa_id(mock_db_fin, orm_user) is None
+    async with _entorno_h20() as (factory, ctx, ac):
+        assert ctx is not None
 
-    # 3. VICEPRESIDENTE no puede asignar rol PRESIDENTE ni modificar a un PRESIDENTE
-    vp = SimpleNamespace(id=2, correo="vp@condo.test", rol="VICEPRESIDENTE", es_activo=True, condominio_id=1)
-    pres_actual = Usuario(
-        id=1,
-        condominio_id=1,
-        nombre="Pres",
-        cedula="V-1",
-        correo="p@condo.test",
-        telefono="0414",
-        password_hash="h",
-        es_activo=True,
-        rol="PRESIDENTE",
-    )
-    fantasma = Usuario(
-        id=9,
-        condominio_id=1,
-        nombre="Fant",
-        cedula="V-9",
-        correo="f@condo.test",
-        telefono="0414",
-        password_hash="h",
-        es_activo=False,
-        rol="FANTASMA",
-    )
-    res_f = MagicMock()
-    res_f.scalars().first.return_value = fantasma
-    res_p = MagicMock()
-    res_p.scalars().first.return_value = pres_actual
-    db_vp = AsyncMock()
-    db_vp.execute.side_effect = [res_f, res_p]
-    mock_redis_vp = AsyncMock()
-    mock_redis_vp.set.return_value = True
-    app.dependency_overrides[get_current_user] = lambda: vp
-    app.dependency_overrides[get_db] = lambda: db_vp
-    app.dependency_overrides[get_redis_client] = lambda: mock_redis_vp
+        # 2. _resolver_unidad_activa_id filtra fecha_fin.is_(None) en SQLite real
+        async with factory() as session:
+            user_cerrado = Usuario(
+                condominio_id=1,
+                nombre="Contrato Cerrado",
+                cedula="V-55005500",
+                correo="cerrado@condo.test",
+                telefono="0414",
+                password_hash=get_password_hash("Clave1234!"),
+                es_activo=True,
+                rol="PROPIETARIO",
+            )
+            session.add(user_cerrado)
+            await session.flush()
+            session.add(
+                ContratoOcupacion(
+                    condominio_id=1,
+                    usuario_id=user_cerrado.id,
+                    unidad_id=ctx.unidad_a_id,
+                    tipo_ocupante="PROPIETARIO",
+                    es_activo=True,
+                    fecha_fin=datetime.now(UTC),
+                )
+            )
+            await session.commit()
 
-    r_esc1 = client.put(
-        "/api/usuarios/9/asignar",
-        headers={"Idempotency-Key": "20000000-0000-4000-8000-000000000001"},
-        json={"unidad_id": 1, "tipo_ocupante": "PROPIETARIO", "rol": "PRESIDENTE"},
-    )
-    assert r_esc1.status_code == 403
+            assert await _resolver_unidad_activa_id(session, user_cerrado) is None
+            prop_db = await session.get(Usuario, ctx.propietario_id)
+            assert prop_db is not None
+            assert await _resolver_unidad_activa_id(session, prop_db) == ctx.unidad_a_id
 
-    r_esc2 = client.put(
-        "/api/usuarios/1/asignar",
-        headers={"Idempotency-Key": "20000000-0000-4000-8000-000000000002"},
-        json={"unidad_id": 1, "tipo_ocupante": "PROPIETARIO", "rol": "PROPIETARIO"},
-    )
-    assert r_esc2.status_code == 403
+        # 3. VICEPRESIDENTE no puede asignar rol PRESIDENTE ni modificar a un PRESIDENTE
+        async with factory() as session:
+            vp = Usuario(
+                condominio_id=1,
+                nombre="VP Test",
+                cedula="V-20000002",
+                correo="vp@condo.test",
+                telefono="0414",
+                password_hash=get_password_hash("Clave1234!"),
+                es_activo=True,
+                rol="VICEPRESIDENTE",
+            )
+            fantasma = Usuario(
+                condominio_id=1,
+                nombre="Fant",
+                cedula="V-90000009",
+                correo="f@condo.test",
+                telefono="0414",
+                password_hash=get_password_hash("Clave1234!"),
+                es_activo=False,
+                rol="FANTASMA",
+            )
+            session.add_all([vp, fantasma])
+            await session.commit()
+            vp_id, fantasma_id = vp.id, fantasma.id
 
-    # 4. /api/finanzas/resumen oculta recibos de terceros para PROPIETARIO y CONSERJE
-    prop = SimpleNamespace(id=10, correo="prop@condo.test", rol="PROPIETARIO", es_activo=True, condominio_id=1)
-    conserje = SimpleNamespace(id=11, correo="cons@condo.test", rol="CONSERJE", es_activo=True, condominio_id=1)
-    rec_propio = Recibo(
-        id=1,
-        unidad_id=5,
-        periodo="2026-11",
-        monto_usd=Decimal("40.00"),
-        monto_pagado_usd=Decimal("0.00"),
-        estado="PENDIENTE",
-    )
-    res_unidades = MagicMock()
-    res_unidades.scalars().all.return_value = [5]
-    res_recs = MagicMock()
-    res_recs.scalars().all.return_value = [rec_propio]
-    res_egr = MagicMock()
-    res_egr.all.return_value = []
+        tok_vp = create_access_token({"sub": "vp@condo.test", "id": vp_id, "rol": "VICEPRESIDENTE", "condominio_id": 1})
+        cookies_vp = {"access_token": f"Bearer {tok_vp}"}
+        r_esc1 = await ac.put(
+            f"/api/usuarios/{fantasma_id}/asignar",
+            headers={"Idempotency-Key": "20000000-0000-4000-8000-000000000001"},
+            cookies=cookies_vp,
+            json={"unidad_id": ctx.unidad_a_id, "tipo_ocupante": "PROPIETARIO", "rol": "PRESIDENTE"},
+        )
+        assert r_esc1.status_code == 403
 
-    db_resumen = AsyncMock()
-    db_resumen.execute.side_effect = [res_unidades, res_recs, res_egr]
-    app.dependency_overrides[get_current_user] = lambda: prop
-    app.dependency_overrides[get_db] = lambda: db_resumen
-    r_res_prop = client.get("/api/finanzas/resumen")
-    assert r_res_prop.status_code == 200
-    assert len(r_res_prop.json()["estado_cobranza"]) == 1
-    assert r_res_prop.json()["estado_cobranza"][0]["unidad_id"] == 5
+        r_esc2 = await ac.put(
+            f"/api/usuarios/{ctx.presidente_id}/asignar",
+            headers={"Idempotency-Key": "20000000-0000-4000-8000-000000000002"},
+            cookies=cookies_vp,
+            json={"unidad_id": ctx.unidad_a_id, "tipo_ocupante": "PROPIETARIO", "rol": "PROPIETARIO"},
+        )
+        assert r_esc2.status_code == 403
 
-    db_cons = AsyncMock()
-    db_cons.execute.side_effect = [res_egr]
-    app.dependency_overrides[get_current_user] = lambda: conserje
-    app.dependency_overrides[get_db] = lambda: db_cons
-    r_res_cons = client.get("/api/finanzas/resumen")
-    assert r_res_cons.status_code == 200
-    assert r_res_cons.json()["estado_cobranza"] == []
+        # 4. /api/finanzas/resumen oculta recibos de terceros para PROPIETARIO y CONSERJE
+        async with factory() as session:
+            session.add_all(
+                [
+                    Recibo(
+                        condominio_id=1,
+                        unidad_id=ctx.unidad_a_id,
+                        periodo="2026-11",
+                        monto_usd=Decimal("40.00"),
+                        monto_pagado_usd=Decimal("0.00"),
+                        estado="PENDIENTE",
+                    ),
+                    Recibo(
+                        condominio_id=1,
+                        unidad_id=ctx.unidad_b_id,
+                        periodo="2026-11",
+                        monto_usd=Decimal("99.00"),
+                        monto_pagado_usd=Decimal("0.00"),
+                        estado="PENDIENTE",
+                    ),
+                    PaseVisita(
+                        condominio_id=1,
+                        jti=str(uuid4()),
+                        unidad_id=ctx.unidad_a_id,
+                        creado_por_id=ctx.propietario_id,
+                        nombre_visitante="Visita Ajena",
+                        cedula_visitante="V-44444444",
+                        modalidad="UNICO_USO",
+                        valido_desde=datetime.now(UTC),
+                        valido_hasta=datetime.now(UTC) + timedelta(hours=4),
+                        estado="ACTIVO",
+                        firma_hmac="a" * 64,
+                    ),
+                    PaqueteRecibido(
+                        condominio_id=1,
+                        unidad_id=ctx.unidad_a_id,
+                        recibido_por_id=ctx.conserje_id,
+                        empresa_envio="MRW",
+                        descripcion="Caja vecina",
+                        estado="EN_GARITA",
+                    ),
+                ]
+            )
+            area = AreaSocial(condominio_id=1, nombre="Caney Central", aforo_maximo=25)
+            session.add(area)
+            await session.flush()
+            session.add(
+                ReservaAreaSocial(
+                    condominio_id=1,
+                    area_id=area.id,
+                    unidad_id=ctx.unidad_a_id,
+                    solicitante_id=ctx.propietario_id,
+                    fecha_evento=date.today() + timedelta(days=3),
+                    motivo_evento="Reunión privada",
+                    estado="CONFIRMADA",
+                )
+            )
+            await session.commit()
 
-    # 5. /api/accesos/pases/mios para PRESIDENTE sin unidad propia devuelve [] (no filtra pases de vecinos)
-    pres = SimpleNamespace(id=1, correo="pres@condo.test", rol="PRESIDENTE", es_activo=True, condominio_id=1)
-    db_pases = AsyncMock()
-    res_uni_empty = MagicMock()
-    res_uni_empty.scalars().all.return_value = []
-    db_pases.execute.return_value = res_uni_empty
-    app.dependency_overrides[get_current_user] = lambda: pres
-    app.dependency_overrides[get_db] = lambda: db_pases
-    r_mios = client.get("/api/accesos/pases/mios")
-    assert r_mios.status_code == 200
-    assert r_mios.json() == []
+        tok_prop = create_access_token(
+            {"sub": "prop@condo.test", "id": ctx.propietario_id, "rol": "PROPIETARIO", "condominio_id": 1}
+        )
+        r_res_prop = await ac.get("/api/finanzas/resumen", cookies={"access_token": f"Bearer {tok_prop}"})
+        assert r_res_prop.status_code == 200
+        assert len(r_res_prop.json()["estado_cobranza"]) == 1
+        assert r_res_prop.json()["estado_cobranza"][0]["unidad_id"] == ctx.unidad_a_id
 
-    # 6. /api/paqueteria restringe a TESORERO a sus unidades propias y /api/reservas restringe a VOCERO
-    tesorero = SimpleNamespace(id=3, correo="tes@condo.test", rol="TESORERO", es_activo=True, condominio_id=1)
-    db_paq = AsyncMock()
-    db_paq.execute.return_value = res_uni_empty
-    app.dependency_overrides[get_current_user] = lambda: tesorero
-    app.dependency_overrides[get_db] = lambda: db_paq
-    assert client.get("/api/paqueteria").json() == []
+        tok_cons = create_access_token(
+            {"sub": "cons@condo.test", "id": ctx.conserje_id, "rol": "CONSERJE", "condominio_id": 1}
+        )
+        r_res_cons = await ac.get("/api/finanzas/resumen", cookies={"access_token": f"Bearer {tok_cons}"})
+        assert r_res_cons.status_code == 200
+        assert r_res_cons.json()["estado_cobranza"] == []
 
-    vocero = SimpleNamespace(id=4, correo="voc@condo.test", rol="VOCERO", es_activo=True, condominio_id=1)
-    db_resv = AsyncMock()
-    db_resv.execute.return_value = res_uni_empty
-    app.dependency_overrides[get_current_user] = lambda: vocero
-    app.dependency_overrides[get_db] = lambda: db_resv
-    assert client.get("/api/reservas").json() == []
+        # 5. /api/accesos/pases/mios para PRESIDENTE sin unidad propia devuelve [] (no filtra pases de vecinos)
+        tok_pres = create_access_token(
+            {"sub": "pres@condo.test", "id": ctx.presidente_id, "rol": "PRESIDENTE", "condominio_id": 1}
+        )
+        r_mios = await ac.get("/api/accesos/pases/mios", cookies={"access_token": f"Bearer {tok_pres}"})
+        assert r_mios.status_code == 200
+        assert r_mios.json() == []
 
-    # Silenciar imports de modelos de referencia usados para verificación de contratos
-    _ = (PagoReportado, PaqueteRecibido, PaseVisita, ReservaAreaSocial, date, accesos_router, generate_csrf_token)
+        # 6. /api/paqueteria restringe a TESORERO a sus unidades propias y /api/reservas restringe a VOCERO
+        tok_tes = create_access_token(
+            {"sub": "tes@condo.test", "id": ctx.tesorero_id, "rol": "TESORERO", "condominio_id": 1}
+        )
+        assert (await ac.get("/api/paqueteria", cookies={"access_token": f"Bearer {tok_tes}"})).json() == []
+
+        tok_voc = create_access_token(
+            {"sub": "voc@condo.test", "id": ctx.vocero_id, "rol": "VOCERO", "condominio_id": 1}
+        )
+        assert (await ac.get("/api/reservas", cookies={"access_token": f"Bearer {tok_voc}"})).json() == []

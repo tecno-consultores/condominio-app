@@ -2,6 +2,9 @@
 
 **Estado:** Completado y Certificado en Backend (Hito 4 ✅) y GUI (Hito 7 ✅)
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Specs 10–13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 17–23):** Operaciones y el Worker incorporan **PG17 RLS (`0010`)**, complejidad **Radon Grado A**, subida binaria validada por *Magic Bytes* conectada al **Worker AVIF/SMTP** (`BLMOVE` + DLQ acotada, firma `AWS4-HMAC-SHA256` RFC 3986, `STARTTLS` y `QA-HEALTH-01`), unicidad `uq_tarea_diaria_plantilla_fecha`, bloqueo `.with_for_update()` en adhesiones y cuota de 30 fotos/mes, idempotencia con *replay*, tokenización **`OKLCH` + `light-dark()`**, Screenplay E2E y gobernanza **Thin-Repo `v3.1.0`**. Ver [Spec 12](./12_GOBERNANZA_DESPLIEGUE_PRODUCTIVO_Y_CI_11X.md) y [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Embudo de Incidencias con Adhesión ("Me Sumo")

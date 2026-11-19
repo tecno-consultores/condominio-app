@@ -1,10 +1,13 @@
 # Mapa de Vistas (GUI) y Rutas API
 **Proyecto:** Condominio App
 **Versión:** 1.0.0 (Lanzamiento Oficial)
+**Inventario Verificado:** `23` rutas nombradas Vue 3 (`frontend/src/router/index.ts`, más redirección `/` $\to$ `/dashboard` y `6` alias) · `61` endpoints REST FastAPI (`59` rutas en `backend/src/routers/*.py` + `GET /health` + `GET /metrics`)
 
 Este documento integra la navegación del Frontend (Vue 3), el diseño de la Interfaz Gráfica (UI/UX) y los Endpoints del Backend (FastAPI) requeridos para cada pantalla.
 
-*Nota de Diseño General:* El layout principal en móviles utilizará una **Bottom Navigation Bar** para acceso rápido. En escritorio, mutará a un **Sidebar** lateral. Toda mutación protegida por `IdempotentAPIRoute` (`Idempotency-Key` `8..128` caracteres, scope `idemp:{condominio_id}:{usuario_id}:{scope}:{key}`) aplica *replay* determinista en `2xx` (`X-Idempotency-Replayed: true`), rechaza cambios de cuerpo (`409`) y libera la clave en `4xx`/`5xx`. Todos los listados `GET` soportan paginación acotada (`limit=1..100`, `offset=0..1_000_000`).
+*Nota de Diseño General:* El layout principal en móviles utiliza una **Bottom Navigation Bar** y un cajón lateral `<dialog>` (`MobileNavDrawer`) con botón **Salir** en `< 768px`. En escritorio, muta a un **Sidebar** lateral. Toda mutación protegida por `IdempotentAPIRoute` (`Idempotency-Key` `8..128` caracteres, scope `idemp:{condominio_id}:{usuario_id}:{scope}:{key}`) aplica *replay* determinista en `2xx` (`X-Idempotency-Replayed: true`), rechaza cambios de cuerpo (`409`) y libera la clave en `4xx`/`5xx`. Todos los listados `GET` soportan paginación acotada (`limit=1..100`, `offset=0..1_000_000`).
+
+*(Las rutas futuras de Spec 13 Fase 8 —recuperación de clave, multi-inmueble, estacionamientos/maleteros, exportación PDF y `WS /ws/notificaciones`— se detallan como hoja de ruta en `docs/specs/13_*` y `docs/ARCHITECTURE.md`, y no forman parte de los `61` endpoints activos de `v1.0.0`.)*
 
 ---
 
@@ -28,7 +31,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ## 2. Dashboard Financiero (Inicio)
 
 ### 🖥️ Vista: Resumen y Cartelera
-* **Ruta Vue:** `/` o `/dashboard`
+* **Ruta Vue:** `/dashboard` (alias `/inicio`; `/` redirige a `/dashboard`)
 * **Diseño GUI:**
   * **Cabecera:** Logo, saludo al usuario y **Tasa de Cambio del Día**.
   * **Banner Condicional:** Si el día actual es entre el 1 y el 10, muestra una tarjeta destacada: *"📊 Cierre Financiero disponible"*.
@@ -47,12 +50,12 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ## 3. Flujo de Reporte de Pagos
 
 ### 🖥️ Vista: Wizard de Pago
-* **Ruta Vue:** `/finanzas/reportar-pago`
+* **Ruta Vue:** `/finanzas/reportar-pago` (alias `/pagar`)
 * **Diseño GUI (Proceso Paso a Paso):**
-  * **Paso 1:** Teclado numérico grande. Selector USD/VES (muestra conversión automática en texto pequeño según la tasa del día).
-  * **Paso 2:** Selección de Método (Zelle, Efectivo, Pago Móvil, Transferencia). *Regla UI: Si es Zelle, Pago Móvil o Transferencia, aparece un campo de texto obligatorio para el Número de Referencia.*
-  * **Paso 3:** Subida de captura de pantalla (Cámara/Galería).
-  * **Botón Final:** "Enviar Reporte". Al pulsar, muestra un *spinner* y se bloquea visualmente para evitar doble envío.
+  * **Paso 1:** Selección de recibo pendiente, monto y selector `VES`/`USD` (conversión automática según tasa BCV vigente).
+  * **Paso 2:** Selección de Método (`PAGO_MOVIL`, `TRANSFERENCIA`, `ZELLE`, `EFECTIVO`). *Regla UI: Si no es `EFECTIVO`, exige Número de Referencia (mínimo 4 caracteres).*
+  * **Paso 3:** Subida opcional de comprobante (`AVIF`, `WebP`, `PNG`, `JPG` o `PDF`, $\le 2\text{ MB}$) y confirmación.
+  * **Botón Final:** "Confirmar y Enviar Pago". Bloquea el envío concurrente mediante `useIdempotency`.
 * **Endpoints FastAPI:**
   * `POST /api/evidencias/subir`: Ingesta previa opcional (`FormData` multipart con `categoria=comprobantes`) antes de reportar.
   * `POST /api/pagos/reportar`: Registra el pago (con campo opcional `url_comprobante` devuelto en `PagoResponse`) y la tasa del día exacto tras verificar titularidad activa en `ContratoOcupacion` (anti-IDOR, salvo roles `TESORERO`/`PRESIDENTE`) y unicidad parcial `uq_pagos_metodo_ref_activo` en `(metodo_pago, numero_referencia)` (`409 Conflict`). **Requiere campo `numero_referencia` en el payload si el método no es efectivo.** *[Header: Idempotency-Key]* -> Worker convierte imagen a AVIF.
@@ -62,11 +65,11 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ## 4. Panel de Tesorería (Aprobaciones y Cierre)
 
 ### 🖥️ Vistas: Pagos Pendientes y Cierre de Mes
-* **Ruta Vue:** `/tesoreria/pagos`, `/tesoreria/cierre`
+* **Ruta Vue:** `/tesoreria/pagos` (alias `/admin/pagos-revision`), `/tesoreria/cierre` (alias `/admin/finanzas`)
 * **Diseño GUI:**
-  * **Pagos Pendientes:** Lista de Tarjetas (Cards) expandibles (Acordeón). Al expandir, muestra mitad foto (AVIF), mitad cálculos. Dos botones grandes: `[ APROBAR ]` y `[ RECHAZAR ]`.
-  * *Flujo de Rechazo:* Si pulsa rechazar, se oculta la foto y aparece un Modal exigiendo escribir el "Motivo" para habilitar el botón de confirmación.
-  * **Cierre de Mes:** Muestra una vista previa del PDF preliminar y un botón crítico de `"Cerrar Mes"`.
+  * **Pagos Pendientes:** Lista de Tarjetas (Cards) expandibles (Acordeón). Al expandir, muestra el comprobante y cálculos. Dos botones grandes: `[ APROBAR ]` y `[ RECHAZAR ]`.
+  * *Flujo de Rechazo:* Si pulsa rechazar, se oculta la evidencia y aparece un Modal `<dialog>` exigiendo escribir el "Motivo" para habilitar la confirmación.
+  * **Cierre de Mes:** Presenta tres paneles operativos: registro de Tasa Oficial BCV del Día, registro de Gasto / Egreso multimoneda y ejecución inmutable del Candado Contable mediante `<dialog>` de confirmación. *(La exportación PDF del cierre corresponde a Spec 13 Fase 8.)*
 * **Endpoints FastAPI:**
   * `POST /api/finanzas/tasa` y `GET /api/finanzas/tasa`: Registra/actualiza y consulta la tasa oficial USD/VES. *[Header: Idempotency-Key]*
   * `POST /api/finanzas/egresos`: Registra gastos operativos y egresos multimoneda (descontando del `FondoCondominio` `RESERVA_LEGAL` cuando `es_gasto_comun=false`) con validación de factura segura y bloqueo `409 Conflict` por Candado Contable (`ReporteMensual.estado == "CERRADO"`). *[Header: Idempotency-Key]*
@@ -95,11 +98,11 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ## 6. Panel de Administración y Configuración
 
 ### 🖥️ Vistas: Estructura, Usuarios y Junta
-* **Ruta Vue:** `/admin/estructura`, `/admin/usuarios`, `/admin/junta`
+* **Ruta Vue:** `/admin/estructura`, `/admin/usuarios` (alias `/admin/usuarios-pendientes`), `/admin/junta`
 * **Diseño GUI:**
-  * **Constructor:** Formulario para añadir Edificio o Calle. Configuración de identificador (Ej. `A-42` o `42`). Autogenera las unidades. Campo de texto extra para número de **Puesto de Estacionamiento** (en edificios).
-  * **Bandeja de Usuarios:** Tarjetas de registros nuevos. Ficha con toggle para elegir `[ Ocupado Propietario / Inquilino / Vacío ]` y quién es el responsable de pagar el condominio.
-  * **Composición de Junta:** Tabla de cargos (Presidente, Tesorero, Vocero, etc.) con interruptor de activación y buscador para asignar propietarios.
+  * **Constructor:** Formulario para añadir Edificio/Torre/Bloque/Manzana/Calle y autogenerar identificadores (Ej. `A-42` o `42`), además de editar alícuota (%) y cuota fija diferenciada por unidad.
+  * **Bandeja de Usuarios:** Tarjetas de Usuarios Fantasma pendientes con asignación de unidad, condición (`PROPIETARIO`/`INQUILINO`) y rol operativo (`PROPIETARIO`, `INQUILINO`, `CONSERJE`; bloqueando escalación directa hacia Junta/`PRESIDENTE`).
+  * **Composición de Junta:** Asignación de cargos (`PRESIDENTE`, `VICEPRESIDENTE`, `TESORERO`, `SECRETARIO`, `VOCERO`) exclusiva de `PRESIDENTE`.
 * **Endpoints FastAPI:**
   * `GET /api/estructura/unidades`: Lista las unidades con DTO dual: `UnidadResponse` completo (`alicuota`, `cuota_fija_usd`, `credito_disponible_usd`) exclusivo para roles de Junta/Cobranza (`PRESIDENTE`, `VICEPRESIDENTE`, `TESORERO`, `SECRETARIO`, `VOCERO`), y `UnidadPublicaResponse` (`id`, `identificador`, `estructura_id`) para residentes, Usuarios Fantasma y anónimos.
   * `POST /api/estructura/generar`: Crea sectores y unidades con su identificador.
@@ -112,7 +115,7 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 ## 7. Módulo de Operaciones (Conserjería y Voceros)
 
 ### 🖥️ Vistas: Tablero de Tareas y Galerías
-* **Ruta Vue:** `/operaciones/tareas`, `/voceros/galeria`
+* **Ruta Vue:** `/operaciones/tareas` (alias `/conserje/tareas`), `/voceros/galeria`
 * **Diseño GUI:**
   * **Gestión Tareas (Presidente):** Creador con botones tipo pastilla para frecuencia (`Única`, `Diaria`, `Semanal`, `Mensual`).
   * **App Conserje:** Checklist diario ultra minimalista. Círculos grandes para hacer *check-off*. Permite adjuntar foto (AVIF) como evidencia de cumplimiento.
@@ -144,9 +147,6 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
   * `GET /api/comunicados/recientes`: Lista comunicados activos para la cartelera en `/dashboard`.
 
 ---
-
-### 🖥️ Vista Comodín 404 y Navegación Unificada (Hito 22)
-* **Rutas Vue:** Todas las rutas autenticadas viven bajo la ruta padre `<AppShellLayout>` (`/`), con ruta comodín `/:pathMatch(.*)*` (`NotFoundView.vue` `#not-found-card`), cajón móvil `<dialog>` completo y salida en `< 768px`.
 
 ---
 
@@ -187,5 +187,113 @@ Este documento integra la navegación del Frontend (Vue 3), el diseño de la Int
 * **Endpoints FastAPI:**
   * `POST /api/accesos/pases`, `GET /api/accesos/pases/mios`, `DELETE /api/accesos/pases/{pase_id}`: Emisión, listado filtrado exclusivamente por el propietario/residente titular y revocación de pases QR firmados con subclave `HKDF-SHA256`. *[Header: Idempotency-Key]*
   * `POST /api/accesos/verificar-qr`: Verifica firma, vigencia y unicidad (`jti` anti-replay en KeyDB Multi-Hilo). *[Header: Idempotency-Key]*
-  * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{paquete_id}/entregar`: Cadena de custodia de encomiendas en conserjería con listado global restringido a `VIGILANTE`, `CONSERJE`, `PRESIDENTE` y `SECRETARIO`, y vista acotada a sus unidades vigentes para residentes. *[Header: Idempotency-Key]*
-  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{reserva_id}/cancelar`, `PUT /api/reservas/{id}/inspeccionar`: Reserva de amenidades con listado global acotado, índice único parcial excluyendo `CANCELADA`, bloqueo a unidades insolventes, cargo automático `USO_AREA_SOCIAL` si `costo_uso_usd > 0`, reverso o crédito al cancelar, inspección post-evento y cargo contable `DANOS_AREA_SOCIAL` si concluye `FINALIZADA_CON_DANOS`. *[Header: Idempotency-Key]*
+  * `POST /api/paqueteria/registrar`, `GET /api/paqueteria`, `PUT /api/paqueteria/{paquete_id}/entregar`: Cadena de custodia de encomiendas en conserjería con registro restringido a `CONSERJE` y `PRESIDENTE`, listado global acotado a `CONSERJE` y `PRESIDENTE` (y vista filtrada a sus unidades vigentes para el resto de roles activos) y confirmación de entrega por conserjería o residente destinatario. *[Header: Idempotency-Key]*
+  * `POST /api/reservas/areas`, `GET /api/reservas/areas`, `GET /api/reservas`, `POST /api/reservas/solicitar`, `PUT /api/reservas/{reserva_id}/cancelar`, `PUT /api/reservas/{reserva_id}/inspeccionar`: Reserva de amenidades con listado global restringido a `CONSERJE`, `PRESIDENTE`, `VICEPRESIDENTE`, `SECRETARIO` y `TESORERO` (y acotado a unidades propias para residentes/voceros), índice único parcial excluyendo `CANCELADA`, bloqueo a unidades insolventes, cargo automático `USO_AREA_SOCIAL` si `costo_uso_usd > 0`, reverso o crédito al cancelar, inspección post-evento (`CONSERJE`, `PRESIDENTE`, `TESORERO`) y cargo contable `DANOS_AREA_SOCIAL` si concluye `FINALIZADA_CON_DANOS`. *[Header: Idempotency-Key]*
+
+---
+
+## 12. Observabilidad, Salud del Sistema y Vista Comodín 404
+
+### 🖥️ Vista Comodín 404 y Shell Autenticado (`AppShellLayout`)
+* **Rutas Vue:** Todas las rutas autenticadas viven bajo el padre `<AppShellLayout>` (`/` con redirección vacía hacia `/dashboard`), más la ruta comodín pública `/:pathMatch(.*)*` (`NotFoundView.vue`, `#not-found-card`).
+* **Endpoints FastAPI de Sistema:**
+  * `GET /health`: Sonda liveness pública (`{"status": "healthy"}`), utilizada por el `HEALTHCHECK` del contenedor `api` y por Nginx (`/health`).
+  * `GET /metrics`: Métricas RED de `prometheus_fastapi_instrumentator` (`text/plain`, excluido de `/openapi.json`); protegido en producción mediante `METRICS_AUTH_TOKEN` (`X-Metrics-Token` o `Authorization: Bearer`) y en desarrollo por `TRUSTED_PROXY_IPS`.
+
+---
+
+## 13. Inventario Verificado (`23` Rutas Vue 3 + `61` Endpoints FastAPI)
+
+### 13.1. Catálogo Completo de `23` Rutas Nombradas Vue 3 (`frontend/src/router/index.ts`)
+
+| # | Ruta (`path`) | Nombre (`name`) | Alias | Acceso / Roles (`meta`) |
+| :---: | :--- | :--- | :--- | :--- |
+| 1 | `/login` | `login` | — | Pública (`public: true`) |
+| 2 | `/register` | `register` | — | Pública (`public: true`) |
+| 3 | `/espera-aprobacion` | `espera-aprobacion` | — | Solo Fantasma (`ghostOnly: true`) |
+| 4 | `/dashboard` | `dashboard` | `/inicio` | Activo (cualquier rol activo; `/` redirige aquí) |
+| 5 | `/finanzas/reportar-pago` | `reportar-pago` | `/pagar` | Activo |
+| 6 | `/tesoreria/pagos` | `tesoreria-pagos` | `/admin/pagos-revision` | `TESORERO`, `PRESIDENTE` |
+| 7 | `/tesoreria/cierre` | `tesoreria-cierre` | `/admin/finanzas` | `TESORERO`, `PRESIDENTE` |
+| 8 | `/tesoreria/facturacion` | `tesoreria-facturacion` | — | `TESORERO`, `PRESIDENTE` |
+| 9 | `/finanzas/solvencia` | `finanzas-solvencia` | — | Activo |
+| 10 | `/incidencias` | `incidencias` | — | Activo |
+| 11 | `/operaciones/tareas` | `operaciones-tareas` | `/conserje/tareas` | Activo |
+| 12 | `/voceros/galeria` | `voceros-galeria` | — | Activo |
+| 13 | `/secretaria/bitacora` | `secretaria-bitacora` | — | Activo |
+| 14 | `/consultas` | `consultas-list` | — | Activo |
+| 15 | `/consultas/:id` | `consulta-detail` | — | Activo |
+| 16 | `/accesos/pases` | `accesos-pases` | — | Activo |
+| 17 | `/operaciones/garita-qr` | `operaciones-garita-qr` | — | `CONSERJE`, `PRESIDENTE`, `VOCERO` |
+| 18 | `/operaciones/paqueteria` | `operaciones-paqueteria` | — | Activo |
+| 19 | `/reservas/areas` | `reservas-areas` | — | Activo |
+| 20 | `/admin/estructura` | `admin-estructura` | — | `PRESIDENTE`, `VICEPRESIDENTE` |
+| 21 | `/admin/usuarios` | `admin-usuarios` | `/admin/usuarios-pendientes` | `PRESIDENTE`, `VICEPRESIDENTE` |
+| 22 | `/admin/junta` | `admin-junta` | — | `PRESIDENTE` |
+| 23 | `/:pathMatch(.*)*` | `not-found` | — | Comodín 404 (`publicNotFound: true`) |
+
+### 13.2. Catálogo Completo de `61` Endpoints FastAPI (`backend/src/main.py` + `routers/*.py`)
+
+| # | Método | Ruta | Origen | RBAC / Idempotencia |
+| :---: | :---: | :--- | :--- | :--- |
+| 1 | `GET` | `/health` | `main.py` | Público (liveness) |
+| 2 | `GET` | `/metrics` | `main.py` | `METRICS_AUTH_TOKEN` / `TRUSTED_PROXY_IPS` (fuera de OpenAPI) |
+| 3 | `POST` | `/api/auth/register` | `auth.py` | Público + `Idempotency-Key` anónima |
+| 4 | `POST` | `/api/auth/login` | `auth.py` | Público + lockout Lua (`5` IP / `10` cuenta en `15m`) |
+| 5 | `POST` | `/api/auth/logout` | `auth.py` | Sesión activa / cookie; revoca `sid`/`jti` |
+| 6 | `POST` | `/api/auth/refresh` | `auth.py` | Cookie `refresh_token` (`5s` grace period) |
+| 7 | `GET` | `/api/auth/me` | `auth.py` | Autenticado (incluye `FANTASMA`) |
+| 8 | `GET` | `/api/estructura/unidades` | `administracion.py` | Público/Autenticado (DTO dual Junta vs Público) |
+| 9 | `POST` | `/api/estructura/generar` | `administracion.py` | `PRESIDENTE`, `VICEPRESIDENTE` + `Idempotency-Key` |
+| 10 | `GET` | `/api/usuarios/pendientes` | `administracion.py` | `PRESIDENTE`, `VICEPRESIDENTE` |
+| 11 | `PUT` | `/api/usuarios/{usuario_id}/asignar` | `administracion.py` | `PRESIDENTE`, `VICEPRESIDENTE` + `Idempotency-Key` |
+| 12 | `PUT` | `/api/junta/cargos` | `administracion.py` | `PRESIDENTE` + `Idempotency-Key` |
+| 13 | `PUT` | `/api/estructura/unidades/{unidad_id}/alicuota` | `administracion.py` | `PRESIDENTE`, `VICEPRESIDENTE`, `TESORERO` + `Idempotency-Key` |
+| 14 | `POST` | `/api/pagos/reportar` | `pagos.py` | Activo (titular o `TESORERO`/`PRESIDENTE`) + `Idempotency-Key` |
+| 15 | `GET` | `/api/pagos/revision` | `pagos.py` | `TESORERO`, `PRESIDENTE` |
+| 16 | `PUT` | `/api/pagos/{pago_id}/aprobar` | `pagos.py` | `TESORERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 17 | `PUT` | `/api/pagos/{pago_id}/rechazar` | `pagos.py` | `TESORERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 18 | `POST` | `/api/finanzas/tasa` | `finanzas.py` | `TESORERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 19 | `GET` | `/api/finanzas/tasa` | `finanzas.py` | Activo |
+| 20 | `POST` | `/api/finanzas/egresos` | `finanzas.py` | `TESORERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 21 | `GET` | `/api/finanzas/resumen` | `finanzas.py` | Activo (Junta global; residente propio; `CONSERJE` `[]`) |
+| 22 | `POST` | `/api/finanzas/cierre-mensual` | `finanzas.py` | `TESORERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 23 | `POST` | `/api/finanzas/fondos` | `finanzas.py` | `TESORERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 24 | `GET` | `/api/finanzas/fondos` | `finanzas.py` | Activo |
+| 25 | `POST` | `/api/finanzas/facturar-periodo` | `finanzas.py` | `TESORERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 26 | `GET` | `/api/finanzas/recibos/{recibo_id}/desglose` | `finanzas.py` | Activo (titular o Junta) |
+| 27 | `POST` | `/api/finanzas/solvencia/{unidad_id}` | `finanzas.py` | Activo (titular o Junta) + `Idempotency-Key` |
+| 28 | `GET` | `/api/finanzas/solvencia/verificar/{folio}` | `finanzas.py` | Público (`?sig=...`) |
+| 29 | `GET` | `/api/incidencias/abiertas` | `incidencias.py` | Activo |
+| 30 | `POST` | `/api/incidencias/crear` | `incidencias.py` | Activo + `Idempotency-Key` |
+| 31 | `POST` | `/api/incidencias/{incidencia_id}/adherir` | `incidencias.py` | Activo + `Idempotency-Key` |
+| 32 | `POST` | `/api/tareas/plantillas` | `operaciones.py` | `PRESIDENTE`, `VICEPRESIDENTE` + `Idempotency-Key` |
+| 33 | `POST` | `/api/tareas/diarias` | `operaciones.py` | `PRESIDENTE`, `VICEPRESIDENTE` + `Idempotency-Key` |
+| 34 | `POST` | `/api/tareas/generar-diarias` | `operaciones.py` | `PRESIDENTE`, `VICEPRESIDENTE` |
+| 35 | `GET` | `/api/tareas/diarias` | `operaciones.py` | Activo |
+| 36 | `PUT` | `/api/tareas/{tarea_id}/completar` | `operaciones.py` | `CONSERJE`, `PRESIDENTE`, `VICEPRESIDENTE` + `Idempotency-Key` |
+| 37 | `POST` | `/api/voceros/fotos` | `operaciones.py` | `VOCERO`, `PRESIDENTE` + `Idempotency-Key` |
+| 38 | `GET` | `/api/voceros/galeria` | `operaciones.py` | Activo |
+| 39 | `POST` | `/api/bitacora/acta` | `operaciones.py` | `SECRETARIO`, `PRESIDENTE` + `Idempotency-Key` |
+| 40 | `GET` | `/api/bitacora/historial` | `operaciones.py` | Activo |
+| 41 | `POST` | `/api/comunicados` | `operaciones.py` | `SECRETARIO`, `PRESIDENTE` + `Idempotency-Key` |
+| 42 | `GET` | `/api/comunicados/recientes` | `operaciones.py` | Activo |
+| 43 | `POST` | `/api/evidencias/subir` | `operaciones.py` | Activo + `Idempotency-Key` (`hash_body=False`) |
+| 44 | `POST` | `/api/consultas` | `consultas.py` | `PRESIDENTE`, `SECRETARIO` + `Idempotency-Key` |
+| 45 | `GET` | `/api/consultas` | `consultas.py` | Activo |
+| 46 | `GET` | `/api/consultas/{consulta_id}` | `consultas.py` | Activo |
+| 47 | `POST` | `/api/consultas/{consulta_id}/votar` | `consultas.py` | Activo (`PROPIETARIO` / representante habilitado) + `Idempotency-Key` |
+| 48 | `POST` | `/api/consultas/{consulta_id}/cerrar` | `consultas.py` | `PRESIDENTE`, `SECRETARIO` + `Idempotency-Key` |
+| 49 | `POST` | `/api/accesos/pases` | `accesos.py` | Activo (titular o Junta) + `Idempotency-Key` |
+| 50 | `GET` | `/api/accesos/pases/mios` | `accesos.py` | Activo (acotado al usuario/unidades propias) |
+| 51 | `DELETE` | `/api/accesos/pases/{pase_id}` | `accesos.py` | Activo (creador o `PRESIDENTE`) |
+| 52 | `POST` | `/api/accesos/verificar-qr` | `accesos.py` | `CONSERJE`, `PRESIDENTE`, `VOCERO` + `Idempotency-Key` |
+| 53 | `POST` | `/api/paqueteria/registrar` | `accesos.py` | `CONSERJE`, `PRESIDENTE` + `Idempotency-Key` |
+| 54 | `GET` | `/api/paqueteria` | `accesos.py` | Activo (`CONSERJE`/`PRESIDENTE` global; residentes propio) |
+| 55 | `PUT` | `/api/paqueteria/{paquete_id}/entregar` | `accesos.py` | Activo (`CONSERJE`/`PRESIDENTE` o unidad destinataria) + `Idempotency-Key` |
+| 56 | `POST` | `/api/reservas/areas` | `reservas.py` | `PRESIDENTE`, `TESORERO` + `Idempotency-Key` |
+| 57 | `GET` | `/api/reservas/areas` | `reservas.py` | Activo |
+| 58 | `GET` | `/api/reservas` | `reservas.py` | Activo (`CONSERJE`/`PRESIDENTE`/`VICEPRESIDENTE`/`SECRETARIO`/`TESORERO` global; resto propio) |
+| 59 | `POST` | `/api/reservas/solicitar` | `reservas.py` | Activo (titular solvente `$0.00`) + `Idempotency-Key` |
+| 60 | `PUT` | `/api/reservas/{reserva_id}/cancelar` | `reservas.py` | Activo (titular o Junta) + `Idempotency-Key` |
+| 61 | `PUT` | `/api/reservas/{reserva_id}/inspeccionar` | `reservas.py` | `CONSERJE`, `PRESIDENTE`, `TESORERO` + `Idempotency-Key` |

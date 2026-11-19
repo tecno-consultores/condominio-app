@@ -1,7 +1,111 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient, ApiError } from '../services/apiClient';
-import { useOperationsStore } from './operationsStore';
+import type { UsuarioPerfil } from './authStore';
+import {
+  useOperationsStore,
+  type BitacoraActaDTO,
+  type FotoVoceroDTO,
+  type IncidenciaDTO,
+  type TareaDiariaDTO,
+  type UnidadDTO,
+} from './operationsStore';
+import * as storeErrors from './storeErrors';
+
+vi.mock('./storeErrors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./storeErrors')>();
+  return {
+    ...actual,
+    resolveStoreError: vi.fn(actual.resolveStoreError),
+  };
+});
+
+function resolveCheckingLoading<T>(store: { isLoading: boolean }, result: T): () => Promise<T> {
+  return async () => {
+    expect(store.isLoading).toBe(true);
+    return result;
+  };
+}
+
+function rejectCheckingLoading(store: { isLoading: boolean }, err: unknown): () => Promise<never> {
+  return async () => {
+    expect(store.isLoading).toBe(true);
+    throw err;
+  };
+}
+
+function buildUnidad(overrides: Partial<UnidadDTO> = {}): UnidadDTO {
+  return {
+    id: 10,
+    identificador: 'Torre A-101',
+    estructura_id: 2,
+    ...overrides,
+  };
+}
+
+function buildUsuario(overrides: Partial<UsuarioPerfil> = {}): UsuarioPerfil {
+  return {
+    id: 5,
+    nombre: 'Pedro Fantasma',
+    cedula: 'V-55',
+    correo: 'pedro@test.com',
+    telefono: '0414',
+    es_activo: false,
+    rol: 'FANTASMA',
+    ...overrides,
+  };
+}
+
+function buildIncidencia(overrides: Partial<IncidenciaDTO> = {}): IncidenciaDTO {
+  return {
+    id: 1,
+    usuario_creador_id: 2,
+    area: 'Ascensor',
+    descripcion: 'Ruido en polea',
+    url_foto: null,
+    estado: 'ABIERTO',
+    adhesiones_count: 1,
+    ...overrides,
+  };
+}
+
+function buildTarea(overrides: Partial<TareaDiariaDTO> = {}): TareaDiariaDTO {
+  return {
+    id: 100,
+    plantilla_id: 1,
+    incidencia_id: null,
+    titulo: 'Purgar bomba',
+    area: 'Cuarto de bombas',
+    fecha: '2026-10-30',
+    completada: false,
+    url_evidencia: null,
+    ...overrides,
+  };
+}
+
+function buildFoto(overrides: Partial<FotoVoceroDTO> = {}): FotoVoceroDTO {
+  return {
+    id: 30,
+    usuario_id: 4,
+    periodo: '2026-10',
+    area: 'Azotea',
+    comentario: 'Manto revisado',
+    url_foto: 'https://cdn.condominio.test/voceros/30.avif',
+    ...overrides,
+  };
+}
+
+function buildActa(overrides: Partial<BitacoraActaDTO> = {}): BitacoraActaDTO {
+  return {
+    id: 1,
+    fecha: '2026-10-29',
+    hora: '19:00',
+    ubicacion: 'Salón',
+    contenido: 'Aprobado presupuesto',
+    autor_id: 1,
+    ...overrides,
+  };
+}
 
 describe('operationsStore — Patrón No Destructivo, Incidencias, Conserjería, Voceros y Administración', () => {
   beforeEach(() => {
@@ -467,5 +571,499 @@ describe('operationsStore — Patrón No Destructivo, Incidencias, Conserjería,
     await store.fetchAdminData();
     expect(store.isStale).toBe(false);
     expect(authStore.isAuthenticated).toBe(false);
+  });
+
+  it('inicializa estado limpio con periodo YYYY-MM y resetState limpia isLoading e isStale', () => {
+    const store = useOperationsStore();
+    expect(store.data.unidades).toEqual([]);
+    expect(store.data.usuariosPendientes).toEqual([]);
+    expect(store.data.incidencias).toEqual([]);
+    expect(store.data.tareasDiarias).toEqual([]);
+    expect(store.data.galeriaVoceros.periodo).toMatch(/^\d{4}-\d{2}$/);
+    expect(store.data.galeriaVoceros.fotos_usadas_mes).toBe(0);
+    expect(store.data.galeriaVoceros.limite_mensual).toBe(30);
+    expect(store.data.galeriaVoceros.fotos).toEqual([]);
+    expect(store.data.bitacora).toEqual([]);
+    expect(store.isLoading).toBe(false);
+    expect(store.isStale).toBe(false);
+    expect(store.errorMessage).toBeNull();
+    expect(store.lastUpdatedAt).toBeNull();
+
+    store.data.unidades = [buildUnidad()];
+    store.data.usuariosPendientes = [buildUsuario()];
+    store.data.incidencias = [buildIncidencia()];
+    store.data.tareasDiarias = [buildTarea()];
+    store.data.galeriaVoceros.fotos = [buildFoto()];
+    store.data.bitacora = [buildActa()];
+    store.isLoading = true;
+    store.isStale = true;
+    store.errorMessage = 'err';
+    store.lastUpdatedAt = 12345;
+
+    store.resetState();
+    expect(store.data.unidades).toEqual([]);
+    expect(store.data.usuariosPendientes).toEqual([]);
+    expect(store.data.incidencias).toEqual([]);
+    expect(store.data.tareasDiarias).toEqual([]);
+    expect(store.data.galeriaVoceros.periodo).toMatch(/^\d{4}-\d{2}$/);
+    expect(store.data.galeriaVoceros.fotos).toEqual([]);
+    expect(store.data.bitacora).toEqual([]);
+    expect(store.isLoading).toBe(false);
+    expect(store.isStale).toBe(false);
+    expect(store.errorMessage).toBeNull();
+    expect(store.lastUpdatedAt).toBeNull();
+  });
+
+  it('verifica isLoading, endpoints, isStale y matriz de caché en fetchUnidades y fetchAdminData', async () => {
+    const store = useOperationsStore();
+    const getSpy = vi.spyOn(apiClient, 'get');
+
+    store.isStale = true;
+    getSpy.mockImplementationOnce(resolveCheckingLoading(store, [buildUnidad()]));
+    await store.fetchUnidades();
+    expect(getSpy).toHaveBeenLastCalledWith('/api/estructura/unidades');
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    getSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red unidades')));
+    const cachedUnidades = await store.fetchUnidades();
+    expect(cachedUnidades).toHaveLength(1);
+    expect(store.isStale).toBe(true);
+    expect(store.errorMessage).toBe('No se pudieron cargar las unidades del condominio.');
+    expect(store.isLoading).toBe(false);
+
+    getSpy.mockClear();
+    store.isStale = true;
+    getSpy
+      .mockImplementationOnce(resolveCheckingLoading(store, [buildUnidad({ id: 2 })]))
+      .mockImplementationOnce(resolveCheckingLoading(store, [buildUsuario({ id: 5 })]));
+    await store.fetchAdminData();
+    expect(getSpy).toHaveBeenCalledWith('/api/estructura/unidades');
+    expect(getSpy).toHaveBeenCalledWith('/api/usuarios/pendientes');
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    store.resetState();
+    getSpy
+      .mockImplementationOnce(rejectCheckingLoading(store, new Error('Red admin')))
+      .mockResolvedValueOnce([]);
+    await store.fetchAdminData();
+    expect(store.isStale).toBe(false);
+    expect(store.errorMessage).toBe(
+      'No se pudo sincronizar el listado administrativo. Mostrando datos en caché.',
+    );
+    expect(store.isLoading).toBe(false);
+
+    store.resetState();
+    store.data.unidades = [buildUnidad()];
+    getSpy.mockRejectedValueOnce(new Error('Red admin')).mockResolvedValueOnce([]);
+    await store.fetchAdminData();
+    expect(store.isStale).toBe(true);
+
+    store.resetState();
+    store.data.usuariosPendientes = [buildUsuario()];
+    getSpy.mockRejectedValueOnce(new Error('Red admin')).mockResolvedValueOnce([]);
+    await store.fetchAdminData();
+    expect(store.isStale).toBe(true);
+  });
+
+  it('verifica endpoints, idempotencyKey, comparador de adhesiones y errores en estructura, junta e incidencias', async () => {
+    const store = useOperationsStore();
+    const getSpy = vi.spyOn(apiClient, 'get');
+    const postSpy = vi.spyOn(apiClient, 'post');
+    const putSpy = vi.spyOn(apiClient, 'put');
+
+    store.data.unidades = [buildUnidad({ id: 1 })];
+    store.isStale = true;
+    const payloadEst = {
+      nombre: 'Torre Norte',
+      tipo: 'TORRE' as const,
+      identificadores: ['N-1', 'N-2'],
+    };
+    const estructuraRes = {
+      estructura_id: 3,
+      nombre: 'Torre Norte',
+      tipo: 'TORRE',
+      unidades_creadas: 2,
+      unidades: [buildUnidad({ id: 11 }), buildUnidad({ id: 12 })],
+    };
+    postSpy.mockImplementationOnce(resolveCheckingLoading(store, estructuraRes));
+    await store.generarEstructura(payloadEst, 'idemp-est-1');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/estructura/generar', payloadEst, {
+      idempotencyKey: 'idemp-est-1',
+    });
+    expect(store.data.unidades.map((u) => u.id)).toEqual([1, 11, 12]);
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    const errEst = new Error('Red est');
+    vi.mocked(storeErrors.resolveStoreError).mockClear();
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, errEst));
+    await expect(store.generarEstructura(payloadEst, 'idemp-est-err')).rejects.toThrow('Red est');
+    expect(store.errorMessage).toBe('No se pudo generar la estructura física.');
+    expect(store.isLoading).toBe(false);
+    expect(storeErrors.resolveStoreError).toHaveBeenLastCalledWith(
+      errEst,
+      'No se pudo generar la estructura física.',
+      {
+        isGetOperation: false,
+        hasCachedData: false,
+      },
+    );
+
+    store.data.usuariosPendientes = [buildUsuario({ id: 7 }), buildUsuario({ id: 8 })];
+    store.isStale = true;
+    const payloadAsig = {
+      unidad_id: 11,
+      tipo_ocupante: 'PROPIETARIO' as const,
+      rol: 'PROPIETARIO' as const,
+    };
+    const userAct = buildUsuario({ id: 7, es_activo: true, rol: 'PROPIETARIO' });
+    putSpy.mockImplementationOnce(resolveCheckingLoading(store, userAct));
+    await store.asignarUsuarioFantasma(7, payloadAsig, 'idemp-fant-1');
+    expect(putSpy).toHaveBeenLastCalledWith('/api/usuarios/7/asignar', payloadAsig, {
+      idempotencyKey: 'idemp-fant-1',
+    });
+    expect(store.data.usuariosPendientes.map((u) => u.id)).toEqual([8]);
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    putSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red usr')));
+    await expect(store.asignarUsuarioFantasma(7, payloadAsig, 'idemp-fant-err')).rejects.toThrow(
+      'Red usr',
+    );
+    expect(store.errorMessage).toBe('No se pudo activar al usuario fantasma.');
+    expect(store.isLoading).toBe(false);
+
+    store.isStale = true;
+    const payloadJunta = { usuario_id: 7, cargo: 'TESORERO' as const };
+    const userTes = buildUsuario({ id: 7, es_activo: true, rol: 'TESORERO' });
+    putSpy.mockImplementationOnce(resolveCheckingLoading(store, userTes));
+    await store.asignarCargoJunta(payloadJunta, 'idemp-junta-1');
+    expect(putSpy).toHaveBeenLastCalledWith('/api/junta/cargos', payloadJunta, {
+      idempotencyKey: 'idemp-junta-1',
+    });
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    putSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red junta')));
+    await expect(store.asignarCargoJunta(payloadJunta, 'idemp-junta-err')).rejects.toThrow(
+      'Red junta',
+    );
+    expect(store.errorMessage).toBe('No se pudo asignar el cargo en la Junta de Condominio.');
+    expect(store.isLoading).toBe(false);
+
+    store.isStale = true;
+    getSpy.mockImplementationOnce(resolveCheckingLoading(store, [buildIncidencia({ id: 1 })]));
+    await store.fetchIncidencias();
+    expect(getSpy).toHaveBeenLastCalledWith('/api/incidencias/abiertas');
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    store.data.incidencias = [];
+    getSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Err inc')));
+    await store.fetchIncidencias();
+    expect(store.isStale).toBe(false);
+    expect(store.errorMessage).toBe(
+      'No se pudo actualizar el embudo de incidencias. Mostrando caché local.',
+    );
+
+    store.data.incidencias = [buildIncidencia({ id: 1 })];
+    getSpy.mockRejectedValueOnce(new Error('Err inc 2'));
+    await store.fetchIncidencias();
+    expect(store.isStale).toBe(true);
+    expect(store.errorMessage).toBe(
+      'No se pudo actualizar el embudo de incidencias. Mostrando caché local.',
+    );
+
+    store.isStale = true;
+    const payloadInc = { area: 'Portón', descripcion: 'Control no responde' };
+    postSpy.mockImplementationOnce(resolveCheckingLoading(store, buildIncidencia({ id: 2 })));
+    await store.crearIncidencia(payloadInc, 'idemp-inc-1');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/incidencias/crear', payloadInc, {
+      idempotencyKey: 'idemp-inc-1',
+    });
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red inc')));
+    await expect(store.crearIncidencia(payloadInc, 'idemp-inc-err')).rejects.toThrow('Red inc');
+    expect(store.errorMessage).toBe('No se pudo crear el reporte de incidencia.');
+
+    store.data.incidencias = [
+      buildIncidencia({ id: 1, adhesiones_count: 10 }),
+      buildIncidencia({ id: 3, adhesiones_count: 4 }),
+      buildIncidencia({ id: 2, adhesiones_count: 2 }),
+    ];
+    store.isStale = true;
+    postSpy.mockImplementationOnce(
+      resolveCheckingLoading(store, buildIncidencia({ id: 2, adhesiones_count: 6 })),
+    );
+    const adhOpts = { idempotencyKey: 'idemp-adh-1' };
+    await store.adherirIncidencia(2, 'idemp-adh-1');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/incidencias/2/adherir', {}, adhOpts);
+    expect(
+      store.data.incidencias.map((inc) => ({ id: inc.id, count: inc.adhesiones_count })),
+    ).toEqual([
+      { id: 1, count: 10 },
+      { id: 2, count: 6 },
+      { id: 3, count: 4 },
+    ]);
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red adh')));
+    await expect(store.adherirIncidencia(2, 'idemp-adh-err')).rejects.toThrow('Red adh');
+    expect(store.errorMessage).toBe('No fue posible sumarse a la incidencia.');
+  });
+
+  it('verifica endpoints, query strings, map de tareas y errores en tareas diarias y plantillas', async () => {
+    const store = useOperationsStore();
+    const getSpy = vi.spyOn(apiClient, 'get');
+    const postSpy = vi.spyOn(apiClient, 'post');
+    const putSpy = vi.spyOn(apiClient, 'put');
+
+    store.isStale = true;
+    getSpy.mockImplementationOnce(resolveCheckingLoading(store, [buildTarea({ id: 100 })]));
+    await store.fetchTareasDiarias();
+    expect(getSpy).toHaveBeenLastCalledWith('/api/tareas/diarias');
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    store.data.tareasDiarias = [];
+    getSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Err tareas')));
+    await store.fetchTareasDiarias();
+    expect(store.isStale).toBe(false);
+    expect(store.errorMessage).toBe(
+      'No se pudo actualizar el checklist del conserje. Mostrando lista en caché.',
+    );
+
+    store.data.tareasDiarias = [buildTarea({ id: 100 })];
+    getSpy.mockRejectedValueOnce(new Error('Err tareas 2'));
+    await store.fetchTareasDiarias();
+    expect(store.isStale).toBe(true);
+    expect(store.errorMessage).toBe(
+      'No se pudo actualizar el checklist del conserje. Mostrando lista en caché.',
+    );
+
+    store.isStale = true;
+    const payloadPt = { titulo: 'Revisar tanques', area: 'Azotea' };
+    const plantillaRes = { id: 1, ...payloadPt, frecuencia: 'DIARIA', activa: true };
+    postSpy.mockImplementationOnce(resolveCheckingLoading(store, plantillaRes));
+    await store.crearPlantillaTarea(payloadPt, 'idemp-pt-1');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/tareas/plantillas', payloadPt, {
+      idempotencyKey: 'idemp-pt-1',
+    });
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red pt')));
+    await expect(store.crearPlantillaTarea(payloadPt, 'idemp-pt-err')).rejects.toThrow('Red pt');
+    expect(store.errorMessage).toBe('No se pudo crear la plantilla recurrente de mantenimiento.');
+
+    store.isStale = true;
+    const payloadTd = { titulo: 'Cambiar bombillo', area: 'PB' };
+    postSpy.mockImplementationOnce(
+      resolveCheckingLoading(store, buildTarea({ id: 200, ...payloadTd })),
+    );
+    await store.crearTareaDiaria(payloadTd, 'idemp-td-1');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/tareas/diarias', payloadTd, {
+      idempotencyKey: 'idemp-td-1',
+    });
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red td')));
+    await expect(store.crearTareaDiaria(payloadTd, 'idemp-td-err')).rejects.toThrow('Red td');
+    expect(store.errorMessage).toBe('No se pudo asignar la tarea puntual.');
+    expect(store.isLoading).toBe(false);
+
+    store.isStale = true;
+    const genOpts1 = { idempotencyKey: 'idemp-gen-1' };
+    postSpy.mockImplementationOnce(resolveCheckingLoading(store, { tareas_generadas: 3 }));
+    await store.generarTareasDiarias('2026-10-30', 'idemp-gen-1');
+    expect(postSpy).toHaveBeenLastCalledWith(
+      '/api/tareas/generar-diarias?fecha=2026-10-30',
+      {},
+      genOpts1,
+    );
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    const genOpts2 = { idempotencyKey: 'idemp-gen-2' };
+    postSpy.mockResolvedValueOnce({ tareas_generadas: 1 });
+    await store.generarTareasDiarias(undefined, 'idemp-gen-2');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/tareas/generar-diarias', {}, genOpts2);
+
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red gen')));
+    await expect(store.generarTareasDiarias(undefined, 'idemp-gen-err')).rejects.toThrow('Red gen');
+    expect(store.errorMessage).toBe('No se pudieron generar las tareas diarias.');
+    expect(store.isLoading).toBe(false);
+
+    store.data.tareasDiarias = [
+      buildTarea({ id: 100, completada: false }),
+      buildTarea({ id: 101, completada: false }),
+    ];
+    store.isStale = true;
+    const tareaCompRes = buildTarea({
+      id: 100,
+      completada: true,
+      url_evidencia: 'https://cdn.test/ev.jpg',
+    });
+    const evBody = { url_evidencia: 'https://cdn.test/ev.jpg' };
+    const compOpts = { idempotencyKey: 'idemp-comp-1' };
+    putSpy.mockImplementationOnce(resolveCheckingLoading(store, tareaCompRes));
+    await store.completarTareaDiaria(100, 'https://cdn.test/ev.jpg', 'idemp-comp-1');
+    expect(putSpy).toHaveBeenLastCalledWith('/api/tareas/100/completar', evBody, compOpts);
+    expect(store.data.tareasDiarias.map((t) => t.completada)).toEqual([true, false]);
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    putSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red comp')));
+    await expect(store.completarTareaDiaria(100, null, 'idemp-comp-err')).rejects.toThrow(
+      'Red comp',
+    );
+    expect(store.errorMessage).toBe('No se pudo marcar la tarea como completada.');
+  });
+
+  it('verifica galería de voceros, bitácora, actualización de alícuotas y preservación 4xx', async () => {
+    const store = useOperationsStore();
+    const getSpy = vi.spyOn(apiClient, 'get');
+    const postSpy = vi.spyOn(apiClient, 'post');
+    const putSpy = vi.spyOn(apiClient, 'put');
+
+    store.isStale = true;
+    const galeriaRes = {
+      periodo: '2026-10',
+      fotos_usadas_mes: 1,
+      limite_mensual: 30,
+      fotos: [buildFoto()],
+    };
+    getSpy.mockImplementationOnce(resolveCheckingLoading(store, galeriaRes));
+    await store.fetchGaleriaVoceros('2026-10');
+    expect(getSpy).toHaveBeenLastCalledWith('/api/voceros/galeria?periodo=2026-10');
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    getSpy.mockResolvedValueOnce({
+      periodo: '2026-10',
+      fotos_usadas_mes: 0,
+      limite_mensual: 30,
+      fotos: [],
+    });
+    await store.fetchGaleriaVoceros();
+    expect(getSpy).toHaveBeenLastCalledWith('/api/voceros/galeria');
+
+    store.data.galeriaVoceros.fotos = [];
+    getSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Err gal')));
+    await store.fetchGaleriaVoceros();
+    expect(store.isStale).toBe(false);
+    expect(store.errorMessage).toBe(
+      'No se pudo sincronizar la galería de voceros. Mostrando fotos en caché.',
+    );
+    expect(store.isLoading).toBe(false);
+
+    store.data.galeriaVoceros.fotos = [buildFoto()];
+    getSpy.mockRejectedValueOnce(new Error('Err gal 2'));
+    await store.fetchGaleriaVoceros();
+    expect(store.isStale).toBe(true);
+
+    store.isStale = true;
+    const payloadFoto = {
+      periodo: '2026-10',
+      area: 'Azotea',
+      comentario: 'Ok',
+      url_foto: 'https://cdn.test/1.avif',
+    };
+    postSpy.mockImplementationOnce(resolveCheckingLoading(store, buildFoto({ id: 30 })));
+    await store.subirFotoVocero(payloadFoto, 'idemp-foto-1');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/voceros/fotos', payloadFoto, {
+      idempotencyKey: 'idemp-foto-1',
+    });
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red foto')));
+    await expect(store.subirFotoVocero(payloadFoto, 'idemp-foto-err')).rejects.toThrow('Red foto');
+    expect(store.errorMessage).toBe('No se pudo subir la fotografía de inspección.');
+
+    store.isStale = true;
+    getSpy.mockImplementationOnce(resolveCheckingLoading(store, [buildActa({ id: 1 })]));
+    await store.fetchBitacora();
+    expect(getSpy).toHaveBeenLastCalledWith('/api/bitacora/historial');
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    store.data.bitacora = [];
+    getSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Err bit')));
+    await store.fetchBitacora();
+    expect(store.isStale).toBe(false);
+    expect(store.errorMessage).toBe(
+      'No se pudo cargar el historial de la bitácora. Mostrando actas en caché.',
+    );
+    expect(store.isLoading).toBe(false);
+
+    store.data.bitacora = [buildActa({ id: 1 })];
+    getSpy.mockRejectedValueOnce(new Error('Err bit 2'));
+    await store.fetchBitacora();
+    expect(store.isStale).toBe(true);
+
+    store.isStale = true;
+    const payloadActa = {
+      fecha: '2026-10-30',
+      hora: '20:00',
+      ubicacion: 'Conserjería',
+      contenido: 'Entrega',
+    };
+    postSpy.mockImplementationOnce(resolveCheckingLoading(store, buildActa({ id: 2 })));
+    await store.crearActaBitacora(payloadActa, 'idemp-acta-1');
+    expect(postSpy).toHaveBeenLastCalledWith('/api/bitacora/acta', payloadActa, {
+      idempotencyKey: 'idemp-acta-1',
+    });
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    postSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red acta')));
+    await expect(store.crearActaBitacora(payloadActa, 'idemp-acta-err')).rejects.toThrow(
+      'Red acta',
+    );
+    expect(store.errorMessage).toBe('No se pudo registrar el acta en la bitácora.');
+    expect(store.isLoading).toBe(false);
+
+    const u1 = buildUnidad({ id: 1, identificador: 'Apto 1-A', alicuota: '10.0000' });
+    const u2 = buildUnidad({ id: 2, identificador: 'Apto 1-B', alicuota: '15.0000' });
+    const u1Upd = buildUnidad({
+      id: 1,
+      identificador: 'Apto 1-A',
+      alicuota: '25.0000',
+      cuota_fija_usd: '30.00',
+    });
+    store.data.unidades = [u1, u2];
+    store.isStale = true;
+    const payloadAli = { alicuota: '25.0000', cuota_fija_usd: '30.00' };
+    const aliOpts = { idempotencyKey: 'idemp-ali-1' };
+    putSpy.mockImplementationOnce(resolveCheckingLoading(store, u1Upd));
+    await store.actualizarAlicuotaUnidad(1, payloadAli, 'idemp-ali-1');
+    expect(putSpy).toHaveBeenLastCalledWith(
+      '/api/estructura/unidades/1/alicuota',
+      payloadAli,
+      aliOpts,
+    );
+    expect(store.data.unidades).toEqual([u1Upd, u2]);
+    expect(store.data.galeriaVoceros.limite_mensual).toBe(30);
+    expect(store.isStale).toBe(false);
+    expect(store.isLoading).toBe(false);
+
+    putSpy.mockImplementationOnce(rejectCheckingLoading(store, new Error('Red ali')));
+    await expect(store.actualizarAlicuotaUnidad(1, payloadAli, 'idemp-ali-err')).rejects.toThrow(
+      'Red ali',
+    );
+    expect(store.errorMessage).toBe('No se pudo actualizar la alícuota o cuota fija de la unidad.');
+    expect(store.isLoading).toBe(false);
+
+    getSpy.mockRejectedValueOnce(new ApiError(404, 'No encontrado'));
+    const res404 = await store.fetchUnidades();
+    expect(res404).toEqual([u1Upd, u2]);
+    expect(store.isStale).toBe(false);
   });
 });

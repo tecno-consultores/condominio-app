@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import inspect
 import socket
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src import schemas as schemas_module
 from src.database import get_db
 from src.main import _es_produccion, app
 from src.redis_client import (
@@ -31,6 +36,7 @@ from src.redis_client import (
     revoke_user_session,
     rotate_refresh_token_with_grace_period,
 )
+from src.routers import auth as auth_module
 from src.routers.auth import LoginData
 from src.schemas import (
     AlicuotaUpdateRequest,
@@ -49,26 +55,41 @@ from src.security import (
     ALGORITHM,
     DEFAULT_INSECURE_SECRET_KEY,
     FORBIDDEN_CONTAINER_HOSTS,
+    JWT_AUDIENCE,
+    JWT_ISSUER,
     MAX_UPLOAD_SIZE_BYTES,
     PBKDF2_ITERATIONS,
     REFRESH_TOKEN_EXPIRE_DAYS,
+    SECRET_KEY,
     UPLOAD_CHUNK_SIZE,
+    compute_worm_record_hash,
     create_access_token,
     create_refresh_token,
+    decode_access_token,
     decode_refresh_token,
     decode_token_unverified_exp,
+    derive_subkey,
     generate_csrf_token,
     get_password_hash,
+    get_password_hash_async,
+    get_qr_signing_key,
+    get_solvency_signing_key,
+    get_vote_signing_key,
+    get_worm_signing_key,
     is_csrf_enforced,
+    is_trusted_proxy_ip,
     read_uploaded_file_safely,
     should_use_secure_cookie,
     validate_csrf_token,
     validate_file_magic_bytes,
     validate_production_security_settings,
     validate_safe_outgoing_url,
+    validate_safe_outgoing_url_async,
     verify_password,
+    verify_password_async,
     verify_websocket_origin,
 )
+from tests._sqlite_helpers import create_sqlite_fk_factory, seed_condo_base
 
 
 class _DummyUpload:
@@ -206,7 +227,20 @@ async def test_validate_file_magic_bytes_and_upload_enforcement() -> None:
     assert exc_bad.value.status_code == 415
 
 
-async def test_redis_user_session_revocation_and_dependency_gate(client: TestClient) -> None:
+def _build_sqlite_db_override(
+    factory: async_sessionmaker[AsyncSession],
+) -> Callable[[], AsyncIterator[AsyncSession]]:
+    """Construye un override de get_db respaldado por sesiones SQLite reales."""
+
+    async def _override_get_db() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    return _override_get_db
+
+
+@pytest.mark.asyncio
+async def test_redis_user_session_revocation_and_dependency_gate() -> None:
     mock_redis = AsyncMock()
     mock_redis.get.return_value = "1"
     await revoke_user_session(mock_redis, 777)
@@ -227,33 +261,31 @@ async def test_redis_user_session_revocation_and_dependency_gate(client: TestCli
     assert await is_user_session_revoked(mock_redis, 999) is False
     assert await is_user_session_revoked(None, 999) is False
 
-    # Verificar que get_current_user rechaza con 401 si la sesión está revocada
-    token = create_access_token(data={"sub": "revocado@test.com", "rol": "PROPIETARIO", "id": 555})
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
-
-    class RevokedUser:
-        id: int = 555
-        correo: str = "revocado@test.com"
-        nombre: str = "Revocado"
-        rol: str = "PROPIETARIO"
-        es_activo: bool = True
-
-    mock_result.scalars().first.return_value = RevokedUser()
-    mock_session.execute.return_value = mock_result
-    app.dependency_overrides[get_db] = lambda: mock_session
-    await revoke_user_session(None, 555)
+    # Verificar que get_current_user rechaza con 401 si la sesión está revocada (SQLite FK real)
+    engine, factory = await create_sqlite_fk_factory()
+    revoked_user_id: int | None = None
     try:
-        res = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-        assert res.status_code == 401
-        assert "revocada" in res.json()["detail"]
+        ctx = await seed_condo_base(factory)
+        revoked_user_id = ctx.propietario_id
+        token = create_access_token(data={"sub": "prop@condo.test", "rol": "PROPIETARIO", "id": revoked_user_id})
+        app.dependency_overrides[get_db] = _build_sqlite_db_override(factory)
+        await revoke_user_session(None, revoked_user_id)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as async_client:
+            res = await async_client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+            assert res.status_code == 401
+            assert "revocada" in res.json()["detail"]
 
-        res_dep = client.get("/api/finanzas/tasa", headers={"Authorization": f"Bearer {token}"})
-        assert res_dep.status_code == 401
-        assert "revocada" in res_dep.json()["detail"]
+            res_dep = await async_client.get("/api/finanzas/tasa", headers={"Authorization": f"Bearer {token}"})
+            assert res_dep.status_code == 401
+            assert "revocada" in res_dep.json()["detail"]
     finally:
-        await clear_user_session_revocation(None, 555)
-        app.dependency_overrides = {}
+        if revoked_user_id is not None:
+            await clear_user_session_revocation(None, revoked_user_id)
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 def test_verify_websocket_origin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -345,40 +377,69 @@ def test_mass_assignment_extra_forbid_on_all_input_schemas() -> None:
         FacturarPeriodoRequest.model_validate({"periodo": "2026-10", "modalidad": "ALICUOTA", "hack": True})
 
 
-def test_bearer_token_authentication_and_production_422_sanitization(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+def _descubrir_esquemas_entrada() -> dict[str, type[BaseModel]]:
+    """Descubre todos los esquemas de entrada Pydantic en src.schemas y src.routers.auth."""
+    esquemas: dict[str, type[BaseModel]] = {}
+    for modulo in (schemas_module, auth_module):
+        for nombre, cls in inspect.getmembers(modulo, inspect.isclass):
+            if (
+                issubclass(cls, BaseModel)
+                and cls is not BaseModel
+                and cls.__module__ == modulo.__name__
+                and not nombre.startswith("_")
+                and not nombre.endswith("Response")
+            ):
+                esquemas[nombre] = cls
+    return esquemas
+
+
+def test_extra_forbid_dinamico_en_todos_los_esquemas_de_entrada() -> None:
+    """Valida extra='forbid' y rechazo de campo fantasma en TODOS los esquemas de entrada."""
+    esquemas_entrada = _descubrir_esquemas_entrada()
+    assert len(esquemas_entrada) >= 31
+
+    for nombre, cls in sorted(esquemas_entrada.items()):
+        assert cls.model_config.get("extra") == "forbid", (
+            f"El esquema de entrada {nombre} debe configurar extra='forbid'"
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            cls.model_validate({"campo_fantasma_11x": "inyeccion"})
+        assert any(
+            err["type"] == "extra_forbidden" and err["loc"] == ("campo_fantasma_11x",)
+            for err in exc_info.value.errors()
+        ), f"{nombre} no rechazó campo_fantasma_11x con extra_forbidden"
+
+
+@pytest.mark.asyncio
+async def test_bearer_token_authentication_and_production_422_sanitization(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Valida soporte Authorization: Bearer (M2M/MCP) y sanitización 422 en producción."""
-    token = create_access_token(data={"sub": "admin@test.com", "rol": "PRESIDENTE", "id": 1})
+    engine, factory = await create_sqlite_fk_factory()
+    try:
+        ctx = await seed_condo_base(factory)
+        token = create_access_token(data={"sub": "pres@condo.test", "rol": "PRESIDENTE", "id": ctx.presidente_id})
+        app.dependency_overrides[get_db] = _build_sqlite_db_override(factory)
 
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as async_client:
+            response = await async_client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+            assert response.status_code == 200
+            assert response.json()["rol"] == "PRESIDENTE"
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["x-frame-options"] == "DENY"
 
-    class FakeUser:
-        id: int = 1
-        correo: str = "admin@test.com"
-        nombre: str = "Admin"
-        rol: str = "PRESIDENTE"
-        es_activo: bool = True
-
-    mock_result.scalars().first.return_value = FakeUser()
-    mock_session.execute.return_value = mock_result
-    app.dependency_overrides[get_db] = lambda: mock_session
-
-    response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code == 200
-    assert response.json()["rol"] == "PRESIDENTE"
-    assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["x-frame-options"] == "DENY"
-
-    app.dependency_overrides = {}
-
-    # Modo producción: oculta detalle interno en errores 422
-    monkeypatch.setenv("APP_ENV", "production")
-    assert _es_produccion() is True
-    res_422 = client.post("/api/auth/login", json={"correo": "solo_correo"})
-    assert res_422.status_code == 422
-    assert res_422.json() == {"detail": "Los datos proporcionados no cumplen con los requisitos de validación."}
+            # Modo producción: oculta detalle interno en errores 422
+            monkeypatch.setenv("APP_ENV", "production")
+            assert _es_produccion() is True
+            res_422 = await async_client.post("/api/auth/login", json={"correo": "solo_correo"})
+            assert res_422.status_code == 422
+            assert res_422.json() == {"detail": "Los datos proporcionados no cumplen con los requisitos de validación."}
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 def test_validate_production_security_settings_fail_fast(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -434,37 +495,55 @@ def test_should_use_secure_cookie_and_refresh_helpers(monkeypatch: pytest.Monkey
     assert decode_token_unverified_exp("token-malo") is None
 
 
-def test_csrf_middleware_blocks_cookie_mutation_when_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_csrf_middleware_blocks_cookie_mutation_when_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
     """Enforce X-CSRF-Token bloquea Cookie+Bearer dummy sin CSRF y permite M2M Bearer puro o token válido."""
     monkeypatch.setenv("CSRF_ENFORCE", "true")
-    client = TestClient(app)
-    token = create_access_token({"sub": "csrf@test.com", "rol": "PROPIETARIO", "id": 9, "sid": "sid-csrf"})
-    valid_csrf = generate_csrf_token("sid-csrf")
+    engine, factory = await create_sqlite_fk_factory()
+    try:
+        ctx = await seed_condo_base(factory)
+        token = create_access_token(
+            {"sub": "tes@condo.test", "rol": "TESORERO", "id": ctx.tesorero_id, "sid": "sid-csrf"}
+        )
+        valid_csrf = generate_csrf_token("sid-csrf")
+        app.dependency_overrides[get_db] = _build_sqlite_db_override(factory)
 
-    client.cookies.set("access_token", f"Bearer {token}")
-    blocked = client.post("/api/finanzas/tasas", json={})
-    assert blocked.status_code == 403
-    assert "CSRF" in blocked.json()["detail"]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as async_client:
+            async_client.cookies.set("access_token", f"Bearer {token}")
+            blocked = await async_client.post("/api/finanzas/tasas", json={})
+            assert blocked.status_code == 403
+            assert "CSRF" in blocked.json()["detail"]
 
-    # Bypass con cookie activa + Authorization: Bearer dummy DEBE ser bloqueado con 403
-    dummy_bypass = client.post("/api/finanzas/tasas", headers={"Authorization": "Bearer dummy"}, json={})
-    assert dummy_bypass.status_code == 403
-    assert "CSRF" in dummy_bypass.json()["detail"]
+            # Bypass con cookie activa + Authorization: Bearer dummy DEBE ser bloqueado con 403
+            dummy_bypass = await async_client.post(
+                "/api/finanzas/tasas",
+                headers={"Authorization": "Bearer dummy"},
+                json={},
+            )
+            assert dummy_bypass.status_code == 403
+            assert "CSRF" in dummy_bypass.json()["detail"]
 
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars().first.return_value = None
-    mock_session.execute.return_value = mock_result
-    app.dependency_overrides[get_db] = lambda: mock_session
+            csrf_ok_req = await async_client.post(
+                "/api/finanzas/tasas",
+                headers={"X-CSRF-Token": valid_csrf},
+                json={},
+            )
+            assert csrf_ok_req.status_code != 403
 
-    csrf_ok_req = client.post("/api/finanzas/tasas", headers={"X-CSRF-Token": valid_csrf}, json={})
-    assert csrf_ok_req.status_code != 403
-
-    # Bearer M2M puro (sin cookies) omite double-submit CSRF
-    client.cookies.clear()
-    bearer_req = client.post("/api/finanzas/tasas", headers={"Authorization": f"Bearer {token}"}, json={})
-    assert bearer_req.status_code != 403
-    app.dependency_overrides = {}
+            # Bearer M2M puro (sin cookies) omite double-submit CSRF
+            async_client.cookies.clear()
+            bearer_req = await async_client.post(
+                "/api/finanzas/tasas",
+                headers={"Authorization": f"Bearer {token}"},
+                json={},
+            )
+            assert bearer_req.status_code != 403
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -873,3 +952,328 @@ async def test_security_survivor_contracts_and_exact_details(monkeypatch: pytest
     assert verify_websocket_origin("") is True
     monkeypatch.setenv("APP_ENV", "production")
     assert verify_websocket_origin(None) is False
+
+
+def test_hkdf_subkeys_worm_hash_and_secret_key_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifica constantes JWT/HKDF, expansión multibloque (>32 B), subclaves y hash WORM."""
+    import os
+
+    from src import security as security_mod
+
+    assert JWT_ISSUER == "condominio-app"
+    assert JWT_AUDIENCE == "condominio-app-client"
+    assert SECRET_KEY == os.getenv("SECRET_KEY", DEFAULT_INSECURE_SECRET_KEY)
+    assert security_mod._HKDF_SALT == b"condominio-app-hkdf-v1"
+
+    monkeypatch.setenv("SECRET_KEY", "env-secret-key-32-bytes-minimum!")
+    assert security_mod._get_secret_key() == "env-secret-key-32-bytes-minimum!"
+    monkeypatch.setenv("SECRET_KEY", "")
+    assert security_mod._get_secret_key() == SECRET_KEY
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    assert security_mod._get_secret_key() == SECRET_KEY
+
+    salt = b"condominio-app-hkdf-v1"
+    prk = hmac.new(salt, b"ikm-demo", hashlib.sha256).digest()
+    assert security_mod._hkdf_extract(salt, b"ikm-demo") == prk
+
+    t1 = hmac.new(prk, b"info-11x\x01", hashlib.sha256).digest()
+    t2 = hmac.new(prk, t1 + b"info-11x\x02", hashlib.sha256).digest()
+    t3 = hmac.new(prk, t2 + b"info-11x\x03", hashlib.sha256).digest()
+    assert security_mod._hkdf_expand(prk, b"info-11x") == t1
+    assert security_mod._hkdf_expand(prk, b"info-11x", 17) == t1[:17]
+    assert security_mod._hkdf_expand(prk, b"info-11x", 42) == (t1 + t2)[:42]
+    assert security_mod._hkdf_expand(prk, b"info-11x", 80) == (t1 + t2 + t3)[:80]
+
+    hmac_calls: list[int] = []
+    real_hmac_new = hmac.new
+
+    def _spy_hmac_new(key: bytes, msg: bytes | None = None, digestmod: Any = None) -> Any:
+        hmac_calls.append(1)
+        return real_hmac_new(key, msg, digestmod)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(security_mod.hmac, "new", _spy_hmac_new)
+        for req_len, expected_calls in ((0, 0), (32, 1), (42, 2), (64, 2), (80, 3)):
+            hmac_calls.clear()
+            out = security_mod._hkdf_expand(prk, b"info-11x", req_len)
+            assert len(out) == req_len
+            assert len(hmac_calls) == expected_calls
+
+    monkeypatch.setenv("SECRET_KEY", "env-master-32-chars-1234567890ab")
+    prk_explicit = real_hmac_new(salt, b"explicit-master", hashlib.sha256).digest()
+    exp_explicit = real_hmac_new(prk_explicit, b"solvency-hmac\x01", hashlib.sha256).digest().hex()
+    assert derive_subkey("solvency-hmac", master_secret="explicit-master") == exp_explicit
+
+    prk_empty = real_hmac_new(salt, b"", hashlib.sha256).digest()
+    exp_empty = real_hmac_new(prk_empty, b"vote-hmac\x01", hashlib.sha256).digest().hex()
+    assert derive_subkey("vote-hmac", master_secret="") == exp_empty
+    assert derive_subkey("vote-hmac", master_secret=None) != exp_empty
+
+    prk_env = real_hmac_new(salt, b"env-master-32-chars-1234567890ab", hashlib.sha256).digest()
+    exp_qr = real_hmac_new(prk_env, b"qr-pass-hmac\x01", hashlib.sha256).digest().hex()
+    assert derive_subkey("qr-pass-hmac") == exp_qr
+
+    k_solv = get_solvency_signing_key()
+    k_vote = get_vote_signing_key()
+    k_qr = get_qr_signing_key()
+    k_worm = get_worm_signing_key()
+    k_worm_custom = get_worm_signing_key(master_secret="worm-master-key")
+    assert k_solv == derive_subkey("solvency-hmac")
+    assert k_vote == derive_subkey("vote-hmac")
+    assert k_qr == exp_qr
+    assert k_worm == derive_subkey("worm-audit-hmac")
+    assert k_worm_custom == derive_subkey("worm-audit-hmac", master_secret="worm-master-key")
+    assert len({k_solv, k_vote, k_qr, k_worm, k_worm_custom}) == 5
+    assert all(len(k) == 64 for k in (k_solv, k_vote, k_qr, k_worm, k_worm_custom))
+
+    expected_worm = real_hmac_new(
+        k_worm_custom.encode("utf-8"),
+        b"0" * 64 + b"|recibo:10|PAGADO",
+        hashlib.sha256,
+    ).hexdigest()
+    h1 = compute_worm_record_hash("0" * 64, "recibo:10|PAGADO", master_secret="worm-master-key")
+    h2 = compute_worm_record_hash("0" * 64, "recibo:10|PAGADO", master_secret="worm-master-key")
+    assert h1 == expected_worm == h2
+    assert len(h1) == 64
+    assert compute_worm_record_hash("1" * 64, "recibo:10|PAGADO", master_secret="worm-master-key") != h1
+    assert compute_worm_record_hash("0" * 64, "recibo:11|PAGADO", master_secret="worm-master-key") != h1
+    assert compute_worm_record_hash("0" * 64, "recibo:10|PAGADO", master_secret=None) != h1
+    assert compute_worm_record_hash("a", "bc", master_secret="worm-master-key") != compute_worm_record_hash(
+        "ab", "c", master_secret="worm-master-key"
+    )
+
+
+def test_jwt_access_refresh_claims_errors_and_csrf_hmac_bounds() -> None:
+    """Verifica claims JWT exactos, errores de decodificación/expiración y límites HMAC CSRF."""
+    from datetime import UTC, datetime, timedelta
+
+    import jwt
+
+    raw_access = {"sub": "user@condo.test", "id": 42}
+    tok_default = create_access_token(raw_access)
+    assert raw_access == {"sub": "user@condo.test", "id": 42}
+    decoded_default = decode_access_token(tok_default)
+    assert decoded_default["sub"] == "user@condo.test"
+    assert decoded_default["id"] == 42
+    assert decoded_default["typ"] == "access"
+    assert decoded_default["iss"] == "condominio-app"
+    assert decoded_default["aud"] == "condominio-app-client"
+    assert isinstance(decoded_default["iat"], int)
+    assert isinstance(decoded_default["exp"], int)
+    assert decoded_default["exp"] - decoded_default["iat"] == ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+    tok_5m = create_access_token({"sub": "u@t.com"}, expires_delta=timedelta(minutes=5))
+    decoded_5m = decode_access_token(tok_5m)
+    assert decoded_5m["exp"] - decoded_5m["iat"] == 300
+
+    expired_access = create_access_token({"sub": "exp@condo.test"}, expires_delta=timedelta(seconds=-5))
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_access_token(expired_access)
+
+    raw_refresh = {"sub": "user@condo.test", "id": 42}
+    rt_default = create_refresh_token(raw_refresh)
+    assert raw_refresh == {"sub": "user@condo.test", "id": 42}
+    dec_rt = decode_refresh_token(rt_default)
+    assert dec_rt["typ"] == "refresh"
+    assert dec_rt["iss"] == "condominio-app"
+    assert dec_rt["aud"] == "condominio-app-client"
+    assert dec_rt["exp"] - dec_rt["iat"] == REFRESH_TOKEN_EXPIRE_DAYS * 86400
+
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_access_token(rt_default)
+
+    now_ts = int(datetime.now(UTC).timestamp())
+    base_access = {
+        "sub": "u@condo.test",
+        "typ": "access",
+        "iat": now_ts,
+        "iss": "condominio-app",
+        "aud": "condominio-app-client",
+        "exp": now_ts + 300,
+    }
+    wrong_typ_access = jwt.encode({**base_access, "typ": "refresh"}, derive_subkey("jwt-access"), algorithm=ALGORITHM)
+    with pytest.raises(jwt.InvalidTokenError, match=r"^Tipo de token inválido para acceso\.$"):
+        decode_access_token(wrong_typ_access)
+
+    for missing in ("exp", "iat", "iss", "aud"):
+        partial = {k: v for k, v in base_access.items() if k != missing}
+        with pytest.raises(jwt.InvalidTokenError):
+            decode_access_token(jwt.encode(partial, derive_subkey("jwt-access"), algorithm=ALGORITHM))
+
+    for bad_override in ({"iss": "otro-iss"}, {"aud": "otro-aud"}):
+        forged = jwt.encode({**base_access, **bad_override}, derive_subkey("jwt-access"), algorithm=ALGORITHM)
+        with pytest.raises(jwt.InvalidTokenError):
+            decode_access_token(forged)
+
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_access_token(jwt.encode(base_access, SECRET_KEY, algorithm=ALGORITHM))
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_access_token(jwt.encode(base_access, derive_subkey("jwt-access"), algorithm="HS512"))
+
+    base_refresh = {**base_access, "typ": "refresh", "jti": "jti-check-1"}
+    for missing in ("exp", "iat", "iss", "aud", "jti"):
+        partial_r = {k: v for k, v in base_refresh.items() if k != missing}
+        with pytest.raises(jwt.InvalidTokenError):
+            decode_refresh_token(jwt.encode(partial_r, derive_subkey("jwt-refresh"), algorithm=ALGORITHM))
+    for bad_override in ({"iss": "otro-iss"}, {"aud": "otro-aud"}):
+        forged_r = jwt.encode({**base_refresh, **bad_override}, derive_subkey("jwt-refresh"), algorithm=ALGORITHM)
+        with pytest.raises(jwt.InvalidTokenError):
+            decode_refresh_token(forged_r)
+
+    expired_refresh = create_refresh_token({"sub": "exp@condo.test"}, expires_delta=timedelta(seconds=-5))
+    dec_exp_acc = decode_token_unverified_exp(expired_access)
+    dec_exp_ref = decode_token_unverified_exp(expired_refresh)
+    assert dec_exp_acc is not None and dec_exp_acc["typ"] == "access"
+    assert dec_exp_ref is not None and dec_exp_ref["typ"] == "refresh"
+
+    forged_swapped = jwt.encode({**base_access, "typ": "access"}, derive_subkey("jwt-refresh"), algorithm=ALGORITHM)
+    forged_no_iat = jwt.encode(
+        {k: v for k, v in base_access.items() if k != "iat"},
+        derive_subkey("jwt-access"),
+        algorithm=ALGORITHM,
+    )
+    assert decode_token_unverified_exp(wrong_typ_access) is None
+    assert decode_token_unverified_exp(forged_swapped) is None
+    assert decode_token_unverified_exp(forged_no_iat) is None
+
+    expected_csrf = hmac.new(
+        derive_subkey("csrf-hmac").encode("utf-8"),
+        b"sid-hmac-check",
+        hashlib.sha256,
+    ).hexdigest()
+    assert generate_csrf_token("sid-hmac-check") == expected_csrf
+    assert len(expected_csrf) == 64
+    assert validate_csrf_token(expected_csrf, "sid-hmac-check") is True
+    flipped = expected_csrf[:-1] + ("0" if expected_csrf[-1] != "0" else "1")
+    assert validate_csrf_token(flipped, "sid-hmac-check") is False
+    assert validate_csrf_token(expected_csrf.upper(), "sid-hmac-check") is False
+    assert validate_csrf_token(expected_csrf + "a", "sid-hmac-check") is False
+
+
+def test_trusted_proxy_ip_and_forbidden_ip_ranges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifica validación de proxies confiables por defecto/env y rangos IP prohibidos Anti-SSRF."""
+    from src import security as security_mod
+
+    assert security_mod._DEFAULT_TRUSTED_PROXY_CIDRS == (
+        "127.0.0.1/32",
+        "::1/128",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+    )
+    monkeypatch.delenv("TRUSTED_PROXY_IPS", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+
+    assert is_trusted_proxy_ip(None) is False
+    assert is_trusted_proxy_ip("") is False
+    assert is_trusted_proxy_ip("   ") is False
+    assert is_trusted_proxy_ip("127.0.0.1") is True
+    assert is_trusted_proxy_ip("  127.0.0.1  ") is True
+    assert is_trusted_proxy_ip("::1") is True
+    assert is_trusted_proxy_ip("10.20.30.40") is True
+    assert is_trusted_proxy_ip("172.16.0.1") is True
+    assert is_trusted_proxy_ip("172.31.255.254") is True
+    assert is_trusted_proxy_ip("172.32.0.1") is False
+    assert is_trusted_proxy_ip("192.168.10.20") is True
+    assert is_trusted_proxy_ip("8.8.8.8") is False
+    assert is_trusted_proxy_ip("no-es-ip") is False
+
+    assert is_trusted_proxy_ip("testclient") is True
+    monkeypatch.setenv("APP_ENV", "  PRODUCTION  ")
+    assert is_trusted_proxy_ip("testclient") is False
+
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", " , 203.0.113.10 , 198.51.100.0/24 , bad/99 , proxy-interno , ")
+    assert is_trusted_proxy_ip("203.0.113.10") is True
+    assert is_trusted_proxy_ip("198.51.100.42") is True
+    assert is_trusted_proxy_ip("198.51.101.42") is False
+    assert is_trusted_proxy_ip("proxy-interno") is True
+    assert is_trusted_proxy_ip("127.0.0.1") is False
+    assert is_trusted_proxy_ip("testclient") is False
+    assert is_trusted_proxy_ip("bad") is False
+
+    for forbidden in ("10.0.0.1", "127.0.0.1", "::1", "169.254.1.1", "224.0.0.1", "240.0.0.1", "0.0.0.0", "::"):
+        assert security_mod._is_forbidden_ip(forbidden) is True
+    for public in ("93.184.216.34", "2606:4700:4700::1111"):
+        assert security_mod._is_forbidden_ip(public) is False
+
+
+@pytest.mark.asyncio
+async def test_async_password_ssrf_local_internal_and_upload_chunk_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cubre hashing asíncrono, sufijos .local/.internal, Anti-SSRF async, chunks de carga y WS origin."""
+    hashed_async = await get_password_hash_async("ClaveAsync11X!")
+    assert hashed_async.startswith("pbkdf2_sha256$")
+    assert await verify_password_async("ClaveAsync11X!", hashed_async) is True
+    assert await verify_password_async("ClaveIncorrecta", hashed_async) is False
+
+    for internal_url in (
+        "https://printer.local/status",
+        "HTTPS://API.LOCAL/v1",
+        "https://metadata.google.internal/computeMetadata",
+        "https://LOCALHOST/health",
+    ):
+        with pytest.raises(ValueError, match=r"^Acceso prohibido a recursos internos de infraestructura$"):
+            validate_safe_outgoing_url(internal_url)
+        with pytest.raises(ValueError, match=r"^Acceso prohibido a recursos internos de infraestructura$"):
+            await validate_safe_outgoing_url_async(internal_url)
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda _host, _port: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))],
+    )
+    assert (
+        await validate_safe_outgoing_url_async("  HTTPS://CDN.Example.COM/Carpeta/Archivo.PDF  ")
+        == "https://cdn.example.com/Carpeta/Archivo.PDF"
+    )
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda _host, _port: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.10", 0))],
+    )
+    with pytest.raises(ValueError, match=r"^Destino prohibido en red privada o reservada \(192\.168\.1\.10\)$"):
+        await validate_safe_outgoing_url_async("https://privado-async.example/hook")
+
+    def _fail_async_dns(_host: str, _port: Any) -> list[Any]:
+        raise socket.gaierror("fail")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fail_async_dns)
+    with pytest.raises(ValueError, match=r"^No se pudo resolver el host: missing\.example$"):
+        await validate_safe_outgoing_url_async("https://missing.example/hook")
+
+    class _SpyUpload:
+        def __init__(self, chunks: list[bytes]) -> None:
+            self._chunks = list(chunks)
+            self.sizes: list[int] = []
+
+        async def read(self, size: int = -1) -> bytes:
+            self.sizes.append(size)
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+    empty_spy = _SpyUpload([])
+    assert await read_uploaded_file_safely(empty_spy, verify_magic_bytes=False) == b""
+    assert empty_spy.sizes == [UPLOAD_CHUNK_SIZE]
+
+    chunks_2mb = [b"a" * UPLOAD_CHUNK_SIZE] * 32
+    exact_spy = _SpyUpload(chunks_2mb)
+    loaded = await read_uploaded_file_safely(exact_spy, verify_magic_bytes=False)
+    assert len(loaded) == MAX_UPLOAD_SIZE_BYTES
+    assert all(sz == UPLOAD_CHUNK_SIZE for sz in exact_spy.sizes)
+
+    over_spy = _SpyUpload([*chunks_2mb, b"x"])
+    with pytest.raises(HTTPException) as exc_over:
+        await read_uploaded_file_safely(over_spy, verify_magic_bytes=False)
+    assert exc_over.value.status_code == 413
+    assert exc_over.value.detail == "El archivo excede el tamaño máximo permitido de 2 MB."
+
+    assert validate_file_magic_bytes(b"RIFF\x00\x00\x00\x00WEBP" + b"X" * 10) == "image/webp"
+
+    monkeypatch.setenv("APP_ENV", "development")
+    assert verify_websocket_origin("https://evil.com") is False
+    assert verify_websocket_origin("https://a.com", allowed_origins=set()) is False
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    assert verify_websocket_origin("http://localhost:3000") is False

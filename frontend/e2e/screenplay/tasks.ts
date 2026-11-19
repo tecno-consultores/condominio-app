@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (C) 2026 Condominio App Contributors
 
-import { waitForDialogSettled, type Actor, type Task } from './core';
+import { waitForDialogSettled, waitForPaintSettled, type Actor, type Task } from './core';
 
 export class NavigateTo implements Task {
   readonly description: string;
@@ -18,6 +18,8 @@ export class NavigateTo implements Task {
     const page = actor.page();
     await page.goto(this.path, { waitUntil: 'domcontentloaded' });
     await page.locator('h1').first().waitFor({ state: 'visible' });
+    await page.locator('.skeleton-card').first().waitFor({ state: 'detached' });
+    await waitForPaintSettled(page);
   }
 }
 
@@ -96,12 +98,7 @@ export class ToggleColorTheme implements Task {
       (expected) => document.documentElement.classList.contains(`theme-${expected}`),
       this.target,
     );
-    await page.evaluate(async () => {
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      );
-      await Promise.allSettled(document.getAnimations().map((anim) => anim.finished));
-    });
+    await waitForPaintSettled(page);
   }
 }
 
@@ -325,11 +322,11 @@ export class VerifyQrPassAtGatehouse implements Task {
   }
 }
 
-export class RequestAndCancelAmenity implements Task {
-  readonly description = 'solicitar reserva de área social y cancelarla';
+export class RequestAmenityReservation implements Task {
+  readonly description = 'solicitar reserva de área social';
 
-  static withReason(motivo: string): RequestAndCancelAmenity {
-    return new RequestAndCancelAmenity(motivo);
+  static withReason(motivo: string): RequestAmenityReservation {
+    return new RequestAmenityReservation(motivo);
   }
 
   private constructor(private readonly motivo: string) {}
@@ -345,10 +342,234 @@ export class RequestAndCancelAmenity implements Task {
       .waitFor({
         state: 'visible',
       });
+  }
+}
+
+export class RequestAndCancelAmenity implements Task {
+  readonly description = 'solicitar reserva de área social y cancelarla';
+
+  static withReason(motivo: string): RequestAndCancelAmenity {
+    return new RequestAndCancelAmenity(motivo);
+  }
+
+  private constructor(private readonly motivo: string) {}
+
+  async performAs(actor: Actor): Promise<void> {
+    await RequestAmenityReservation.withReason(this.motivo).performAs(actor);
+    const page = actor.page();
     const cancelBtn = page.getByRole('button', { name: /Cancelar/i }).first();
     if (await cancelBtn.isVisible()) {
       await cancelBtn.click();
       await page.locator('.alert--success, [role="status"]').first().waitFor({ state: 'visible' });
     }
+  }
+}
+
+export class AttemptConsultationVote implements Task {
+  readonly description: string;
+
+  private constructor(private readonly consultaId: number) {
+    this.description = `intentar emitir voto en consulta ${consultaId}`;
+  }
+
+  static onConsultation(consultaId: number): AttemptConsultationVote {
+    return new AttemptConsultationVote(consultaId);
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.goto(`/consultas/${this.consultaId}`, { waitUntil: 'domcontentloaded' });
+    await page.locator('h1').first().waitFor({ state: 'visible' });
+    await page.getByTestId('option-card-11').click();
+    await page.locator('#btn-cast-vote').click();
+    await page.locator('#modal-vote-receipt, .banner--error').first().waitFor({ state: 'visible' });
+  }
+}
+
+export class ResizeViewport implements Task {
+  readonly description: string;
+
+  private constructor(
+    private readonly width: number,
+    private readonly height: number,
+  ) {
+    this.description = `ajustar viewport a ${width}x${height}`;
+  }
+
+  static to(width: number, height: number): ResizeViewport {
+    return new ResizeViewport(width, height);
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    await actor.page().setViewportSize({ width: this.width, height: this.height });
+  }
+}
+
+export class OpenContextualHelp implements Task {
+  readonly description = 'abrir diálogo de ayuda contextual';
+
+  static now(): OpenContextualHelp {
+    return new OpenContextualHelp();
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator('#btn-contextual-help').click();
+    await waitForDialogSettled(page, '#dialog-contextual-help');
+  }
+}
+
+export class CloseContextualHelp implements Task {
+  readonly description = 'cerrar diálogo de ayuda contextual';
+
+  static now(): CloseContextualHelp {
+    return new CloseContextualHelp();
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator('#btn-close-help').click();
+    await page.locator('#dialog-contextual-help').waitFor({ state: 'detached' });
+  }
+}
+
+export class ClickThemeToggleButton implements Task {
+  readonly description = 'pulsar el botón interactivo de alternancia claro/oscuro';
+
+  static now(): ClickThemeToggleButton {
+    return new ClickThemeToggleButton();
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator('#btn-theme-toggle').click();
+    await waitForPaintSettled(page);
+  }
+}
+
+export class CloseModal implements Task {
+  readonly description: string;
+
+  private constructor(
+    private readonly buttonSelector: string,
+    private readonly dialogSelector: string,
+  ) {
+    this.description = `cerrar modal ${dialogSelector} mediante ${buttonSelector}`;
+  }
+
+  static byButton(buttonSelector: string, dialogSelector: string): CloseModal {
+    return new CloseModal(buttonSelector, dialogSelector);
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator(this.buttonSelector).click();
+    await page.locator(this.dialogSelector).waitFor({ state: 'detached' });
+  }
+}
+
+export class CopySecretToken implements Task {
+  readonly description: string;
+
+  private constructor(private readonly buttonSelector: string) {
+    this.description = `copiar token criptográfico mediante ${buttonSelector}`;
+  }
+
+  static viaButton(buttonSelector: string): CopySecretToken {
+    return new CopySecretToken(buttonSelector);
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator(this.buttonSelector).click();
+    await page
+      .locator(`${this.buttonSelector}[data-copied], ${this.buttonSelector}[data-failed]`)
+      .first()
+      .waitFor({ state: 'attached' });
+  }
+}
+
+export class OpenMobileNavDrawer implements Task {
+  readonly description = 'abrir el cajón de navegación móvil';
+
+  static now(): OpenMobileNavDrawer {
+    return new OpenMobileNavDrawer();
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator('#btn-mobile-menu').click();
+    await waitForDialogSettled(page, '#mobile-nav-drawer');
+  }
+}
+
+export class NavigateViaMobileDrawer implements Task {
+  readonly description: string;
+
+  private constructor(
+    private readonly label: string,
+    private readonly urlPattern: string,
+  ) {
+    this.description = `navegar por cajón móvil hacia "${label}"`;
+  }
+
+  static toLabel(label: string, urlPattern: string): NavigateViaMobileDrawer {
+    return new NavigateViaMobileDrawer(label, urlPattern);
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator('#mobile-nav-drawer').getByRole('button', { name: this.label }).click();
+    await page.waitForURL(this.urlPattern);
+    await page.locator('h1').first().waitFor({ state: 'visible' });
+  }
+}
+
+export class Logout implements Task {
+  readonly description: string;
+
+  private constructor(private readonly buttonName: string) {
+    this.description = `cerrar sesión mediante "${buttonName}"`;
+  }
+
+  static viaAccessibleButton(buttonName: string): Logout {
+    return new Logout(buttonName);
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.getByRole('button', { name: this.buttonName }).click();
+    await page.waitForURL('**/login');
+    await page.locator('h1').first().waitFor({ state: 'visible' });
+  }
+}
+
+export class LogoutFromMobileTopBar implements Task {
+  readonly description = 'cerrar sesión desde la barra móvil superior';
+
+  static now(): LogoutFromMobileTopBar {
+    return new LogoutFromMobileTopBar();
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator('#btn-mobile-logout').click();
+    await page.waitForURL('**/login');
+    await page.locator('h1').first().waitFor({ state: 'visible' });
+  }
+}
+
+export class ReturnHomeFromNotFound implements Task {
+  readonly description = 'volver al inicio desde la vista 404';
+
+  static now(): ReturnHomeFromNotFound {
+    return new ReturnHomeFromNotFound();
+  }
+
+  async performAs(actor: Actor): Promise<void> {
+    const page = actor.page();
+    await page.locator('#btn-go-home').click();
+    await page.waitForURL(/\/(dashboard|login|espera-aprobacion)/);
+    await page.locator('h1').first().waitFor({ state: 'visible' });
   }
 }

@@ -4,6 +4,9 @@
 **Ecosistema:** `@sinfallas/mcp-qa-11x` (`v2.20.3+`), Docker Multi-Stage, Trivy, Graphify AST (`--code-only`), GitHub Actions y Lefthook  
 **Origen de Auditoría:** Diagnóstico integral de gobernanza, despliegue y pipelines CI/CD (2026-11-13)
 
+> [!NOTE]
+> **Trazabilidad y Enmiendas Posteriores ([Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md), Hitos 19–23):** La gobernanza y despliegue evolucionaron a **Thin-Repo `v3.1.0`** (`@sinfallas/mcp-qa-11x`, 11 skills globales y `QA-GIT-GATE-01`), modelo arquitectónico **FINOS CALM `1.2`** (`architecture/qa-11x.calm.json`), distribución exclusiva **Docker Hub multi-arch** (`sinfallas/condominio-backend` y `sinfallas/condominio-frontend` con [`docker-compose.prod.yml`](../../docker-compose.prod.yml) y `.github/workflows/03-cd-dockerhub.yml`), aislamiento **Single-Condo + PG17 RLS (`0010`)**, **`HKDF-SHA256`**, **Radon Grado A**, Worker AVIF/SMTP (`BLMOVE` + DLQ), tokens **`OKLCH` + `light-dark()`** y **Screenplay E2E**. Ver [Spec 13](./13_REMEDIACION_INTEGRAL_COMPLETITUD_FUNCIONAL_Y_DOCKERHUB_11X.md).
+
 ---
 
 ## 1. Gobernanza Thin-Repo v2.20.3 e Higiene del Grafo AST (Hito 16)

@@ -6,7 +6,7 @@ import secrets
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
@@ -78,6 +78,17 @@ _ROLES_TESORERIA = ("TESORERO", "PRESIDENTE")
 _ROLES_JUNTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "VOCERO")
 
 
+def _resolver_condominio_id(usuario: Usuario) -> int:
+    raw = getattr(usuario, "condominio_id", None)
+    return int(DEFAULT_CONDOMINIO_ID if raw is None else raw)
+
+
+async def _buscar_tasa_fecha(db: AsyncSession, fecha: date | None = None) -> TasaCambio | None:
+    objetivo = fecha or date.today()
+    result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == objetivo))
+    return result.scalars().first()
+
+
 @router.post(
     "/tasa",
     response_model=TasaCambioResponse,
@@ -97,8 +108,7 @@ async def registrar_tasa(
 ) -> Any:
     verificar_roles(usuario, _ROLES_TESORERIA)
     fecha_objetivo = datos.fecha or date.today()
-    result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == fecha_objetivo))
-    tasa = result.scalars().first()
+    tasa = await _buscar_tasa_fecha(db, fecha_objetivo)
     if tasa:
         tasa.tasa_usd_ves = datos.tasa_usd_ves
     else:
@@ -123,8 +133,7 @@ async def obtener_tasa(
     usuario: Usuario = Depends(get_current_user),
 ) -> Any:
     verificar_usuario_activo(usuario)
-    result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == date.today()))
-    tasa = result.scalars().first()
+    tasa = await _buscar_tasa_fecha(db)
     if not tasa:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -162,6 +171,38 @@ async def _descontar_fondo_para_egreso(db: AsyncSession, condominio_id: int, mon
     fondo.saldo_actual_usd = cuantizar(saldo_actual - monto_usd)
 
 
+async def _crear_y_persistir_egreso(db: AsyncSession, datos: EgresoCreate, condo_id: int) -> Egreso:
+    """Valida periodo abierto, tasa y fondo patrimonial antes de persistir el egreso."""
+    await _validar_egreso_periodo_abierto(db, datos.periodo)
+    tasa = await _buscar_tasa_fecha(db)
+    if not tasa:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La tasa de cambio del día no ha sido registrada",
+        )
+    monto_usd = convertir_a_usd(datos.monto, datos.moneda, tasa.tasa_usd_ves)
+    # Los egresos no comunes descuentan directamente del Fondo de Reserva Legal con FOR UPDATE
+    if not datos.es_gasto_comun:
+        await _descontar_fondo_para_egreso(db, condo_id, monto_usd)
+    egreso = Egreso(
+        condominio_id=condo_id,
+        periodo=datos.periodo,
+        categoria=datos.categoria,
+        descripcion=datos.descripcion,
+        monto=datos.monto,
+        moneda=datos.moneda,
+        monto_usd=monto_usd,
+        tasa_cambio=tasa.tasa_usd_ves,
+        url_factura=datos.url_factura,
+        incidencia_id=datos.incidencia_id,
+        es_gasto_comun=datos.es_gasto_comun,
+    )
+    db.add(egreso)
+    await db.commit()
+    await db.refresh(egreso)
+    return egreso
+
+
 @router.post(
     "/egresos",
     response_model=EgresoCreatedResponse,
@@ -180,36 +221,9 @@ async def registrar_egreso(
     usuario: Usuario = Depends(get_current_user),
 ) -> EgresoCreatedResponse:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    condo_raw = getattr(usuario, "condominio_id", None)
-    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
+    condo_id = _resolver_condominio_id(usuario)
     try:
-        await _validar_egreso_periodo_abierto(db, datos.periodo)
-        tasa_result = await db.execute(select(TasaCambio).where(TasaCambio.fecha == date.today()))
-        tasa = tasa_result.scalars().first()
-        if not tasa:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La tasa de cambio del día no ha sido registrada",
-            )
-        monto_usd = convertir_a_usd(datos.monto, datos.moneda, tasa.tasa_usd_ves)
-        if not datos.es_gasto_comun:
-            await _descontar_fondo_para_egreso(db, condo_id, monto_usd)
-        egreso = Egreso(
-            condominio_id=condo_id,
-            periodo=datos.periodo,
-            categoria=datos.categoria,
-            descripcion=datos.descripcion,
-            monto=datos.monto,
-            moneda=datos.moneda,
-            monto_usd=monto_usd,
-            tasa_cambio=tasa.tasa_usd_ves,
-            url_factura=datos.url_factura,
-            incidencia_id=datos.incidencia_id,
-            es_gasto_comun=datos.es_gasto_comun,
-        )
-        db.add(egreso)
-        await db.commit()
-        await db.refresh(egreso)
+        egreso = await _crear_y_persistir_egreso(db, datos, condo_id)
         return EgresoCreatedResponse(id=egreso.id, monto_usd=str(egreso.monto_usd))
     except HTTPException:
         raise
@@ -251,6 +265,31 @@ async def _obtener_recibos_resumen(
     return list(recibos_result.scalars().all())
 
 
+async def _resumir_egresos_por_categoria(db: AsyncSession, periodo: str | None) -> tuple[Decimal, dict[str, str]]:
+    stmt = select(Egreso.categoria, func.coalesce(func.sum(Egreso.monto_usd), CERO)).group_by(Egreso.categoria)
+    if periodo is not None:
+        stmt = stmt.where(Egreso.periodo == periodo)
+    egresos_result = await db.execute(stmt)
+    total_egresos = Decimal("0.00")
+    gastos_por_categoria: dict[str, str] = {}
+    for categoria, monto_sumado in egresos_result.all():
+        monto_q = cuantizar(Decimal(str(CERO if monto_sumado is None else monto_sumado)))
+        total_egresos += monto_q
+        gastos_por_categoria[str(categoria)] = str(monto_q)
+    return cuantizar(total_egresos), gastos_por_categoria
+
+
+def _construir_item_cobranza(recibo: Recibo) -> EstadoCobranzaItemResponse:
+    return EstadoCobranzaItemResponse(
+        recibo_id=recibo.id,
+        unidad_id=recibo.unidad_id,
+        periodo=recibo.periodo,
+        monto_usd=str(cuantizar(recibo.monto_usd)),
+        estado=recibo.estado,
+        saldo_usd=str(calcular_saldo_pendiente(recibo.monto_usd, recibo.monto_pagado_usd)),
+    )
+
+
 @router.get(
     "/resumen",
     response_model=ResumenFinancieroResponse,
@@ -265,40 +304,70 @@ async def resumen_financiero(
     usuario: Usuario = Depends(get_current_user),
 ) -> ResumenFinancieroResponse:
     verificar_usuario_activo(usuario)
-    egreso_stmt = select(
-        Egreso.categoria,
-        func.coalesce(func.sum(Egreso.monto_usd), CERO),
-    ).group_by(Egreso.categoria)
-    if periodo is not None:
-        egreso_stmt = egreso_stmt.where(Egreso.periodo == periodo)
-
+    # Se consultan recibos antes que egresos para respetar el aislamiento por rol y el orden de sesión
     recibos = await _obtener_recibos_resumen(db, usuario, periodo)
     deuda_total = calcular_deuda_total([(r.monto_usd, r.monto_pagado_usd) for r in recibos])
-
-    egresos_result = await db.execute(egreso_stmt)
-    total_egresos = Decimal("0.00")
-    gastos_por_categoria: dict[str, Decimal] = {}
-    for categoria, monto_sumado in egresos_result.all():
-        monto_q = cuantizar(Decimal(str(CERO if monto_sumado is None else monto_sumado)))
-        total_egresos += monto_q
-        gastos_por_categoria[str(categoria)] = monto_q
+    total_egresos, gastos_por_categoria = await _resumir_egresos_por_categoria(db, periodo)
 
     return ResumenFinancieroResponse(
         deuda_total_usd=str(cuantizar(deuda_total)),
-        total_egresos_usd=str(cuantizar(total_egresos)),
-        gastos_por_categoria={clave: str(cuantizar(valor)) for clave, valor in gastos_por_categoria.items()},
-        estado_cobranza=[
-            EstadoCobranzaItemResponse(
-                recibo_id=r.id,
-                unidad_id=r.unidad_id,
-                periodo=r.periodo,
-                monto_usd=str(cuantizar(r.monto_usd)),
-                estado=r.estado,
-                saldo_usd=str(calcular_saldo_pendiente(r.monto_usd, r.monto_pagado_usd)),
-            )
-            for r in recibos
-        ],
+        total_egresos_usd=str(total_egresos),
+        gastos_por_categoria=gastos_por_categoria,
+        estado_cobranza=[_construir_item_cobranza(r) for r in recibos],
     )
+
+
+async def _validar_cierre_disponible(
+    db: AsyncSession,
+    condo_id: int,
+    periodo: str,
+) -> ReporteMensual | None:
+    """Verifica que el periodo no esté cerrado ni tenga pagos en revisión pendientes en ese mismo periodo."""
+    result = await db.execute(
+        select(ReporteMensual)
+        .where(ReporteMensual.condominio_id == condo_id, ReporteMensual.periodo == periodo)
+        .with_for_update()
+    )
+    reporte = result.scalars().first()
+    if reporte and reporte.estado == "CERRADO":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El mes ya fue cerrado (acción inmutable)",
+        )
+
+    # Aísla la validación por periodo mediante JOIN con Recibo para no bloquear otros meses
+    pagos_rev = await db.execute(
+        select(PagoReportado.id)
+        .join(Recibo, PagoReportado.recibo_id == Recibo.id)
+        .where(
+            PagoReportado.condominio_id == condo_id,
+            PagoReportado.estado == "EN_REVISION",
+            Recibo.periodo == periodo,
+        )
+        .limit(1)
+    )
+    if pagos_rev.scalars().first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede ejecutar el cierre mensual mientras existan pagos en revisión.",
+        )
+    return reporte
+
+
+_BloqueableT = TypeVar("_BloqueableT", Recibo, Egreso)
+
+
+async def _bloquear_periodo_modelo(
+    db: AsyncSession,
+    modelo: type[_BloqueableT],
+    condo_id: int,
+    periodo: str,
+) -> None:
+    res = await db.execute(
+        select(modelo).where(modelo.condominio_id == condo_id, modelo.periodo == periodo).with_for_update()
+    )
+    for fila in res.scalars().all():
+        fila.bloqueado = True
 
 
 @router.post(
@@ -318,47 +387,14 @@ async def cierre_mensual(
     usuario: Usuario = Depends(get_current_user),
 ) -> CierreMensualResponse:
     verificar_roles(usuario, _ROLES_TESORERIA)
-    condo_raw = getattr(usuario, "condominio_id", None)
-    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
-
-    result = await db.execute(
-        select(ReporteMensual)
-        .where(ReporteMensual.condominio_id == condo_id, ReporteMensual.periodo == datos.periodo)
-        .with_for_update()
-    )
-    reporte = result.scalars().first()
-    if reporte and reporte.estado == "CERRADO":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El mes ya fue cerrado (acción inmutable)",
-        )
-
-    pagos_rev = await db.execute(
-        select(PagoReportado.id)
-        .where(PagoReportado.condominio_id == condo_id, PagoReportado.estado == "EN_REVISION")
-        .limit(1)
-    )
-    if pagos_rev.scalars().first() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No se puede ejecutar el cierre mensual mientras existan pagos en revisión.",
-        )
-
+    condo_id = _resolver_condominio_id(usuario)
+    reporte = await _validar_cierre_disponible(db, condo_id, datos.periodo)
     if reporte is None:
         reporte = ReporteMensual(condominio_id=condo_id, periodo=datos.periodo, estado="PRELIMINAR")
         db.add(reporte)
 
-    recibos_result = await db.execute(
-        select(Recibo).where(Recibo.condominio_id == condo_id, Recibo.periodo == datos.periodo).with_for_update()
-    )
-    for recibo in recibos_result.scalars().all():
-        recibo.bloqueado = True
-
-    egresos_result = await db.execute(
-        select(Egreso).where(Egreso.condominio_id == condo_id, Egreso.periodo == datos.periodo).with_for_update()
-    )
-    for egreso in egresos_result.scalars().all():
-        egreso.bloqueado = True
+    await _bloquear_periodo_modelo(db, Recibo, condo_id, datos.periodo)
+    await _bloquear_periodo_modelo(db, Egreso, condo_id, datos.periodo)
 
     reporte.estado = "CERRADO"
     reporte.cerrado_en = datetime.now(UTC)
@@ -452,8 +488,7 @@ async def facturar_periodo(
     """Emite atómicamente los recibos del periodo (ALICUOTA, CUOTA_FIJA o PARTES_IGUALES) y su desglose LPH."""
     verificar_roles(usuario, _ROLES_TESORERIA)
 
-    condo_raw = getattr(usuario, "condominio_id", None)
-    condo_id = int(DEFAULT_CONDOMINIO_ID if condo_raw is None else condo_raw)
+    condo_id = _resolver_condominio_id(usuario)
     await verificar_periodo_facturable(db, datos.periodo, condominio_id=condo_id)
 
     try:
@@ -514,6 +549,23 @@ async def _verificar_acceso_unidad(db: AsyncSession, usuario: Usuario, unidad_id
         )
 
 
+async def _cargar_info_unidad(db: AsyncSession, unidad_id: int) -> tuple[str, Decimal]:
+    uni_res = await db.execute(select(Unidad).where(Unidad.id == unidad_id))
+    unidad = uni_res.scalars().first()
+    if unidad is None:
+        return f"UNIDAD-{unidad_id}", Decimal("0.0000")
+    alicuota_raw = getattr(unidad, "alicuota", None)
+    return unidad.identificador, Decimal("0.0000") if alicuota_raw is None else alicuota_raw
+
+
+def _calcular_credito_descontado(items: list[ReciboItem]) -> Decimal:
+    total = CERO
+    for it in items:
+        if it.tipo_item == "ABONO_CREDITO_PREVIO" and it.monto_usd < CERO:
+            total -= it.monto_usd
+    return cuantizar(total)
+
+
 @router.get(
     "/recibos/{recibo_id}/desglose",
     response_model=ReciboDesgloseResponse,
@@ -537,20 +589,13 @@ async def obtener_desglose_recibo(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recibo no encontrado.")
 
     await _verificar_acceso_unidad(db, usuario, recibo.unidad_id)
-
-    uni_res = await db.execute(select(Unidad).where(Unidad.id == recibo.unidad_id))
-    unidad = uni_res.scalars().first()
-    identificador = unidad.identificador if unidad else f"UNIDAD-{recibo.unidad_id}"
-    alicuota_raw = getattr(unidad, "alicuota", None) if unidad is not None else None
-    alicuota = Decimal("0.0000") if alicuota_raw is None else alicuota_raw
+    identificador, alicuota = await _cargar_info_unidad(db, recibo.unidad_id)
 
     items_res = await db.execute(
         select(ReciboItem).where(ReciboItem.recibo_id == recibo.id).order_by(ReciboItem.id.asc())
     )
     items = list(items_res.scalars().all())
-    credito_desc = cuantizar(
-        sum((-it.monto_usd for it in items if it.tipo_item == "ABONO_CREDITO_PREVIO" and it.monto_usd < CERO), CERO)
-    )
+    credito_desc = _calcular_credito_descontado(items)
 
     return ReciboDesgloseResponse(
         recibo_id=recibo.id,
@@ -661,6 +706,28 @@ async def emitir_certificado_solvencia(
     )
 
 
+def _validar_firma_certificado(
+    cert: CertificadoSolvencia,
+    identificador: str,
+    sig: str,
+    cert_jti: str,
+) -> None:
+    """Compara la firma HMAC-SHA256 en tiempo constante para rechazar adulteraciones."""
+    es_valida = verificar_firma_solvencia(
+        cert.folio,
+        identificador,
+        cert.fecha_vencimiento.isoformat(),
+        sig,
+        get_solvency_signing_key(),
+        jti=cert_jti or None,
+    )
+    if not es_valida or not hmac.compare_digest(sig.strip(), cert.firma_hmac):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Firma criptográfica de solvencia inválida o adulterada.",
+        )
+
+
 @router.get(
     "/solvencia/verificar/{folio}",
     response_model=VerificarSolvenciaResponse,
@@ -675,6 +742,7 @@ async def verificar_certificado_solvencia(
     db: AsyncSession = Depends(get_db),
 ) -> VerificarSolvenciaResponse:
     """Verifica públicamente la autenticidad criptográfica y la vigencia viva sin deuda del Certificado."""
+    # Endpoint público sin JWT: fija contexto RLS por defecto para consultar certificados
     await bind_rls_tenant(db, DEFAULT_CONDOMINIO_ID)
     cert_res = await db.execute(select(CertificadoSolvencia).where(CertificadoSolvencia.folio == folio.strip()))
     cert = cert_res.scalars().first()
@@ -684,24 +752,9 @@ async def verificar_certificado_solvencia(
             detail="Certificado de solvencia no encontrado.",
         )
 
-    uni_res = await db.execute(select(Unidad).where(Unidad.id == cert.unidad_id))
-    unidad = uni_res.scalars().first()
-    identificador = unidad.identificador if unidad else f"UNIDAD-{cert.unidad_id}"
-
+    identificador, _ = await _cargar_info_unidad(db, cert.unidad_id)
     cert_jti = getattr(cert, "jti", None) or ""
-    es_valida = verificar_firma_solvencia(
-        cert.folio,
-        identificador,
-        cert.fecha_vencimiento.isoformat(),
-        sig,
-        get_solvency_signing_key(),
-        jti=cert_jti or None,
-    )
-    if not es_valida or not hmac.compare_digest(sig.strip(), cert.firma_hmac):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Firma criptográfica de solvencia inválida o adulterada.",
-        )
+    _validar_firma_certificado(cert, identificador, sig, cert_jti)
 
     deuda_viva = await _obtener_deuda_viva_unidad(db, cert.unidad_id)
     vigente = cert.fecha_vencimiento >= date.today() and deuda_viva == CERO

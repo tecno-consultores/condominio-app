@@ -1,9 +1,30 @@
 services:
+  ui-api-mock:
+    image: sinfallas/base-node-ionic:26@sha256:275f3d8bbfef87f4e836e4f77d92c0d199821154079b050eaef53ce33ae6de60
+    container_name: condominio_ui_api_mock
+    hostname: ui-api-mock
+    pull_policy: if_not_present
+    environment:
+      TZ: 'America/Caracas'
+      PORT: '8000'
+    volumes:
+      - .:/app:ro
+    working_dir: /app
+    command: ["node", "scripts/qa-api-mock.mjs"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:8000/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
   ui-prod:
     image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     container_name: condominio_ui_prod
     hostname: ui-prod
     pull_policy: if_not_present
+    depends_on:
+      ui-api-mock:
+        condition: service_healthy
     environment:
       TZ: 'America/Caracas'
     volumes:

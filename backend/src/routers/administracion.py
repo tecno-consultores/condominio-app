@@ -1,5 +1,6 @@
 """Rutas administrativas: generación de estructura/unidades, activación de usuarios fantasma y Junta (Hito 4)."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -36,6 +37,19 @@ _ROLES_ALICUOTA = ("PRESIDENTE", "VICEPRESIDENTE", "TESORERO")
 _ROLES_JUNTA_LPH = frozenset({"PRESIDENTE", "VICEPRESIDENTE", "TESORERO", "SECRETARIO", "VOCERO"})
 
 
+def _es_miembro_junta(usuario_activo: Usuario | None) -> bool:
+    return usuario_activo is not None and getattr(usuario_activo, "rol", "") in _ROLES_JUNTA_LPH
+
+
+def _serializar_unidades_segun_rol(
+    unidades: list[Unidad],
+    usuario_activo: Usuario | None,
+) -> list[UnidadResponse] | list[UnidadPublicaResponse]:
+    if _es_miembro_junta(usuario_activo):
+        return [UnidadResponse.model_validate(u) for u in unidades]
+    return [UnidadPublicaResponse.model_validate(u) for u in unidades]
+
+
 @router.get("/estructura/unidades", response_model=list[UnidadResponse] | list[UnidadPublicaResponse])
 async def listar_unidades(
     limit: int = Query(default=100, ge=1, le=100),
@@ -47,10 +61,53 @@ async def listar_unidades(
     if usuario_activo is None:
         await bind_rls_tenant(db, DEFAULT_CONDOMINIO_ID)
     res = await db.execute(select(Unidad).order_by(Unidad.identificador.asc()).limit(limit).offset(offset))
-    unidades = list(res.scalars().all())
-    if usuario_activo is not None and getattr(usuario_activo, "rol", "") in _ROLES_JUNTA_LPH:
-        return [UnidadResponse.model_validate(u) for u in unidades]
-    return [UnidadPublicaResponse.model_validate(u) for u in unidades]
+    return _serializar_unidades_segun_rol(list(res.scalars().all()), usuario_activo)
+
+
+def _preparar_unidades_estructura(
+    db: AsyncSession,
+    estructura_id: int,
+    identificadores: list[str],
+) -> list[Unidad]:
+    unidades_creadas: list[Unidad] = []
+    for ident in dict.fromkeys(filter(None, map(str.strip, identificadores))):
+        unidad = Unidad(
+            identificador=ident,
+            estructura_id=estructura_id,
+            alicuota=Decimal("0.0000"),
+            cuota_fija_usd=None,
+            credito_disponible_usd=Decimal("0.00"),
+        )
+        db.add(unidad)
+        unidades_creadas.append(unidad)
+    return unidades_creadas
+
+
+async def _persistir_estructura_y_unidades(
+    db: AsyncSession,
+    estructura: Estructura,
+    identificadores: list[str],
+) -> list[Unidad]:
+    try:
+        await db.flush()
+        unidades_creadas = _preparar_unidades_estructura(db, estructura.id or 1, identificadores)
+        await db.commit()
+        await db.refresh(estructura)
+        for u in unidades_creadas:
+            await db.refresh(u)
+        return unidades_creadas
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Uno o más identificadores de unidad ya existen en el condominio.",
+        ) from exc
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al generar la estructura.",
+        ) from exc
 
 
 @router.post(
@@ -76,35 +133,7 @@ async def generar_estructura(
 
     estructura = Estructura(nombre=datos.nombre, tipo=datos.tipo)
     db.add(estructura)
-    try:
-        await db.flush()
-        unidades_creadas: list[Unidad] = []
-        for ident in dict.fromkeys(i.strip() for i in datos.identificadores if i.strip()):
-            unidad = Unidad(
-                identificador=ident,
-                estructura_id=estructura.id or 1,
-                alicuota=Decimal("0.0000"),
-                cuota_fija_usd=None,
-                credito_disponible_usd=Decimal("0.00"),
-            )
-            db.add(unidad)
-            unidades_creadas.append(unidad)
-        await db.commit()
-        await db.refresh(estructura)
-        for u in unidades_creadas:
-            await db.refresh(u)
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Uno o más identificadores de unidad ya existen en el condominio.",
-        ) from exc
-    except Exception as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno al generar la estructura.",
-        ) from exc
+    unidades_creadas = await _persistir_estructura_y_unidades(db, estructura, datos.identificadores)
 
     return EstructuraGenerarResponse(
         estructura_id=estructura.id,
@@ -155,6 +184,40 @@ def _es_contrato_reutilizable(contrato: ContratoOcupacion, datos: UsuarioAsignar
     return contrato.tipo_ocupante == datos.tipo_ocupante
 
 
+@dataclass(frozen=True)
+class _ContextoContrato:
+    datos: UsuarioAsignarRequest
+    puede_votar: bool
+    ahora: datetime
+
+
+def _resolver_puede_votar(datos: UsuarioAsignarRequest) -> bool:
+    if datos.puede_votar_asamblea is not None:
+        return datos.puede_votar_asamblea
+    return datos.tipo_ocupante == "PROPIETARIO"
+
+
+def _cerrar_contrato_si_activo(contrato: ContratoOcupacion, ahora: datetime) -> None:
+    if contrato.es_activo and contrato.fecha_fin is None:
+        contrato.es_activo = False
+        contrato.fecha_fin = ahora
+
+
+def _reutilizar_o_cerrar_contrato(
+    contrato: ContratoOcupacion,
+    ctx: _ContextoContrato,
+    ya_asignado: bool,
+) -> bool:
+    if not _es_contrato_reutilizable(contrato, ctx.datos):
+        _cerrar_contrato_si_activo(contrato, ctx.ahora)
+        return ya_asignado
+    if not ya_asignado:
+        contrato.tipo_ocupante = ctx.datos.tipo_ocupante
+        contrato.es_activo = True
+        contrato.puede_votar_asamblea = ctx.puede_votar
+    return True
+
+
 def _aplicar_historico_contratos(
     db: AsyncSession,
     contratos_usuario: list[ContratoOcupacion],
@@ -162,33 +225,20 @@ def _aplicar_historico_contratos(
     datos: UsuarioAsignarRequest,
 ) -> None:
     """Preserva el histórico de ocupación cerrando contratos previos incompatibles sin mutar unidad_id."""
-    puede_votar = (
-        datos.puede_votar_asamblea if datos.puede_votar_asamblea is not None else (datos.tipo_ocupante == "PROPIETARIO")
-    )
-    ahora = datetime.now(UTC)
-    mismo_destino_vigente: ContratoOcupacion | None = None
+    ctx = _ContextoContrato(datos=datos, puede_votar=_resolver_puede_votar(datos), ahora=datetime.now(UTC))
+    ya_asignado = False
 
     for contrato in contratos_usuario:
-        if _es_contrato_reutilizable(contrato, datos):
-            if mismo_destino_vigente is None:
-                contrato.tipo_ocupante = datos.tipo_ocupante
-                contrato.es_activo = True
-                contrato.puede_votar_asamblea = puede_votar
-                mismo_destino_vigente = contrato
-            continue
+        ya_asignado = _reutilizar_o_cerrar_contrato(contrato, ctx, ya_asignado)
 
-        if contrato.es_activo and contrato.fecha_fin is None:
-            contrato.es_activo = False
-            contrato.fecha_fin = ahora
-
-    if mismo_destino_vigente is None:
+    if not ya_asignado:
         db.add(
             ContratoOcupacion(
                 usuario_id=objetivo_id,
                 unidad_id=datos.unidad_id,
                 tipo_ocupante=datos.tipo_ocupante,
                 es_activo=True,
-                puede_votar_asamblea=puede_votar,
+                puede_votar_asamblea=ctx.puede_votar,
             )
         )
 
@@ -204,6 +254,20 @@ def _validar_jerarquia_directiva_asignacion(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el Presidente puede asignar o modificar el cargo de Presidente.",
+        )
+
+
+def _validar_requisito_propietario_junta(
+    contratos_usuario: list[ContratoOcupacion],
+    unidad_id: int,
+    datos: UsuarioAsignarRequest,
+) -> None:
+    if datos.rol not in _ROLES_JUNTA_LPH or datos.tipo_ocupante == "PROPIETARIO":
+        return
+    if not _tiene_otro_contrato_propietario_activo(contratos_usuario, unidad_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo los propietarios activos pueden ocupar cargos en la Junta de Condominio.",
         )
 
 
@@ -246,13 +310,7 @@ async def asignar_y_activar_usuario(
         .order_by(ContratoOcupacion.id.asc())
     )
     contratos_usuario = list(res_contratos.scalars().all())
-
-    if datos.rol in _ROLES_JUNTA_LPH and datos.tipo_ocupante != "PROPIETARIO":
-        if not _tiene_otro_contrato_propietario_activo(contratos_usuario, unidad.id):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Solo los propietarios activos pueden ocupar cargos en la Junta de Condominio.",
-            )
+    _validar_requisito_propietario_junta(contratos_usuario, unidad.id, datos)
 
     _aplicar_historico_contratos(db, contratos_usuario, objetivo.id, datos)
     objetivo.es_activo = True

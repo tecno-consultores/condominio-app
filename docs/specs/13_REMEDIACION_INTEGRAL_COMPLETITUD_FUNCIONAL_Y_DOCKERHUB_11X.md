@@ -1,6 +1,6 @@
 # 🚀 Especificación 13: Remediación Integral Post-Auditoría, Completitud Funcional PropTech y Distribución Docker Hub (`v1.1.0` – `v1.2.0`)
 
-**Estado:** En Ejecución Activa — **Hitos 19, 20, 21 y 22 ✅ Completados** (Hitos 23 al 26 pendientes de ejecución)  
+**Estado:** ✅ Completado (Fase 7 al 100%, Fase 8 planificada v1.2.0) — **Hitos 19 al 23 completados** (Hitos 24 al 26 planificados para `v1.2.0`)  
 **Ecosistema:** FastAPI + SQLAlchemy 2.0 Async + PostgreSQL 17 (RLS) + KeyDB Multi-Hilo + Vue 3 / Pinia + Docker Hub Multi-Arch + `@sinfallas/mcp-qa-11x` `v3.1.0`  
 **Origen de Auditoría:** Auditoría integral de solo lectura sobre los 306 archivos del repositorio (`2026-11-17`) y definiciones de alcance productivas aprobadas  
 
@@ -79,7 +79,7 @@
    - Reemplazar `fetchAdminData()` por `fetchUnidades()` en `SolvencyCertificateView.vue` (eliminando el `403` universal), poblar recibos reales y subida real de comprobantes en `PaymentWizardView.vue`, renderizar `<img>` en `SpokespersonGalleryView.vue` e `IncidentCard.vue`, mostrar errores de mutación en vistas admin y ocultar formularios/acciones restringidas según RBAC.
    - Aplicar `String(val.value ?? '').trim()` en todos los `<input type="number">` y eliminar `v-model.number` sin guarda; eliminar UUIDs/JTIs/PKs crudos de la UI (`UI-11X-02`) usando selectores legibles y `authStore.data?.unidad_activa_id`; reemplazar badges catch-all invertidos (`✓ CERRADA_RECHAZADA`, fondo verde en solvencia inválida); corregir `contain-intrinsic-size` en `tokens.css:555`, `ExpensesDonutChart.vue`, `CollectionTrafficLight.vue` (`PAGADO_PARCIAL`), aritmética decimal `ROUND_HALF_UP`, `<dialog>` Top-Layer con composable único, colores hex residuales a `OKLCH`/`light-dark()`, `ThemeToggleButton`, tabs ARIA, áreas táctiles `>= 44px` e implementar `useDualRefresh` (`setInterval` + `clearInterval` + `[ 🔄 Refrescar ]`) en todas las bandejas operativas/financieras.
 
-### 2.5. Hito 23: Erradicación de `Anti-Mock Blindness` QA 11X y Saneamiento Documental Thin-Repo
+### 2.5. Hito 23: Erradicación de `Anti-Mock Blindness` QA 11X y Saneamiento Documental Thin-Repo ✅ (Completado)
 1. **Fortalecimiento Real de QA Backend (`backend/tests/`, `api_test.feature`, `locustfile.py`):**
    - Crear suites `.unit.py` para `database.py`, `facturacion_lph.py`, `redis_client.py`, `administracion.py` e `incidencias.py`; cubrir las 27 tablas en `test_models.unit.py` y todos los esquemas dinámicamente en `test_schemas.unit.py` y `test_security_11x.unit.py`.
    - Activar `PRAGMA foreign_keys=ON` en fixtures SQLite, migrar suites de `_mock_session` a base de datos real con `try...finally: app.dependency_overrides.clear()`, eliminar roles ficticios (`RESIDENTE`), ejecutar pruebas HTTP end-to-end y de concurrencia (`asyncio.gather`) contra PostgreSQL 17 real en `make qa-parity`.

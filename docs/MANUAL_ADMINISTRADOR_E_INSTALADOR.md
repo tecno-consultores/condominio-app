@@ -5,7 +5,7 @@
 
 **Condominio App — Sistema Integral de Gestión Residencial y PropTech**  
 *Conforme a la Ley de Propiedad Horizontal (LPH) y al Estándar Corporativo de Calidad Nivel 11X*  
-**Versión de Documentación:** 1.0.0 (Lanzamiento Oficial — Hitos 1 al 18)  
+**Versión de Documentación:** 1.0.0 (Lanzamiento Oficial — Hitos 1 al 23)  
 **Fecha de Emisión:** Noviembre 2026
 
 ---
@@ -61,7 +61,7 @@ La plataforma se despliega íntegramente mediante contenedores Docker orquestado
 3. **`minio` (Almacenamiento de Objetos S3 Compatible):** MinIO Server (`minio/minio:RELEASE.2025-02-18T16-25-55Z`) en red interna para resguardar fotografías AVIF, evidencias de pagos e imágenes de incidencias vecinales.
 4. **`api` (API REST y Lógica de Negocio):** FastAPI asíncrono con Python 3.13 construyendo una imagen multi-stage sin dependencias dev (`uv sync --frozen --no-dev`), sin `pip`/`ensurepip`, en modo `--read-only` bajo usuario no privilegiado `UID/GID 10001`.
 5. **`worker` (Worker Asíncrono Real `python -m src.worker` y Supervisor `QA-HEALTH-01`):** Contenedor hermano no-root (`10001:10001`, `--read-only`) encargado de conversión real `Pillow` AVIF + carga autenticada `AWS4-HMAC-SHA256` a MinIO, consumidor `BLPOP` SMTP `STARTTLS` con Dead-Letter Queue (`queue:notifications:dlq`), scheduler diario idempotente (`uq_tarea_diaria_plantilla_fecha`) y heartbeat físico verificado por `python -m src.worker --check-health`.
-6. **`frontend` (Lienzo Web Progresivo SPA + Proxy Reverso):** Aplicación Vue 3 compilada y servida por `nginx:1.27-alpine` endurecido no-root (`UID/GID 101:101`, `--read-only`, puerto `8080`), único puerto expuesto hacia `127.0.0.1:${FRONTEND_PORT:-8080}:8080`, con proxy inverso hacia `/api/`, `/health` y `/ws/`, `server_tokens off`, cuota `2M` y cabeceras OSHP/STIG.
+6. **`frontend` (Lienzo Web Progresivo SPA + Proxy Reverso):** Aplicación Vue 3 compilada y servida por `nginx:1.27-alpine` endurecido no-root (`UID/GID 101:101`, `--read-only`, puerto `8080`), único puerto expuesto hacia `127.0.0.1:${FRONTEND_PORT:-8080}:8080`, con proxy inverso hacia `/api/`, `/health` y `/ws/` (reservado para WebSockets en vivo en Spec 13 Fase 8), `server_tokens off`, cuota `2M` y cabeceras OSHP/STIG.
 
 ---
 
@@ -280,17 +280,56 @@ Utilice el script certificado [`scripts/backup-diario.sh`](../scripts/backup-dia
 
 ### 5.2. Procedimiento de Restauración en Caliente
 
-Para restaurar una base de datos a partir de un respaldo comprimido:
+Los respaldos generados por `scripts/backup-diario.sh` siguen la convención `pg17_${FECHA}.dump.gz[.enc]` y `minio_${FECHA}.tar.gz[.enc]` junto con sus sumas `.sha256`. Antes de restaurar, verifique la integridad de los artefactos y detenga `api` y `worker` para evitar escrituras concurrentes:
 
 ```bash
-# 1. Detener el backend para evitar escritura concurrente
-docker compose stop backend
+# 0. Definir marca de tiempo del respaldo y cargar variables de entorno
+cd /opt/condominio-app
+export FECHA="20261118_023000"   # Sustituir por el sello real en /var/backups/condominio/
+set -a; source .env; set +a
 
-# 2. Restaurar la base de datos PostgreSQL
-gunzip -c /var/backups/condominio/db_FECHA.dump.gz | docker compose exec -T postgres pg_restore -U condo_admin -d condominio_db --clean --if-exists
+# Verificar integridad SHA-256 (use .enc.sha256 si el respaldo está cifrado)
+sha256sum -c "/var/backups/condominio/pg17_${FECHA}.dump.gz.sha256"
+sha256sum -c "/var/backups/condominio/minio_${FECHA}.tar.gz.sha256"
 
-# 3. Reiniciar los servicios
-docker compose start backend
+# 1. Detener la API y el Worker para evitar escritura concurrente durante la restauración
+docker compose stop api worker
+
+# 2A. Restaurar PostgreSQL 17 desde respaldo sin cifrar (pg17_${FECHA}.dump.gz)
+gunzip -c "/var/backups/condominio/pg17_${FECHA}.dump.gz" | \
+  docker compose exec -T postgres pg_restore -U condominio_admin -d condominio_db --clean --if-exists
+
+# 2B. Variante cifrada (si se definió BACKUP_PASSPHRASE en .env -> pg17_${FECHA}.dump.gz.enc)
+# Exporte la frase de paso de forma segura (sin pasarla por argumentos de CLI):
+# export BACKUP_PASSPHRASE="CHANGE_ME_PASSPHRASE_RESPALDO"
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+  -in "/var/backups/condominio/pg17_${FECHA}.dump.gz.enc" -pass env:BACKUP_PASSPHRASE | \
+  gunzip -c | \
+  docker compose exec -T postgres pg_restore -U condominio_admin -d condominio_db --clean --if-exists
+
+# 3. Restaurar objetos S3 de MinIO (minio_${FECHA}.tar.gz o minio_${FECHA}.tar.gz.enc)
+RESTORE_MINIO_DIR="$(mktemp -d)"
+# Variante sin cifrar:
+tar -xzf "/var/backups/condominio/minio_${FECHA}.tar.gz" -C "${RESTORE_MINIO_DIR}"
+# Variante cifrada (descomentar si aplica):
+# openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+#   -in "/var/backups/condominio/minio_${FECHA}.tar.gz.enc" -pass env:BACKUP_PASSPHRASE | \
+#   tar -xzf - -C "${RESTORE_MINIO_DIR}"
+
+MINIO_SCHEME="http"
+[ "${MINIO_USE_SSL:-false}" = "true" ] && MINIO_SCHEME="https"
+export MC_HOST_prod="${MINIO_SCHEME}://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000"
+docker run --rm --network "${COMPOSE_PROJECT_NAME:-condominio-app}_backend_net" \
+  -v "${RESTORE_MINIO_DIR}:/backup_in:ro" \
+  -e MC_HOST_prod \
+  minio/mc:RELEASE.2025-02-15T09-17-07Z \
+  mirror --overwrite /backup_in "prod/${MINIO_BUCKET:-condominio-media}"
+rm -rf "${RESTORE_MINIO_DIR}"
+
+# 4. Reiniciar API y Worker y verificar salud operativa
+docker compose start api worker
+curl -fsS http://127.0.0.1:8080/health
+docker compose exec worker python -m src.worker --check-health
 ```
 
 ---
@@ -463,18 +502,19 @@ El Artículo 23 de la Ley de Propiedad Horizontal faculta a la comunidad para to
 
 ## 16. Operaciones de Garita: Control de Acceso QR y Paquetería
 
-Herramientas tácticas diseñadas para personal de vigilancia, vigilantes nocturnos o conserjes.
+Herramientas operativas diseñadas para el personal de conserjería y miembros autorizados de la Junta Directiva.
 
 ### 16.1. Lector y Escáner QR de Garita (`/operaciones/garita-qr`)
-- Cuando un visitante llega a la garita vehicular o peatonal, presenta el código QR emitido por el residente desde su teléfono.
-- El personal de vigilancia escanea el código con la cámara de una tableta o celular, o introduce el código alfanumérico.
-- El sistema comprueba en fracciones de segundo la identidad del visitante, cédula, unidad de destino y tiempo de validez.
-- **Quemado de Nonce Anti-Reutilización:** Al ingresar, el token se destruye automáticamente en KeyDB, impidiendo que el mismo pase sea compartido o utilizado por otra persona.
+- **Roles Autorizados:** `CONSERJE`, `PRESIDENTE` y `VOCERO`.
+- Cuando un visitante llega a la garita vehicular o peatonal, presenta el token o código QR emitido por el residente desde su teléfono.
+- El conserje o miembro autorizado introduce o verifica el token del pase en el verificador de garita.
+- El sistema comprueba en fracciones de segundo la firma `HKDF-SHA256`, la identidad del visitante, cédula, unidad de destino y tiempo de validez.
+- **Quemado de Nonce Anti-Reutilización:** En modalidad `UNICO_USO`, al validarse el ingreso, el identificador `jti` se quema atómicamente en KeyDB, impidiendo que el mismo pase sea reutilizado por otra persona.
 
 ### 16.2. Casillero Digital de Paquetería (`/operaciones/paqueteria`)
-- **Registro de Encomiendas:** Al recibir un sobre o caja de empresas de encomiendas (Zoom, MRW, Tealca, MercadoLibre), el vigilante anota la unidad destinataria, la empresa y el número de guía.
-- **Aviso Inmediato:** El residente recibe una notificación en su teléfono indicando que su paquete está en garita.
-- **Entrega Segura:** Al momento de retirar, el vigilante pulsa "Confirmar Entrega", cerrando la custodia del paquete.
+- **Registro de Encomiendas (`CONSERJE` o `PRESIDENTE`):** Al recibir un sobre o caja de empresas de encomiendas (`ZOOM`, `MRW`, `TEALCA`, `MERCADOLIBRE`, `PEDIDOSYA`, `OTRO`), el conserje o Presidente selecciona la unidad destinataria, la empresa de envío, la descripción/referencia y una fotografía opcional.
+- **Aviso y Privacidad de Bandeja:** Los residentes activos visualizan únicamente las encomiendas asignadas a sus unidades vigentes, mientras `CONSERJE` y `PRESIDENTE` gestionan la bandeja general.
+- **Entrega Segura:** Al momento de retirar, el conserje, el Presidente o el residente de la unidad destinataria pulsa **"Confirmar Retiro / Entrega"**, cerrando la cadena de custodia del paquete.
 
 ---
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.database import get_db
 from src.dependencies import get_current_user
@@ -28,64 +30,42 @@ from src.redis_client import (
 )
 from src.schemas import PaseVisitaCreate
 from src.security import get_qr_signing_key
+from tests._sqlite_helpers import SeededCondoContext, create_sqlite_fk_factory, seed_condo_base
 
 HEADERS = {"Idempotency-Key": "018f4a12-1212-7000-8000-000000001212"}
 
 
-class FakeUser:
-    def __init__(self, user_id: int = 1, rol: str = "PROPIETARIO", es_activo: bool = True) -> None:
-        self.id = user_id
-        self.correo = f"{rol.lower()}_{user_id}@condominio.test"
-        self.rol = rol
-        self.es_activo = es_activo
+async def _preparar_entorno() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession], SeededCondoContext]:
+    engine, factory = await create_sqlite_fk_factory()
+    ctx = await seed_condo_base(factory)
+    return engine, factory, ctx
 
 
-def _result(value: Any) -> MagicMock:
-    res = MagicMock()
-    res.scalars().first.return_value = value
-    return res
+async def _cargar_usuario(factory: async_sessionmaker[AsyncSession], usuario_id: int) -> Usuario:
+    async with factory() as session:
+        usuario = await session.get(Usuario, usuario_id)
+        assert usuario is not None
+        return usuario
 
 
-def _result_list(values: list[Any]) -> MagicMock:
-    res = MagicMock()
-    res.scalars().all.return_value = values
-    return res
-
-
-def _result_rows(rows: list[tuple[Any, ...]]) -> MagicMock:
-    res = MagicMock()
-    res.all.return_value = rows
-    return res
-
-
-def _mock_session(*results: Any) -> AsyncMock:
-    session = AsyncMock()
-    session.execute.side_effect = list(results)
-    added: list[Any] = []
-
-    def _add(obj: Any) -> None:
-        if getattr(obj, "id", None) is None:
-            obj.id = 100 + len(added)
-        added.append(obj)
-
-    session.add = MagicMock(side_effect=_add)
-
-    async def _refresh(instance: Any, *args: object, **kwargs: object) -> None:
-        if getattr(instance, "id", None) is None:
-            instance.id = 200
-
-    session.refresh = _refresh
-    return session
-
-
-def _setup(session: AsyncMock, user: FakeUser | None = None, redis_new: bool = True) -> AsyncMock:
+def _configurar_overrides(
+    factory: async_sessionmaker[AsyncSession],
+    usuario: Usuario,
+    *,
+    redis_new: bool = True,
+) -> AsyncMock:
     mock_redis = AsyncMock()
     mock_redis.set.return_value = redis_new
     mock_redis.get.return_value = None
     mock_redis.rpush = AsyncMock(return_value=1)
-    app.dependency_overrides[get_db] = lambda: session
+
+    async def _override_get_db() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_redis_client] = lambda: mock_redis
-    app.dependency_overrides[get_current_user] = lambda: user or FakeUser()
+    app.dependency_overrides[get_current_user] = lambda: usuario
     return mock_redis
 
 
@@ -177,242 +157,326 @@ def test_schema_pase_visita_normaliza_timezone() -> None:
 # ==============================================================================
 
 
-def test_crear_pase_visita_exitoso_y_fantasma_bloqueado(client: TestClient) -> None:
+async def test_crear_pase_visita_exitoso_y_fantasma_bloqueado() -> None:
+    engine, factory, ctx = await _preparar_entorno()
     try:
-        # 1. Fantasma bloqueado con 403
-        _setup(_mock_session(), FakeUser(user_id=9, rol="FANTASMA", es_activo=False))
-        r_ghost = client.post(
-            "/api/accesos/pases",
-            headers=HEADERS,
-            json={
-                "unidad_id": 1,
-                "nombre_visitante": "Carlos Visitante",
-                "cedula_visitante": "V-19888777",
-            },
-        )
-        assert r_ghost.status_code == 403
+        async with factory() as seed_db:
+            fantasma = Usuario(
+                condominio_id=1,
+                nombre="Vecino Fantasma",
+                cedula="V-90000081",
+                correo="fantasma@condo.test",
+                telefono="+584140000181",
+                password_hash="hash_no_usado",
+                es_activo=False,
+                rol="FANTASMA",
+            )
+            seed_db.add(fantasma)
+            await seed_db.commit()
+            await seed_db.refresh(fantasma)
 
-        # 2. Residente con unidad activa crea pase exitosamente
-        unidad = Unidad(id=1, estructura_id=1, identificador="PB-01")
-        session = _mock_session(_result(unidad), _result_list([1]))
-        _setup(session, FakeUser(user_id=2, rol="PROPIETARIO"))
-        r_ok = client.post(
-            "/api/accesos/pases",
-            headers=HEADERS,
-            json={
-                "unidad_id": 1,
-                "nombre_visitante": "Carlos Visitante",
-                "cedula_visitante": "v-19888777",
-                "placa_vehiculo": "ab123cd",
-                "modalidad": "UNICO_USO",
-                "horas_validez": 12,
-            },
-        )
-        assert r_ok.status_code == 201
-        body = r_ok.json()
-        assert body["identificador_unidad"] == "PB-01"
-        assert body["cedula_visitante"] == "V-19888777"
-        assert body["placa_vehiculo"] == "AB123CD"
-        assert "." in body["qr_token"]
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # 1. Fantasma bloqueado con 403
+            _configurar_overrides(factory, fantasma)
+            r_ghost = await client.post(
+                "/api/accesos/pases",
+                headers=HEADERS,
+                json={
+                    "unidad_id": ctx.unidad_a_id,
+                    "nombre_visitante": "Carlos Visitante",
+                    "cedula_visitante": "V-19888777",
+                },
+            )
+            assert r_ghost.status_code == 403
+
+            # 2. Propietario con unidad activa crea pase exitosamente
+            _configurar_overrides(factory, propietario)
+            r_ok = await client.post(
+                "/api/accesos/pases",
+                headers=HEADERS,
+                json={
+                    "unidad_id": ctx.unidad_a_id,
+                    "nombre_visitante": "Carlos Visitante",
+                    "cedula_visitante": "v-19888777",
+                    "placa_vehiculo": "ab123cd",
+                    "modalidad": "UNICO_USO",
+                    "horas_validez": 12,
+                },
+            )
+            assert r_ok.status_code == 201
+            body = r_ok.json()
+            assert body["identificador_unidad"] == "1-A"
+            assert body["cedula_visitante"] == "V-19888777"
+            assert body["placa_vehiculo"] == "AB123CD"
+            assert "." in body["qr_token"]
+
+        async with factory() as check_db:
+            pase_bd = await check_db.get(PaseVisita, body["id"])
+            assert pase_bd is not None
+            assert pase_bd.estado == "ACTIVO"
     finally:
         app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_crear_pase_visita_errores_idempotencia_contrato_y_ventana(client: TestClient) -> None:
+async def test_crear_pase_visita_errores_idempotencia_contrato_y_ventana() -> None:
+    engine, factory, ctx = await _preparar_entorno()
     try:
-        # Idempotency duplicada -> 409
-        _setup(_mock_session(), FakeUser(user_id=2, rol="PROPIETARIO"), redis_new=False)
-        r_dup = client.post(
-            "/api/accesos/pases",
-            headers=HEADERS,
-            json={"unidad_id": 1, "nombre_visitante": "Visitante", "cedula_visitante": "V-11222333"},
-        )
-        assert r_dup.status_code == 409
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        presidente = await _cargar_usuario(factory, ctx.presidente_id)
 
-        # Unidad no existe -> 404
-        _setup(_mock_session(_result(None)), FakeUser(user_id=2, rol="PROPIETARIO"))
-        r_404 = client.post(
-            "/api/accesos/pases",
-            headers=HEADERS,
-            json={"unidad_id": 99, "nombre_visitante": "Visitante", "cedula_visitante": "V-11222333"},
-        )
-        assert r_404.status_code == 404
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # Idempotency duplicada -> 409
+            _configurar_overrides(factory, propietario, redis_new=False)
+            r_dup = await client.post(
+                "/api/accesos/pases",
+                headers=HEADERS,
+                json={"unidad_id": ctx.unidad_a_id, "nombre_visitante": "Visitante", "cedula_visitante": "V-11222333"},
+            )
+            assert r_dup.status_code == 409
 
-        # Residente sin contrato en unidad -> 403
-        unidad = Unidad(id=1, estructura_id=1, identificador="PB-01")
-        _setup(_mock_session(_result(unidad), _result_list([2])), FakeUser(user_id=2, rol="PROPIETARIO"))
-        r_403 = client.post(
-            "/api/accesos/pases",
-            headers=HEADERS,
-            json={"unidad_id": 1, "nombre_visitante": "Visitante", "cedula_visitante": "V-11222333"},
-        )
-        assert r_403.status_code == 403
+            # Unidad no existe -> 404
+            _configurar_overrides(factory, propietario)
+            r_404 = await client.post(
+                "/api/accesos/pases",
+                headers=HEADERS,
+                json={"unidad_id": 999, "nombre_visitante": "Visitante", "cedula_visitante": "V-11222333"},
+            )
+            assert r_404.status_code == 404
 
-        # Presidente con ventana > 72h -> 400
+            # Propietario sin contrato en unidad_b -> 403
+            r_403 = await client.post(
+                "/api/accesos/pases",
+                headers=HEADERS,
+                json={"unidad_id": ctx.unidad_b_id, "nombre_visitante": "Visitante", "cedula_visitante": "V-11222333"},
+            )
+            assert r_403.status_code == 403
+
+            # Presidente con ventana > 72h -> 400
+            ahora = datetime.now(UTC)
+            _configurar_overrides(factory, presidente)
+            r_400 = await client.post(
+                "/api/accesos/pases",
+                headers=HEADERS,
+                json={
+                    "unidad_id": ctx.unidad_a_id,
+                    "nombre_visitante": "Visitante",
+                    "cedula_visitante": "V-11222333",
+                    "valido_desde": ahora.isoformat(),
+                    "valido_hasta": (ahora + timedelta(hours=90)).isoformat(),
+                },
+            )
+            assert r_400.status_code == 400
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+async def test_listar_mis_pases_y_revocar_pase() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
         ahora = datetime.now(UTC)
-        _setup(_mock_session(_result(unidad)), FakeUser(user_id=1, rol="PRESIDENTE"))
-        r_400 = client.post(
-            "/api/accesos/pases",
-            headers=HEADERS,
-            json={
-                "unidad_id": 1,
-                "nombre_visitante": "Visitante",
-                "cedula_visitante": "V-11222333",
-                "valido_desde": ahora.isoformat(),
-                "valido_hasta": (ahora + timedelta(hours=90)).isoformat(),
-            },
-        )
-        assert r_400.status_code == 400
+        async with factory() as seed_db:
+            pase_activo = PaseVisita(
+                jti="jti-10",
+                unidad_id=ctx.unidad_a_id,
+                creado_por_id=ctx.propietario_id,
+                nombre_visitante="Ana López",
+                cedula_visitante="V-20111222",
+                placa_vehiculo=None,
+                modalidad="UNICO_USO",
+                valido_desde=(ahora - timedelta(hours=5)).replace(tzinfo=None),
+                valido_hasta=(ahora - timedelta(hours=1)).replace(tzinfo=None),  # ya vencido -> EXPIRADO dinámico
+                estado="ACTIVO",
+                firma_hmac="a" * 64,
+            )
+            seed_db.add(pase_activo)
+            await seed_db.commit()
+            pase_id = pase_activo.id
+
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
+        inquilino = await _cargar_usuario(factory, ctx.inquilino_id)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            _configurar_overrides(factory, propietario)
+            r_list = await client.get("/api/accesos/pases/mios")
+            assert r_list.status_code == 200
+            assert r_list.json()[0]["estado"] == "EXPIRADO"
+
+            # Revocar: no encontrado -> 404
+            assert (await client.delete("/api/accesos/pases/999")).status_code == 404
+
+            # Revocar: otro ocupante no creador -> 403
+            _configurar_overrides(factory, inquilino)
+            assert (await client.delete(f"/api/accesos/pases/{pase_id}")).status_code == 403
+
+            # Revocar exitoso por el creador -> 200 REVOCADO
+            _configurar_overrides(factory, propietario)
+            r_del = await client.delete(f"/api/accesos/pases/{pase_id}")
+            assert r_del.status_code == 200
+            assert r_del.json()["estado"] == "REVOCADO"
     finally:
         app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_listar_mis_pases_y_revocar_pase(client: TestClient) -> None:
-    try:
-        ahora = datetime.now(UTC)
-        pase_activo = PaseVisita(
-            id=10,
-            jti="jti-10",
-            unidad_id=1,
-            creado_por_id=2,
-            nombre_visitante="Ana López",
-            cedula_visitante="V-20111222",
-            placa_vehiculo=None,
-            modalidad="UNICO_USO",
-            valido_desde=(ahora - timedelta(hours=5)).replace(tzinfo=None),
-            valido_hasta=(ahora - timedelta(hours=1)).replace(tzinfo=None),  # ya vencido -> EXPIRADO dinámico
-            estado="ACTIVO",
-            firma_hmac="a" * 64,
-        )
-        session = _mock_session(_result_list([1]), _result_rows([(pase_activo, "1-A")]))
-        _setup(session, FakeUser(user_id=2, rol="PROPIETARIO"))
-        r_list = client.get("/api/accesos/pases/mios")
-        assert r_list.status_code == 200
-        assert r_list.json()[0]["estado"] == "EXPIRADO"
-
-        # Revocar: no encontrado -> 404
-        _setup(_mock_session(_result(None)), FakeUser(user_id=2, rol="PROPIETARIO"))
-        assert client.delete("/api/accesos/pases/999").status_code == 404
-
-        # Revocar: otro residente no creador -> 403
-        _setup(_mock_session(_result(pase_activo)), FakeUser(user_id=99, rol="PROPIETARIO"))
-        assert client.delete("/api/accesos/pases/10").status_code == 403
-
-        # Revocar exitoso por el creador -> 200 REVOCADO
-        unidad_rev = Unidad(id=1, estructura_id=1, identificador="1-A")
-        _setup(_mock_session(_result(pase_activo), _result(unidad_rev)), FakeUser(user_id=2, rol="PROPIETARIO"))
-        r_del = client.delete("/api/accesos/pases/10")
-        assert r_del.status_code == 200
-        assert r_del.json()["estado"] == "REVOCADO"
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_verificar_pase_qr_en_garita_flujo_completo_y_anti_replay(client: TestClient) -> None:
+async def test_verificar_pase_qr_en_garita_flujo_completo_y_anti_replay() -> None:
+    engine, factory, ctx = await _preparar_entorno()
     try:
         ahora = datetime.now(UTC)
         desde = ahora - timedelta(minutes=10)
         hasta = ahora + timedelta(hours=4)
         exp_unix = int(hasta.timestamp())
-        jti = "550e8400-e29b-41d4-a716-446655440111"
-        sig = generar_firma_pase_qr(jti, 1, "UNICO_USO", exp_unix, get_qr_signing_key())
-        qr_token = construir_token_pase_qr(jti, 1, "UNICO_USO", exp_unix, sig)
+        qr_key = get_qr_signing_key()
 
-        pase = PaseVisita(
-            id=50,
-            jti=jti,
-            unidad_id=1,
-            creado_por_id=2,
-            nombre_visitante="Técnico Fibra",
-            cedula_visitante="V-15000111",
-            placa_vehiculo="XYZ-999",
-            modalidad="UNICO_USO",
-            valido_desde=desde,
-            valido_hasta=hasta,
-            estado="ACTIVO",
-            firma_hmac=sig,
-        )
-        unidad = Unidad(id=1, estructura_id=1, identificador="PH-1")
+        jti_ok = "550e8400-e29b-41d4-a716-446655440111"
+        sig_ok = generar_firma_pase_qr(jti_ok, ctx.unidad_a_id, "UNICO_USO", exp_unix, qr_key)
+        qr_token = construir_token_pase_qr(jti_ok, ctx.unidad_a_id, "UNICO_USO", exp_unix, sig_ok)
 
-        # 1. Primer escaneo por CONSERJE -> 200 OK y pasa a USADO
-        session_ok = _mock_session(_result(pase), _result(unidad))
-        _setup(session_ok, FakeUser(user_id=5, rol="CONSERJE"))
-        r_scan1 = client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
-        assert r_scan1.status_code == 200
-        assert r_scan1.json()["autorizado"] is True
-        assert r_scan1.json()["estado"] == "USADO"
+        jti_rev = "550e8400-e29b-41d4-a716-446655440112"
+        sig_rev = generar_firma_pase_qr(jti_rev, ctx.unidad_a_id, "UNICO_USO", exp_unix, qr_key)
+        qr_token_rev = construir_token_pase_qr(jti_rev, ctx.unidad_a_id, "UNICO_USO", exp_unix, sig_rev)
 
-        # 2. Segundo escaneo del mismo pase (Anti-Replay) -> 409 Conflict
-        session_replay = _mock_session(_result(pase))
-        _setup(session_replay, FakeUser(user_id=5, rol="CONSERJE"))
-        r_scan2 = client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
-        assert r_scan2.status_code == 409
-        assert "único uso ya fue utilizado" in r_scan2.json()["detail"]
+        hasta_venc = ahora - timedelta(minutes=1)
+        exp_venc = int(hasta_venc.timestamp())
+        jti_exp = "550e8400-e29b-41d4-a716-446655440113"
+        sig_exp = generar_firma_pase_qr(jti_exp, ctx.unidad_a_id, "UNICO_USO", exp_venc, qr_key)
+        qr_token_exp = construir_token_pase_qr(jti_exp, ctx.unidad_a_id, "UNICO_USO", exp_venc, sig_exp)
 
-        # 3. Pase revocado -> 409 Conflict
-        pase.estado = "REVOCADO"
-        _setup(_mock_session(_result(pase)), FakeUser(user_id=5, rol="CONSERJE"))
-        r_rev = client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
-        assert r_rev.status_code == 409
-        assert "revocado" in r_rev.json()["detail"]
+        async with factory() as seed_db:
+            pase_ok = PaseVisita(
+                jti=jti_ok,
+                unidad_id=ctx.unidad_a_id,
+                creado_por_id=ctx.propietario_id,
+                nombre_visitante="Técnico Fibra",
+                cedula_visitante="V-15000111",
+                placa_vehiculo="XYZ-999",
+                modalidad="UNICO_USO",
+                valido_desde=desde,
+                valido_hasta=hasta,
+                estado="ACTIVO",
+                firma_hmac=sig_ok,
+            )
+            pase_rev = PaseVisita(
+                jti=jti_rev,
+                unidad_id=ctx.unidad_a_id,
+                creado_por_id=ctx.propietario_id,
+                nombre_visitante="Visita Revocada",
+                cedula_visitante="V-15000112",
+                modalidad="UNICO_USO",
+                valido_desde=desde,
+                valido_hasta=hasta,
+                estado="REVOCADO",
+                firma_hmac=sig_rev,
+            )
+            pase_exp = PaseVisita(
+                jti=jti_exp,
+                unidad_id=ctx.unidad_a_id,
+                creado_por_id=ctx.propietario_id,
+                nombre_visitante="Visita Expirada",
+                cedula_visitante="V-15000113",
+                modalidad="UNICO_USO",
+                valido_desde=desde - timedelta(hours=2),
+                valido_hasta=hasta_venc,
+                estado="ACTIVO",
+                firma_hmac=sig_exp,
+            )
+            seed_db.add_all([pase_ok, pase_rev, pase_exp])
+            await seed_db.commit()
+            pase_exp_id = pase_exp.id
 
-        # 4. Pase vencido -> 409 Conflict y marca EXPIRADO
-        pase.estado = "ACTIVO"
-        pase.valido_hasta = ahora - timedelta(minutes=1)
-        _setup(_mock_session(_result(pase)), FakeUser(user_id=5, rol="CONSERJE"))
-        r_exp = client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
-        assert r_exp.status_code == 409
-        assert pase.estado == "EXPIRADO"
+        conserje = await _cargar_usuario(factory, ctx.conserje_id)
+        _configurar_overrides(factory, conserje)
 
-        # 5. Firma adulterada -> 400 Bad Request
-        _setup(_mock_session(), FakeUser(user_id=5, rol="CONSERJE"))
-        r_bad = client.post(
-            "/api/accesos/verificar-qr",
-            headers=HEADERS,
-            json={"qr_token": qr_token[:-4] + "ffff"},
-        )
-        assert r_bad.status_code == 400
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # 1. Primer escaneo por CONSERJE -> 200 OK y pasa a USADO
+            r_scan1 = await client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
+            assert r_scan1.status_code == 200
+            assert r_scan1.json()["autorizado"] is True
+            assert r_scan1.json()["estado"] == "USADO"
+
+            # 2. Segundo escaneo del mismo pase (Anti-Replay) -> 409 Conflict
+            r_scan2 = await client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
+            assert r_scan2.status_code == 409
+            assert "único uso ya fue utilizado" in r_scan2.json()["detail"]
+
+            # 3. Pase revocado -> 409 Conflict
+            r_rev = await client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token_rev})
+            assert r_rev.status_code == 409
+            assert "revocado" in r_rev.json()["detail"]
+
+            # 4. Pase vencido -> 409 Conflict y marca EXPIRADO en SQLite
+            r_exp = await client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token_exp})
+            assert r_exp.status_code == 409
+            async with factory() as check_db:
+                pase_exp_bd = await check_db.get(PaseVisita, pase_exp_id)
+                assert pase_exp_bd is not None
+                assert pase_exp_bd.estado == "EXPIRADO"
+
+            # 5. Firma adulterada -> 400 Bad Request
+            r_bad = await client.post(
+                "/api/accesos/verificar-qr",
+                headers=HEADERS,
+                json={"qr_token": qr_token[:-4] + "ffff"},
+            )
+            assert r_bad.status_code == 400
     finally:
         app.dependency_overrides.clear()
+        await engine.dispose()
 
 
-def test_verificar_pase_qr_casos_borde_adicionales(client: TestClient) -> None:
+async def test_verificar_pase_qr_casos_borde_adicionales() -> None:
+    engine, factory, ctx = await _preparar_entorno()
     try:
         ahora = datetime.now(UTC)
         hasta = ahora + timedelta(hours=2)
         exp_unix = int(hasta.timestamp())
         jti = "550e8400-e29b-41d4-a716-446655440222"
-        sig = generar_firma_pase_qr(jti, 1, "UNICO_USO", exp_unix, get_qr_signing_key())
-        qr_token = construir_token_pase_qr(jti, 1, "UNICO_USO", exp_unix, sig)
+        sig = generar_firma_pase_qr(jti, ctx.unidad_a_id, "UNICO_USO", exp_unix, get_qr_signing_key())
+        qr_token = construir_token_pase_qr(jti, ctx.unidad_a_id, "UNICO_USO", exp_unix, sig)
 
-        # Idempotency duplicada -> 409
-        _setup(_mock_session(), FakeUser(user_id=5, rol="CONSERJE"), redis_new=False)
-        assert client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token}).status_code == 409
+        conserje = await _cargar_usuario(factory, ctx.conserje_id)
 
-        # Pase no existe en DB -> 400
-        _setup(_mock_session(_result(None)), FakeUser(user_id=5, rol="CONSERJE"))
-        assert client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token}).status_code == 400
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # Idempotency duplicada -> 409
+            _configurar_overrides(factory, conserje, redis_new=False)
+            assert (
+                await client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
+            ).status_code == 409
 
-        # Condición de carrera en burn_qr_nonce (set NX devuelve False en el segundo check) -> 409
-        pase = PaseVisita(
-            id=51,
-            jti=jti,
-            unidad_id=1,
-            creado_por_id=2,
-            nombre_visitante="Visitante",
-            cedula_visitante="V-15000222",
-            modalidad="UNICO_USO",
-            valido_desde=ahora - timedelta(minutes=5),
-            valido_hasta=hasta,
-            estado="ACTIVO",
-            firma_hmac=sig,
-        )
-        mock_redis = _setup(_mock_session(_result(pase)), FakeUser(user_id=5, rol="CONSERJE"))
-        mock_redis.set.side_effect = [True, False]  # 1ro idempotencia OK, 2do burn_qr_nonce falla
-        r_race = client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
-        assert r_race.status_code == 409
+            # Pase no existe en DB -> 400
+            _configurar_overrides(factory, conserje)
+            assert (
+                await client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
+            ).status_code == 400
+
+            # Condición de carrera en burn_qr_nonce (set NX devuelve False en el segundo check) -> 409
+            async with factory() as seed_db:
+                seed_db.add(
+                    PaseVisita(
+                        jti=jti,
+                        unidad_id=ctx.unidad_a_id,
+                        creado_por_id=ctx.propietario_id,
+                        nombre_visitante="Visitante",
+                        cedula_visitante="V-15000222",
+                        modalidad="UNICO_USO",
+                        valido_desde=ahora - timedelta(minutes=5),
+                        valido_hasta=hasta,
+                        estado="ACTIVO",
+                        firma_hmac=sig,
+                    )
+                )
+                await seed_db.commit()
+
+            mock_redis = _configurar_overrides(factory, conserje)
+            mock_redis.set.side_effect = [True, False]  # 1ro idempotencia OK, 2do burn_qr_nonce falla
+            r_race = await client.post("/api/accesos/verificar-qr", headers=HEADERS, json={"qr_token": qr_token})
+            assert r_race.status_code == 409
     finally:
         app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 # ==============================================================================
@@ -420,124 +484,130 @@ def test_verificar_pase_qr_casos_borde_adicionales(client: TestClient) -> None:
 # ==============================================================================
 
 
-def test_registrar_listar_y_entregar_paqueteria(client: TestClient) -> None:
+async def test_registrar_listar_y_entregar_paqueteria() -> None:
+    engine, factory, ctx = await _preparar_entorno()
     try:
-        unidad = Unidad(id=1, estructura_id=1, identificador="2-B")
+        conserje = await _cargar_usuario(factory, ctx.conserje_id)
+        propietario = await _cargar_usuario(factory, ctx.propietario_id)
 
-        # 1. Registrar paquete con notificación a ocupantes
-        session_reg = _mock_session(
-            _result(unidad),
-            _result_list([2]),
-            _result_list(["residente2@condominio.test"]),
-        )
-        mock_redis = _setup(session_reg, FakeUser(user_id=5, rol="CONSERJE"))
-        r_reg = client.post(
-            "/api/paqueteria/registrar",
-            headers=HEADERS,
-            json={
-                "unidad_id": 1,
-                "empresa_envio": "zoom",
-                "descripcion": "Caja mediana MercadoLibre",
-                "url_foto_evidencia": "s3://condominio-media/paquetes/foto1.avif",
-            },
-        )
-        assert r_reg.status_code == 201
-        assert r_reg.json()["empresa_envio"] == "ZOOM"
-        assert r_reg.json()["estado"] == "EN_GARITA"
-        mock_redis.rpush.assert_called_once()
-
-        # 2. Listar paquetería como CONSERJE (ve todos) y como RESIDENTE (filtrado por su unidad)
-        paquete = PaqueteRecibido(
-            id=70,
-            unidad_id=1,
-            recibido_por_id=5,
-            empresa_envio="ZOOM",
-            descripcion="Caja mediana",
-            url_foto_evidencia=None,
-            estado="EN_GARITA",
-            fecha_recepcion=datetime.now(UTC),
-        )
-        _setup(_mock_session(_result_rows([(paquete, "1-A")])), FakeUser(user_id=5, rol="CONSERJE"))
-        r_list_c = client.get("/api/paqueteria")
-        assert r_list_c.status_code == 200
-        assert len(r_list_c.json()) == 1
-
-        _setup(
-            _mock_session(_result_list([1]), _result_rows([(paquete, "1-A")])),
-            FakeUser(user_id=2, rol="PROPIETARIO"),
-        )
-        r_list_r = client.get("/api/paqueteria")
-        assert r_list_r.status_code == 200
-        assert len(r_list_r.json()) == 1
-
-        # 3. Confirmar entrega por residente destinatario -> 200 ENTREGADO
-        _setup(
-            _mock_session(_result(paquete), _result_list([1]), _result(unidad)),
-            FakeUser(user_id=2, rol="PROPIETARIO"),
-        )
-        r_ent = client.put("/api/paqueteria/70/entregar", headers=HEADERS)
-        assert r_ent.status_code == 200
-        assert r_ent.json()["estado"] == "ENTREGADO"
-
-        # 4. Intentar entregar paquete ya entregado -> 409 Conflict
-        _setup(_mock_session(_result(paquete)), FakeUser(user_id=5, rol="CONSERJE"))
-        r_ent_dup = client.put("/api/paqueteria/70/entregar", headers=HEADERS)
-        assert r_ent_dup.status_code == 409
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_paqueteria_errores_ssrf_permisos_y_404(client: TestClient) -> None:
-    try:
-        # Idempotency duplicada -> 409
-        _setup(_mock_session(), FakeUser(user_id=5, rol="CONSERJE"), redis_new=False)
-        r_dup = client.post(
-            "/api/paqueteria/registrar",
-            headers=HEADERS,
-            json={"unidad_id": 1, "empresa_envio": "MRW", "descripcion": "Sobre"},
-        )
-        assert r_dup.status_code == 409
-
-        # URL HTTP interna bloqueada por Anti-SSRF -> 400
-        _setup(_mock_session(), FakeUser(user_id=5, rol="CONSERJE"))
-        with patch("src.routers.accesos.validate_safe_outgoing_url_async", side_effect=ValueError("SSRF bloqueado")):
-            r_ssrf = client.post(
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # 1. Registrar paquete con notificación a ocupantes de unidad_a
+            mock_redis = _configurar_overrides(factory, conserje)
+            r_reg = await client.post(
                 "/api/paqueteria/registrar",
                 headers=HEADERS,
                 json={
-                    "unidad_id": 1,
-                    "empresa_envio": "MRW",
-                    "descripcion": "Sobre",
-                    "url_foto_evidencia": "http://127.0.0.1/internal.png",
+                    "unidad_id": ctx.unidad_a_id,
+                    "empresa_envio": "zoom",
+                    "descripcion": "Caja mediana MercadoLibre",
+                    "url_foto_evidencia": "s3://condominio-media/paquetes/foto1.avif",
                 },
             )
-            assert r_ssrf.status_code == 400
+            assert r_reg.status_code == 201
+            paquete_id = r_reg.json()["id"]
+            assert r_reg.json()["empresa_envio"] == "ZOOM"
+            assert r_reg.json()["estado"] == "EN_GARITA"
+            mock_redis.rpush.assert_called_once()
 
-        # Registrar paquete sin ocupantes en la unidad -> 201 sin encolar correo
-        unidad = Unidad(id=1, estructura_id=1, identificador="3-C")
-        _setup(_mock_session(_result(unidad), _result_list([])), FakeUser(user_id=5, rol="CONSERJE"))
-        r_sin_ocup = client.post(
-            "/api/paqueteria/registrar",
-            headers=HEADERS,
-            json={"unidad_id": 1, "empresa_envio": "TEALCA", "descripcion": "Paquete sin ocupante"},
-        )
-        assert r_sin_ocup.status_code == 201
+            # 2. Listar paquetería como CONSERJE (ve todos) y como PROPIETARIO (filtrado por su unidad)
+            r_list_c = await client.get("/api/paqueteria")
+            assert r_list_c.status_code == 200
+            assert len(r_list_c.json()) == 1
 
-        # Entregar paquete inexistente -> 404
-        _setup(_mock_session(_result(None)), FakeUser(user_id=5, rol="CONSERJE"))
-        assert client.put("/api/paqueteria/999/entregar", headers=HEADERS).status_code == 404
+            _configurar_overrides(factory, propietario)
+            r_list_p = await client.get("/api/paqueteria")
+            assert r_list_p.status_code == 200
+            assert len(r_list_p.json()) == 1
 
-        # Entregar paquete por residente de otra unidad -> 403
-        paquete_ajeno = PaqueteRecibido(
-            id=71,
-            unidad_id=1,
-            recibido_por_id=5,
-            empresa_envio="MRW",
-            descripcion="Sobre",
-            estado="EN_GARITA",
-            fecha_recepcion=datetime.now(UTC),
-        )
-        _setup(_mock_session(_result(paquete_ajeno), _result_list([2])), FakeUser(user_id=9, rol="PROPIETARIO"))
-        assert client.put("/api/paqueteria/71/entregar", headers=HEADERS).status_code == 403
+            # 3. Confirmar entrega por propietario destinatario -> 200 ENTREGADO
+            r_ent = await client.put(f"/api/paqueteria/{paquete_id}/entregar", headers=HEADERS)
+            assert r_ent.status_code == 200
+            assert r_ent.json()["estado"] == "ENTREGADO"
+
+            # 4. Intentar entregar paquete ya entregado -> 409 Conflict
+            _configurar_overrides(factory, conserje)
+            r_ent_dup = await client.put(f"/api/paqueteria/{paquete_id}/entregar", headers=HEADERS)
+            assert r_ent_dup.status_code == 409
     finally:
         app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+async def test_paqueteria_errores_ssrf_permisos_y_404() -> None:
+    engine, factory, ctx = await _preparar_entorno()
+    try:
+        async with factory() as seed_db:
+            unidad_sin_ocupantes = Unidad(
+                condominio_id=1,
+                estructura_id=ctx.estructura_id,
+                identificador="3-C",
+            )
+            paquete_ajeno = PaqueteRecibido(
+                unidad_id=ctx.unidad_a_id,
+                recibido_por_id=ctx.conserje_id,
+                empresa_envio="MRW",
+                descripcion="Sobre",
+                estado="EN_GARITA",
+                fecha_recepcion=datetime.now(UTC),
+            )
+            seed_db.add_all([unidad_sin_ocupantes, paquete_ajeno])
+            await seed_db.commit()
+            unidad_libre_id = unidad_sin_ocupantes.id
+            paquete_ajeno_id = paquete_ajeno.id
+
+        conserje = await _cargar_usuario(factory, ctx.conserje_id)
+        inquilino = await _cargar_usuario(factory, ctx.inquilino_id)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            # Idempotency duplicada -> 409
+            _configurar_overrides(factory, conserje, redis_new=False)
+            r_dup = await client.post(
+                "/api/paqueteria/registrar",
+                headers=HEADERS,
+                json={"unidad_id": ctx.unidad_a_id, "empresa_envio": "MRW", "descripcion": "Sobre"},
+            )
+            assert r_dup.status_code == 409
+
+            # URL HTTP interna bloqueada por Anti-SSRF -> 400
+            _configurar_overrides(factory, conserje)
+            with patch(
+                "src.routers.accesos.validate_safe_outgoing_url_async",
+                side_effect=ValueError("SSRF bloqueado"),
+            ):
+                r_ssrf = await client.post(
+                    "/api/paqueteria/registrar",
+                    headers=HEADERS,
+                    json={
+                        "unidad_id": ctx.unidad_a_id,
+                        "empresa_envio": "MRW",
+                        "descripcion": "Sobre",
+                        "url_foto_evidencia": "http://127.0.0.1/internal.png",
+                    },
+                )
+                assert r_ssrf.status_code == 400
+
+            # Registrar paquete sin ocupantes en la unidad -> 201 sin encolar correo
+            mock_redis = _configurar_overrides(factory, conserje)
+            r_sin_ocup = await client.post(
+                "/api/paqueteria/registrar",
+                headers=HEADERS,
+                json={"unidad_id": unidad_libre_id, "empresa_envio": "TEALCA", "descripcion": "Paquete sin ocupante"},
+            )
+            assert r_sin_ocup.status_code == 201
+            mock_redis.rpush.assert_not_called()
+
+            # Entregar paquete inexistente -> 404
+            assert (await client.put("/api/paqueteria/999/entregar", headers=HEADERS)).status_code == 404
+
+            # Entregar paquete por ocupante de otra unidad -> 403
+            _configurar_overrides(factory, inquilino)
+            assert (
+                await client.put(f"/api/paqueteria/{paquete_ajeno_id}/entregar", headers=HEADERS)
+            ).status_code == 403
+
+        async with factory() as check_db:
+            res = await check_db.execute(select(PaqueteRecibido).where(PaqueteRecibido.unidad_id == unidad_libre_id))
+            assert res.scalars().first() is not None
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()

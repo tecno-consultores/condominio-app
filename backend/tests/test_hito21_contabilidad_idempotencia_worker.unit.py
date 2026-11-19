@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
+import hashlib
+import hmac
 import importlib.util
 import json
+import logging
+import os
+import secrets
+import signal
+import smtplib
+import ssl
+import tempfile
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -16,10 +27,11 @@ from typing import Any
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy import event, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.database import Base, get_db
@@ -74,6 +86,8 @@ from src.schemas import (
     TasaCambioCreate,
     UsuarioCreate,
 )
+from src import worker as worker_mod
+from src import worker_media as worker_media_mod
 from src.security import get_password_hash, get_qr_signing_key
 from src.worker import (
     _MEDIA_DLQ,
@@ -82,18 +96,57 @@ from src.worker import (
     _NOTIFICATIONS_DLQ,
     _NOTIFICATIONS_PROCESSING,
     _NOTIFICATIONS_QUEUE,
+    DEFAULT_HEARTBEAT_PATH,
     MAX_DLQ_ITEMS,
     MAX_IMAGE_PIXELS,
+    OPTIONAL_WORKERS,
     WorkerSettings,
+    __all__ as worker_exports,
+    _alcanzo_max_ticks,
+    _build_cli_parser,
+    _build_sigv4_headers,
+    _cancelar_tareas,
     _consumir_cola_media_tick,
     _consumir_cola_notificaciones_tick,
+    _crear_tareas_supervisor,
+    _esperar_o_detener,
     _loop_media_opcional,
+    _loop_notificaciones,
+    _loop_scheduler_diario,
+    _run_with_signals,
+    _supervisar_ciclo_worker,
     codificar_imagen_avif,
+    construir_clave_evidencia,
+    convertir_y_subir_avif,
+    ejecutar_subida_media_bytes,
     encolar_tarea_media,
+    env_flag,
+    enviar_correo_smtp,
     generar_tareas_diarias_desde_plantillas,
+    is_supervisor_healthy,
+    main,
+    normalize_minio_endpoint,
     procesar_mensaje_media,
     procesar_mensaje_notificacion,
+    resolver_bucket_minio,
+    run_worker_orchestrator,
     subir_objeto_minio_s3,
+    verify_worker_heartbeat,
+    write_worker_heartbeat,
+)
+from src.worker_media import (
+    _aplicar_esquema_http,
+    _construir_destino_s3,
+    _decodificar_payload_media,
+    _ejecutar_put_http,
+    _encode_sigv4_query,
+    _encode_sigv4_uri,
+    _env_bucket_name,
+    _hmac_sha256,
+    _resolver_minio_credenciales,
+    _signing_key_sigv4,
+    _str_campo,
+    _subir_pdf_directo,
 )
 
 
@@ -1261,3 +1314,1039 @@ async def test_worker_avif_bomb_sigv4_blmove_dlq_y_frecuencias(
             assert len(unidades_ctx) == 2
     finally:
         await engine2.dispose()
+
+
+def test_worker_media_constantes_env_flag_y_normalizacion_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert MAX_IMAGE_PIXELS == 16_000_000
+    assert Image.MAX_IMAGE_PIXELS == 16_000_000
+    assert DEFAULT_HEARTBEAT_PATH == Path(tempfile.gettempdir()) / "worker_heartbeat"
+    assert OPTIONAL_WORKERS == frozenset({"media_avif_consumer"})
+    assert _MEDIA_QUEUE == "queue:media:avif"
+    assert _MEDIA_PROCESSING == "queue:media:avif:processing"
+    assert _MEDIA_DLQ == "queue:media:avif:dlq"
+    assert _NOTIFICATIONS_QUEUE == "queue:notifications"
+    assert _NOTIFICATIONS_PROCESSING == "queue:notifications:processing"
+    assert _NOTIFICATIONS_DLQ == "queue:notifications:dlq"
+    assert MAX_DLQ_ITEMS == 1000
+    assert worker_mod._normalize_minio_endpoint is normalize_minio_endpoint
+
+    expected_exports = [
+        "DEFAULT_HEARTBEAT_PATH",
+        "MAX_DLQ_ITEMS",
+        "MAX_IMAGE_PIXELS",
+        "OPTIONAL_WORKERS",
+        "WorkerSettings",
+        "_MEDIA_DLQ",
+        "_MEDIA_PROCESSING",
+        "_MEDIA_QUEUE",
+        "_NOTIFICATIONS_DLQ",
+        "_NOTIFICATIONS_PROCESSING",
+        "_NOTIFICATIONS_QUEUE",
+        "_build_sigv4_headers",
+        "_normalize_minio_endpoint",
+        "codificar_imagen_avif",
+        "construir_clave_evidencia",
+        "convertir_y_subir_avif",
+        "encolar_notificacion_correo",
+        "encolar_tarea_media",
+        "enviar_correo_smtp",
+        "generar_tareas_diarias_desde_plantillas",
+        "is_supervisor_healthy",
+        "main",
+        "normalize_minio_endpoint",
+        "procesar_mensaje_media",
+        "procesar_mensaje_notificacion",
+        "resolver_bucket_minio",
+        "run_worker_orchestrator",
+        "subir_objeto_minio_s3",
+        "verify_worker_heartbeat",
+        "write_worker_heartbeat",
+    ]
+    assert worker_exports == expected_exports
+    for sym in expected_exports:
+        assert hasattr(worker_mod, sym)
+
+    monkeypatch.delenv("QA_TEST_FLAG", raising=False)
+    assert env_flag("QA_TEST_FLAG") is False
+    assert env_flag("QA_TEST_FLAG", default=False) is False
+    assert env_flag("QA_TEST_FLAG", default=True) is True
+
+    for truthy in ("1", " 1 ", "true", " TRUE ", "yes", " YeS ", "on", " oN "):
+        monkeypatch.setenv("QA_TEST_FLAG", truthy)
+        assert env_flag("QA_TEST_FLAG", default=False) is True
+
+    for falsy in ("", "   ", "0", "false", " FALSE ", "no", "off", "random"):
+        monkeypatch.setenv("QA_TEST_FLAG", falsy)
+        assert env_flag("QA_TEST_FLAG", default=True) is False
+
+    assert normalize_minio_endpoint("", False) == ""
+    assert normalize_minio_endpoint("   ", True) == ""
+    assert normalize_minio_endpoint("  s3://condo/ruta/  ", False) == "s3://condo/ruta"
+    assert normalize_minio_endpoint("s3://condo/", True) == "s3://condo"
+    assert normalize_minio_endpoint("  https://minio.local:9000/  ", False) == "https://minio.local:9000"
+    assert normalize_minio_endpoint("https://minio.local:9000/", True) == "https://minio.local:9000"
+    assert normalize_minio_endpoint("http://minio.local:9000/", True) == "https://minio.local:9000"
+    assert normalize_minio_endpoint("http://minio.local:9000/", False) == "http://minio.local:9000"
+    assert normalize_minio_endpoint("  minio.local:9000/  ", True) == "https://minio.local:9000"
+    assert normalize_minio_endpoint("  minio.local:9000/  ", False) == "http://minio.local:9000"
+    assert _aplicar_esquema_http("http://h:9", True) == "https://h:9"
+    assert _aplicar_esquema_http("https://h:9", False) == "https://h:9"
+    assert _aplicar_esquema_http("h:9", False) == "http://h:9"
+
+
+def test_worker_media_sigv4_bucket_credenciales_y_put_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MINIO_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("MINIO_BUCKET", raising=False)
+    assert _env_bucket_name() == ""
+    assert resolver_bucket_minio() == "condominio-media"
+
+    monkeypatch.setenv("MINIO_BUCKET", "  bkt-secundario  ")
+    assert _env_bucket_name() == "bkt-secundario"
+    assert resolver_bucket_minio() == "bkt-secundario"
+
+    monkeypatch.setenv("MINIO_BUCKET_NAME", "  bkt-primario  ")
+    assert _env_bucket_name() == "bkt-primario"
+    assert resolver_bucket_minio() == "bkt-primario"
+    assert resolver_bucket_minio("   ") == "bkt-primario"
+    assert resolver_bucket_minio("  bkt-explicito  ") == "bkt-explicito"
+
+    monkeypatch.setenv("MINIO_BUCKET_NAME", "   ")
+    monkeypatch.setenv("MINIO_BUCKET", "   ")
+    assert _env_bucket_name() == ""
+    assert resolver_bucket_minio() == "condominio-media"
+
+    monkeypatch.delenv("MINIO_ROOT_USER", raising=False)
+    monkeypatch.delenv("MINIO_ROOT_PASSWORD", raising=False)
+    with pytest.raises(ValueError, match=r"^Credenciales MinIO no configuradas para carga S3\.$"):
+        _resolver_minio_credenciales()
+
+    monkeypatch.setenv("MINIO_ROOT_USER", "   ")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "minio_qa_secret_123")
+    with pytest.raises(ValueError, match=r"^Credenciales MinIO no configuradas para carga S3\.$"):
+        _resolver_minio_credenciales()
+
+    monkeypatch.setenv("MINIO_ROOT_USER", "minio_qa_user")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "")
+    with pytest.raises(ValueError, match=r"^Credenciales MinIO no configuradas para carga S3\.$"):
+        _resolver_minio_credenciales()
+
+    monkeypatch.setenv("MINIO_ROOT_USER", "  minio_qa_user  ")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", " sec_key_123 ")
+    assert _resolver_minio_credenciales() == ("minio_qa_user", " sec_key_123 ")
+
+    pdf_digest = hashlib.sha256(b"pdf-data").hexdigest()[:24]
+    img_digest = hashlib.sha256(b"img-data").hexdigest()[:24]
+    assert construir_clave_evidencia(b"pdf-data", "/pagos/2026/", "application/pdf") == (
+        f"pagos/2026/{pdf_digest}.pdf",
+        "application/pdf",
+    )
+    assert construir_clave_evidencia(b"img-data", "///", "image/png") == (f"general/{img_digest}.avif", "image/avif")
+
+    assert _encode_sigv4_uri("/bkt/a-b_c.d~e/foto%201+ñ.avif") == "/bkt/a-b_c.d~e/foto%201%2B%C3%B1.avif"
+    assert _encode_sigv4_query("") == ""
+    assert _encode_sigv4_query("z=2&empty=&a=hello world") == "a=hello%20world&empty=&z=2"
+
+    assert _construir_destino_s3("http://minio.local:9000/proxy/?z=2&empty=&a=1", "bkt", "dir/a b.avif") == (
+        "minio.local:9000",
+        "/proxy/bkt/dir/a%20b.avif",
+        "a=1&empty=&z=2",
+        "http://minio.local:9000/proxy/bkt/dir/a%20b.avif?a=1&empty=&z=2",
+    )
+    assert _construir_destino_s3("https://minio.local:9000/", "bkt", "k.avif") == (
+        "minio.local:9000",
+        "/bkt/k.avif",
+        "",
+        "https://minio.local:9000/bkt/k.avif",
+    )
+    assert _construir_destino_s3("//minio.local:9000", "bkt", "k.avif") == (
+        "minio.local:9000",
+        "/bkt/k.avif",
+        "",
+        "//minio.local:9000/bkt/k.avif",
+    )
+
+    assert _hmac_sha256(b"clave", "msg") == hmac.new(b"clave", b"msg", hashlib.sha256).digest()
+    ref_k_date = hmac.new(b"AWS4sk_test", b"20261119", hashlib.sha256).digest()
+    ref_k_reg = hmac.new(ref_k_date, b"us-east-1", hashlib.sha256).digest()
+    ref_k_srv = hmac.new(ref_k_reg, b"s3", hashlib.sha256).digest()
+    ref_signing_key = hmac.new(ref_k_srv, b"aws4_request", hashlib.sha256).digest()
+    assert _signing_key_sigv4("sk_test", "20261119", "us-east-1", "s3") == ref_signing_key
+
+    fixed_dt = datetime(2026, 11, 19, 8, 9, 10, tzinfo=UTC)
+
+    class _FrozenDatetime:
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            assert tz is UTC
+            return fixed_dt
+
+    monkeypatch.setattr(worker_media_mod, "datetime", _FrozenDatetime)
+
+    payload_hash = hashlib.sha256(b"binario-prueba").hexdigest()
+    amz_date = "20261119T080910Z"
+    date_stamp = "20261119"
+
+    def _ref_auth(host: str, uri: str, query: str, region: str, ak: str, sk: str) -> str:
+        c_hdrs = f"host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
+        s_hdrs = "host;x-amz-content-sha256;x-amz-date"
+        c_req = f"PUT\n{uri}\n{query}\n{c_hdrs}\n{s_hdrs}\n{payload_hash}"
+        scope = f"{date_stamp}/{region}/s3/aws4_request"
+        req_hash = hashlib.sha256(c_req.encode("utf-8")).hexdigest()
+        sts = f"AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{req_hash}"
+        k1 = hmac.new(f"AWS4{sk}".encode("utf-8"), date_stamp.encode("utf-8"), hashlib.sha256).digest()
+        k2 = hmac.new(k1, region.encode("utf-8"), hashlib.sha256).digest()
+        k3 = hmac.new(k2, b"s3", hashlib.sha256).digest()
+        k4 = hmac.new(k3, b"aws4_request", hashlib.sha256).digest()
+        sig = hmac.new(k4, sts.encode("utf-8"), hashlib.sha256).hexdigest()
+        return f"AWS4-HMAC-SHA256 Credential={ak}/{scope}, SignedHeaders={s_hdrs}, Signature={sig}"
+
+    hdrs_default = _build_sigv4_headers("minio.local:9000", "/bkt/foto 1.avif", payload_hash, "ak_1", "sk_test")
+    assert hdrs_default == {
+        "Host": "minio.local:9000",
+        "Content-Type": "image/avif",
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+        "Authorization": _ref_auth("minio.local:9000", "/bkt/foto%201.avif", "", "us-east-1", "ak_1", "sk_test"),
+    }
+
+    hdrs_custom = _build_sigv4_headers(
+        "s3.local:9443",
+        "/bkt/doc.pdf",
+        payload_hash,
+        "ak_2",
+        "sk_test",
+        region="eu-west-1",
+        canonical_query="a=1&b=2",
+        content_type="application/pdf",
+    )
+    assert hdrs_custom == {
+        "Host": "s3.local:9443",
+        "Content-Type": "application/pdf",
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+        "Authorization": _ref_auth("s3.local:9443", "/bkt/doc.pdf", "a=1&b=2", "eu-west-1", "ak_2", "sk_test"),
+    }
+
+    capturas: list[dict[str, Any]] = []
+
+    def _ok_transport(req: httpx.Request) -> httpx.Response:
+        capturas.append(
+            {
+                "method": req.method,
+                "url": str(req.url),
+                "headers": dict(req.headers),
+                "content": req.content,
+                "timeout": req.extensions.get("timeout"),
+            }
+        )
+        return httpx.Response(200)
+
+    monkeypatch.setenv("MINIO_ROOT_USER", "ak_s3")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "sk_s3")
+    monkeypatch.setenv("MINIO_BUCKET_NAME", "bkt-env")
+
+    with httpx.Client(transport=httpx.MockTransport(_ok_transport)) as cli:
+        s3_uri = subir_objeto_minio_s3(
+            b"binario-prueba",
+            "dir/item.avif",
+            "https://minio.local:9000/",
+            bucket_name="bkt-arg",
+            http_client=cli,
+        )
+    assert s3_uri == "s3://bkt-arg/dir/item.avif"
+    assert len(capturas) == 1
+    assert capturas[0]["method"] == "PUT"
+    assert capturas[0]["url"] == "https://minio.local:9000/bkt-arg/dir/item.avif"
+    assert capturas[0]["content"] == b"binario-prueba"
+    assert capturas[0]["headers"]["content-type"] == "image/avif"
+    assert capturas[0]["headers"]["x-amz-content-sha256"] == payload_hash
+    assert capturas[0]["timeout"] == {"connect": 15.0, "read": 15.0, "write": 15.0, "pool": 15.0}
+
+    with httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(500))) as err_cli:
+        with pytest.raises(httpx.HTTPStatusError):
+            _ejecutar_put_http("https://minio.local:9000/x", b"data", {"Host": "minio.local:9000"}, err_cli)
+
+    recorded_clients: list[dict[str, Any]] = []
+
+    def _make_fake_client(status_code: int) -> type[Any]:
+        class _FakeClient:
+            def __init__(self, *, timeout: float | None = None) -> None:
+                recorded_clients.append({"init_timeout": timeout, "entered": False, "exited": False})
+
+            def __enter__(self) -> _FakeClient:
+                recorded_clients[-1]["entered"] = True
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                recorded_clients[-1]["exited"] = True
+
+            def put(self, url: str, *, content: bytes, headers: dict[str, str]) -> httpx.Response:
+                recorded_clients[-1].update({"url": url, "content": content, "headers": dict(headers)})
+                req = httpx.Request("PUT", url, headers=headers, content=content)
+                return httpx.Response(status_code, request=req)
+
+        return _FakeClient
+
+    monkeypatch.setattr(worker_media_mod.httpx, "Client", _make_fake_client(200))
+    uri_no_cli = subir_objeto_minio_s3(
+        b"pdf-raw",
+        "recibos/r1.pdf",
+        "http://minio.local:9000",
+        content_type="application/pdf",
+    )
+    assert uri_no_cli == "s3://bkt-env/recibos/r1.pdf"
+    assert recorded_clients[-1]["init_timeout"] == 15.0
+    assert recorded_clients[-1]["entered"] is True
+    assert recorded_clients[-1]["exited"] is True
+    assert recorded_clients[-1]["headers"]["Content-Type"] == "application/pdf"
+
+    monkeypatch.setattr(worker_media_mod.httpx, "Client", _make_fake_client(403))
+    with pytest.raises(httpx.HTTPStatusError):
+        subir_objeto_minio_s3(b"pdf-raw", "recibos/r1.pdf", "http://minio.local:9000")
+
+
+def test_worker_media_avif_exif_bounds_y_ejecutar_subida(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match=r"^El archivo de imagen no puede estar vacío\.$"):
+        codificar_imagen_avif(b"")
+
+    assert codificar_imagen_avif(b"texto-no-imagen") == b"texto-no-imagen"
+
+    with pytest.raises(ValueError, match=r"^Contenido de imagen inválido para conversión AVIF\.$") as exc_info:
+        codificar_imagen_avif(b"texto-no-imagen", strict_image=True)
+    assert isinstance(exc_info.value.__cause__, UnidentifiedImageError)
+
+    png_16 = _png_bytes(16, 16)
+    png_10 = _png_bytes(10, 10)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    assert len(codificar_imagen_avif(png_10, strict_image=True)) > 0
+
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10)
+    assert codificar_imagen_avif(png_16, strict_image=False) == png_16
+    with pytest.raises(ValueError, match=r"^Contenido de imagen inválido para conversión AVIF\.$"):
+        codificar_imagen_avif(png_16, strict_image=True)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", MAX_IMAGE_PIXELS)
+
+    # EXIF orientation (6 -> 12x6 transpuesto a 6x12), conversión RGBA -> RGB, quality=60 y stripping de EXIF
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    exif[0x010E] = "secreto-exif-gps"
+    exif_buf = BytesIO()
+    Image.new("RGBA", (12, 6), color=(220, 40, 80, 180)).save(exif_buf, format="PNG", exif=exif.tobytes())
+    png_exif_bytes = exif_buf.getvalue()
+
+    orig_save = Image.Image.save
+    save_calls: list[dict[str, Any]] = []
+
+    def _spy_save(self: Image.Image, fp: Any, format: str | None = None, **params: Any) -> None:
+        save_calls.append(
+            {
+                "format": format,
+                "quality": params.get("quality"),
+                "has_exif": "exif" in params,
+                "mode": self.mode,
+            }
+        )
+        orig_save(self, fp, format=format, **params)
+
+    monkeypatch.setattr(Image.Image, "save", _spy_save)
+    avif_bytes = codificar_imagen_avif(png_exif_bytes, strict_image=True)
+    monkeypatch.setattr(Image.Image, "save", orig_save)
+
+    assert save_calls == [{"format": "AVIF", "quality": 60, "has_exif": False, "mode": "RGB"}]
+    assert b"secreto-exif-gps" not in avif_bytes
+    with Image.open(BytesIO(avif_bytes)) as out_img:
+        assert out_img.format == "AVIF"
+        assert out_img.mode == "RGB"
+        assert out_img.size == (6, 12)
+        assert len(out_img.getexif()) == 0
+
+    def _raise_oserror(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError("fallo de lectura")
+
+    with monkeypatch.context() as mp_io:
+        mp_io.setattr(worker_media_mod.Image, "open", _raise_oserror)
+        assert codificar_imagen_avif(png_10, strict_image=False) == png_10
+        with pytest.raises(ValueError, match=r"^Contenido de imagen inválido para conversión AVIF\.$"):
+            codificar_imagen_avif(png_10, strict_image=True)
+
+    # convertir_y_subir_avif: defaults, prefijo vacío, override y MINIO_USE_SSL
+    raw_fallback = b"no-es-imagen-fallback"
+    expected_digest = hashlib.sha256(raw_fallback).hexdigest()[:24]
+    assert convertir_y_subir_avif(raw_fallback, "///") == f"s3://condominio-media/general/{expected_digest}.avif"
+    assert (
+        convertir_y_subir_avif(raw_fallback, "incidencias", objeto_key_override="/custom/ruta.avif/")
+        == "s3://condominio-media/custom/ruta.avif"
+    )
+
+    monkeypatch.setenv("MINIO_ROOT_USER", "ak_media")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "sk_media")
+    monkeypatch.delenv("MINIO_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("MINIO_BUCKET", raising=False)
+
+    put_urls: list[tuple[str, str, bytes]] = []
+
+    def _capture_http_put(req: httpx.Request) -> httpx.Response:
+        put_urls.append((str(req.url), req.headers.get("Content-Type", ""), req.content))
+        return httpx.Response(200)
+
+    with httpx.Client(transport=httpx.MockTransport(_capture_http_put)) as hcli:
+        monkeypatch.setenv("MINIO_USE_SSL", "true")
+        u_ssl_env = convertir_y_subir_avif(
+            png_10,
+            "pagos/2026",
+            minio_endpoint="minio.local:9000",
+            strict_image=True,
+            http_client=hcli,
+        )
+        u_ssl_override = convertir_y_subir_avif(
+            png_10,
+            "pagos/2026",
+            minio_endpoint="minio.local:9000",
+            strict_image=True,
+            http_client=hcli,
+            minio_use_ssl=False,
+        )
+        monkeypatch.setenv("MINIO_USE_SSL", "false")
+        u_plain_env = convertir_y_subir_avif(
+            png_10,
+            "pagos/2026",
+            minio_endpoint="minio.local:9000",
+            strict_image=True,
+            http_client=hcli,
+        )
+
+    assert u_ssl_env.startswith("s3://condominio-media/pagos/2026/")
+    assert u_ssl_override.startswith("s3://condominio-media/pagos/2026/")
+    assert u_plain_env.startswith("s3://condominio-media/pagos/2026/")
+    assert put_urls[0][0].startswith("https://minio.local:9000/condominio-media/pagos/2026/")
+    assert put_urls[1][0].startswith("http://minio.local:9000/condominio-media/pagos/2026/")
+    assert put_urls[2][0].startswith("http://minio.local:9000/condominio-media/pagos/2026/")
+
+    # _str_campo, _decodificar_payload_media, _subir_pdf_directo y ejecutar_subida_media_bytes
+    assert _str_campo({"k": "valor"}, "k") == "valor"
+    assert _str_campo({"k": ""}, "k", "general") == "general"
+    assert _str_campo({}, "k", "general") == "general"
+
+    for bad_ev in ({}, {"content_base64": None}, {"content_base64": ""}, {"content_base64": 123}):
+        with pytest.raises(ValueError, match=r"^Tarea media sin contenido base64\.$"):
+            _decodificar_payload_media(bad_ev)
+
+    with pytest.raises(binascii.Error):
+        _decodificar_payload_media({"content_base64": "abc$def="})
+
+    payload_ok = _decodificar_payload_media(
+        {
+            "content_base64": base64.b64encode(b"%PDF-1.4").decode("ascii"),
+            "mime_origen": "application/pdf",
+            "objeto_key": "/docs/recibo.pdf/",
+        }
+    )
+    assert payload_ok.raw_bytes == b"%PDF-1.4"
+    assert payload_ok.mime_origen == "application/pdf"
+    assert payload_ok.prefijo == "general"
+    assert payload_ok.objeto_key == "docs/recibo.pdf"
+
+    assert _subir_pdf_directo(b"%PDF-1.4", "docs/a.pdf", "s3://bkt", True) == "s3://bkt/docs/a.pdf"
+    assert (
+        ejecutar_subida_media_bytes(
+            {
+                "content_base64": base64.b64encode(b"%PDF-1.4").decode("ascii"),
+                "mime_origen": "application/pdf",
+                "objeto_key": "/docs/local.pdf/",
+            },
+            "",
+            False,
+        )
+        == "s3://condominio-media/docs/local.pdf"
+    )
+
+    captured_media_puts: list[dict[str, Any]] = []
+
+    class _MediaFakeClient:
+        def __init__(self, *, timeout: float | None = None) -> None:
+            captured_media_puts.append({"timeout": timeout})
+
+        def __enter__(self) -> _MediaFakeClient:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def put(self, url: str, *, content: bytes, headers: dict[str, str]) -> httpx.Response:
+            captured_media_puts[-1].update({"url": url, "content": content, "headers": dict(headers)})
+            return httpx.Response(200, request=httpx.Request("PUT", url))
+
+    monkeypatch.setattr(worker_media_mod.httpx, "Client", _MediaFakeClient)
+
+    pdf_res = ejecutar_subida_media_bytes(
+        {
+            "content_base64": base64.b64encode(b"%PDF-1.7\n%%EOF").decode("ascii"),
+            "mime_origen": "application/pdf",
+            "objeto_key": "/docs/comprobante.pdf/",
+        },
+        "minio.local:9000",
+        True,
+    )
+    assert pdf_res == "s3://condominio-media/docs/comprobante.pdf"
+    assert captured_media_puts[-1]["url"] == "https://minio.local:9000/condominio-media/docs/comprobante.pdf"
+    assert captured_media_puts[-1]["headers"]["Content-Type"] == "application/pdf"
+    assert captured_media_puts[-1]["content"] == b"%PDF-1.7\n%%EOF"
+
+    img_res = ejecutar_subida_media_bytes(
+        {
+            "content_base64": base64.b64encode(png_10).decode("ascii"),
+            "mime_origen": "image/png",
+        },
+        "minio.local:9000",
+        False,
+    )
+    assert img_res.startswith("s3://condominio-media/general/") and img_res.endswith(".avif")
+    assert captured_media_puts[-1]["url"].startswith("http://minio.local:9000/condominio-media/general/")
+    assert captured_media_puts[-1]["headers"]["Content-Type"] == "image/avif"
+    with Image.open(BytesIO(captured_media_puts[-1]["content"])) as decoded_avif:
+        assert decoded_avif.format == "AVIF"
+
+    with pytest.raises(ValueError, match=r"^Contenido de imagen inválido para conversión AVIF\.$"):
+        ejecutar_subida_media_bytes(
+            {
+                "content_base64": base64.b64encode(b"basura-png").decode("ascii"),
+                "mime_origen": "image/png",
+            },
+            "s3://condominio-media",
+            False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_worker_shared_hooks_settings_smtp_y_procesadores(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    env_keys = (
+        "WORKER_HEARTBEAT_PATH",
+        "WORKER_POLL_SECONDS",
+        "WORKER_BLPOP_TIMEOUT_SECONDS",
+        "WORKER_SCHEDULER_INTERVAL_SECONDS",
+        "WORKER_HEARTBEAT_MAX_AGE_SECONDS",
+        "WORKER_MEDIA_ENABLED",
+        "SMTP_ENABLED",
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+        "SMTP_FROM",
+        "SMTP_USE_TLS",
+        "WORKER_MAX_RETRIES",
+        "MINIO_ENDPOINT",
+        "MINIO_USE_SSL",
+    )
+    for k in env_keys:
+        monkeypatch.delenv(k, raising=False)
+
+    defaults = WorkerSettings.from_env()
+    assert defaults == WorkerSettings()
+    assert defaults.heartbeat_path == DEFAULT_HEARTBEAT_PATH
+    assert defaults.poll_seconds == 1.0
+    assert defaults.blpop_timeout_seconds == 1
+    assert defaults.scheduler_interval_seconds == 300.0
+    assert defaults.max_heartbeat_age_seconds == 90.0
+    assert defaults.media_enabled is False
+    assert defaults.smtp_enabled is False
+    assert defaults.smtp_host == ""
+    assert defaults.smtp_port == 587
+    assert defaults.smtp_user == ""
+    assert defaults.smtp_password == ""
+    assert defaults.smtp_from == "no-responder@condominio.local"
+    assert defaults.smtp_use_tls is True
+    assert defaults.max_retries == 3
+    assert defaults.minio_endpoint == ""
+    assert defaults.minio_use_ssl is False
+
+    monkeypatch.setenv("WORKER_HEARTBEAT_PATH", "   ")
+    monkeypatch.setenv("WORKER_POLL_SECONDS", "   ")
+    monkeypatch.setenv("WORKER_BLPOP_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("WORKER_MAX_RETRIES", "-2")
+    clamped = WorkerSettings.from_env()
+    assert clamped.heartbeat_path == DEFAULT_HEARTBEAT_PATH
+    assert clamped.poll_seconds == 1.0
+    assert clamped.blpop_timeout_seconds == 1
+    assert clamped.max_retries == 1
+
+    monkeypatch.setenv("WORKER_HEARTBEAT_PATH", " /tmp/hb_custom_qa ")
+    monkeypatch.setenv("WORKER_POLL_SECONDS", " 2.5 ")
+    monkeypatch.setenv("WORKER_BLPOP_TIMEOUT_SECONDS", " 7 ")
+    monkeypatch.setenv("WORKER_SCHEDULER_INTERVAL_SECONDS", " 120.5 ")
+    monkeypatch.setenv("WORKER_HEARTBEAT_MAX_AGE_SECONDS", " 45.0 ")
+    monkeypatch.setenv("WORKER_MEDIA_ENABLED", "on")
+    monkeypatch.setenv("SMTP_ENABLED", "yes")
+    monkeypatch.setenv("SMTP_HOST", " smtp.condominio.test ")
+    monkeypatch.setenv("SMTP_PORT", " 2525 ")
+    monkeypatch.setenv("SMTP_USER", " mailer ")
+    monkeypatch.setenv("SMTP_PASSWORD", " pass_space ")
+    monkeypatch.setenv("SMTP_FROM", " alertas@condominio.test ")
+    monkeypatch.setenv("SMTP_USE_TLS", "0")
+    monkeypatch.setenv("WORKER_MAX_RETRIES", " 6 ")
+    monkeypatch.setenv("MINIO_ENDPOINT", " http://minio.local:9000/ ")
+    monkeypatch.setenv("MINIO_USE_SSL", "true")
+    custom_cfg = WorkerSettings.from_env()
+    assert custom_cfg.heartbeat_path == Path("/tmp/hb_custom_qa")
+    assert custom_cfg.poll_seconds == 2.5
+    assert custom_cfg.blpop_timeout_seconds == 7
+    assert custom_cfg.scheduler_interval_seconds == 120.5
+    assert custom_cfg.max_heartbeat_age_seconds == 45.0
+    assert custom_cfg.media_enabled is True
+    assert custom_cfg.smtp_enabled is True
+    assert custom_cfg.smtp_host == "smtp.condominio.test"
+    assert custom_cfg.smtp_port == 2525
+    assert custom_cfg.smtp_user == "mailer"
+    assert custom_cfg.smtp_password == " pass_space "
+    assert custom_cfg.smtp_from == "alertas@condominio.test"
+    assert custom_cfg.smtp_use_tls is False
+    assert custom_cfg.max_retries == 6
+    assert custom_cfg.minio_endpoint == "https://minio.local:9000"
+    assert custom_cfg.minio_use_ssl is True
+
+    # SMTP validación, logging en modo omitido y combinaciones TLS/login
+    with pytest.raises(ValueError, match=r"^Evento de notificación sin destinatarios válidos\.$"):
+        enviar_correo_smtp({"destinatarios": ["", "   "]}, WorkerSettings())
+
+    smtp_calls: list[dict[str, Any]] = []
+
+    class _FakeSMTP:
+        def __init__(self, host: str, port: int, timeout: int = 10) -> None:
+            smtp_calls.append(
+                {"host": host, "port": port, "timeout": timeout, "tls": False, "login": None, "msg": None}
+            )
+
+        def __enter__(self) -> _FakeSMTP:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def starttls(self, context: Any = None) -> None:
+            assert isinstance(context, ssl.SSLContext)
+            smtp_calls[-1]["tls"] = True
+
+        def login(self, user: str, password: str) -> None:
+            smtp_calls[-1]["login"] = (user, password)
+
+        def send_message(self, msg: Any) -> None:
+            smtp_calls[-1]["msg"] = msg
+
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    with caplog.at_level(logging.INFO, logger="src.worker"):
+        enviar_correo_smtp(
+            {"destinatarios": ["a@test.com"], "asunto": "Aviso\r\nSeguro", "cuerpo": "Hola"},
+            WorkerSettings(smtp_enabled=False, smtp_host="smtp.local"),
+        )
+        enviar_correo_smtp(
+            {"destinatarios": ["a@test.com"], "asunto": "SinHost", "cuerpo": "Hola"},
+            WorkerSettings(smtp_enabled=True, smtp_host=""),
+        )
+    assert smtp_calls == []
+    assert "Notificación omitida (SMTP deshabilitado): asunto=Aviso  Seguro" in caplog.text
+    assert "Notificación omitida (SMTP deshabilitado): asunto=SinHost" in caplog.text
+
+    enviar_correo_smtp(
+        {"destinatarios": [" a@test.com ", "", "b@test.com"], "asunto": "  Hola\nMundo  ", "cuerpo": "Cuerpo"},
+        WorkerSettings(
+            smtp_enabled=True,
+            smtp_host="smtp.local",
+            smtp_port=25,
+            smtp_from=" remit@test.com\r\n ",
+            smtp_use_tls=False,
+            smtp_user="",
+            smtp_password="",
+        ),
+    )
+    assert smtp_calls[-1]["host"] == "smtp.local"
+    assert smtp_calls[-1]["port"] == 25
+    assert smtp_calls[-1]["timeout"] == 10
+    assert smtp_calls[-1]["tls"] is False
+    assert smtp_calls[-1]["login"] is None
+    assert smtp_calls[-1]["msg"]["From"] == "remit@test.com"
+    assert smtp_calls[-1]["msg"]["To"] == "a@test.com, b@test.com"
+    assert smtp_calls[-1]["msg"]["Subject"] == "Hola Mundo"
+    assert "Cuerpo" in smtp_calls[-1]["msg"].get_content()
+
+    enviar_correo_smtp(
+        {"destinatarios": ["a@test.com"], "asunto": "SoloTLS", "cuerpo": "OK"},
+        WorkerSettings(smtp_enabled=True, smtp_host="smtp.local", smtp_use_tls=True, smtp_user="u", smtp_password=""),
+    )
+    assert smtp_calls[-1]["tls"] is True
+    assert smtp_calls[-1]["login"] is None
+
+    enviar_correo_smtp(
+        {"destinatarios": ["a@test.com"], "asunto": "ConAuth", "cuerpo": "OK"},
+        WorkerSettings(smtp_enabled=True, smtp_host="smtp.local", smtp_use_tls=True, smtp_user="u", smtp_password="p"),
+    )
+    assert smtp_calls[-1]["tls"] is True
+    assert smtp_calls[-1]["login"] == ("u", "p")
+
+    # _consumir_cola_*_tick + procesar_mensaje_media + procesar_mensaje_notificacion
+    class _SpyRedis(_FakeStatefulRedis):
+        def __init__(self) -> None:
+            super().__init__()
+            self.blmove_calls: list[tuple[str, str, int, str, str]] = []
+
+        async def blmove(
+            self,
+            src: str,
+            dst: str,
+            timeout: int,
+            src_dir: str,
+            dst_dir: str,
+        ) -> str | None:
+            self.blmove_calls.append((src, dst, timeout, src_dir, dst_dir))
+            return await super().blmove(src, dst, timeout, src_dir, dst_dir)
+
+    spy_r = _SpyRedis()
+    tick_cfg = WorkerSettings(
+        blpop_timeout_seconds=7,
+        max_retries=2,
+        minio_endpoint="minio.local:9000",
+        minio_use_ssl=True,
+    )
+    await spy_r.rpush(_NOTIFICATIONS_QUEUE, json.dumps({"destinatarios": ["x@test.com"], "asunto": "A", "cuerpo": "B"}))
+    await _consumir_cola_notificaciones_tick(spy_r, tick_cfg)
+    assert spy_r.blmove_calls[-1] == (_NOTIFICATIONS_QUEUE, _NOTIFICATIONS_PROCESSING, 7, "LEFT", "RIGHT")
+    assert spy_r.lists.get(_NOTIFICATIONS_PROCESSING) == []
+
+    monkeypatch.setenv("MINIO_ROOT_USER", "ak_tick")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "sk_tick")
+    monkeypatch.delenv("MINIO_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("MINIO_BUCKET", raising=False)
+    http_hits: list[str] = []
+
+    class _TickClient:
+        def __init__(self, *, timeout: float | None = None) -> None:
+            del timeout
+            self._status = 200
+
+        def __enter__(self) -> _TickClient:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def put(self, url: str, *, content: bytes, headers: dict[str, str]) -> httpx.Response:
+            del content, headers
+            http_hits.append(url)
+            return httpx.Response(self._status, request=httpx.Request("PUT", url))
+
+    monkeypatch.setattr(worker_media_mod.httpx, "Client", _TickClient)
+    png_b64 = base64.b64encode(_png_bytes(8, 8)).decode("ascii")
+    await spy_r.rpush(_MEDIA_QUEUE, json.dumps({"content_base64": png_b64, "mime_origen": "image/png"}))
+    await _consumir_cola_media_tick(spy_r, tick_cfg)
+    assert spy_r.blmove_calls[-1] == (_MEDIA_QUEUE, _MEDIA_PROCESSING, 7, "LEFT", "RIGHT")
+    assert len(http_hits) == 1 and http_hits[0].startswith("https://minio.local:9000/condominio-media/")
+
+    class _FailingTickClient(_TickClient):
+        def put(self, url: str, *, content: bytes, headers: dict[str, str]) -> httpx.Response:
+            del content, headers
+            return httpx.Response(500, request=httpx.Request("PUT", url))
+
+    monkeypatch.setattr(worker_media_mod.httpx, "Client", _FailingTickClient)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="src.worker"):
+        assert await procesar_mensaje_media("no-json", spy_r, tick_cfg) is False
+        assert spy_r.lists[_MEDIA_DLQ][-1] == "no-json"
+        assert "Payload malformado o no-objeto enviado a DLQ de medios." in caplog.text
+
+        ev_http_0 = json.dumps({"content_base64": png_b64, "mime_origen": "image/png", "intentos": 0})
+        assert await procesar_mensaje_media(ev_http_0, spy_r, tick_cfg) is False
+        requeued = json.loads(spy_r.lists[_MEDIA_QUEUE][-1])
+        assert requeued["intentos"] == 1
+        assert "500" in requeued["ultimo_error"]
+
+        assert await procesar_mensaje_media(spy_r.lists[_MEDIA_QUEUE][-1], spy_r, tick_cfg) is False
+        dlq_item = json.loads(spy_r.lists[_MEDIA_DLQ][-1])
+        assert dlq_item["intentos"] == 2
+        assert "Fallo procesando evidencia multimedia:" in caplog.text
+
+        bad_b64_ev = json.dumps({"content_base64": "bad$b64=", "mime_origen": "image/png", "intentos": 1})
+        assert await procesar_mensaje_media(bad_b64_ev, spy_r, tick_cfg) is False
+
+        assert await procesar_mensaje_notificacion("{bad", spy_r, tick_cfg) is False
+        assert "Payload malformado o no-objeto enviado a DLQ de notificaciones." in caplog.text
+
+        assert await procesar_mensaje_notificacion(json.dumps({"destinatarios": []}), spy_r, tick_cfg) is False
+        assert "Fallo procesando notificación por correo:" in caplog.text
+
+        def _smtp_boom(*_a: Any, **_kw: Any) -> Any:
+            raise smtplib.SMTPException("smtp down")
+
+        with monkeypatch.context() as mp_smtp:
+            mp_smtp.setattr(smtplib, "SMTP", _smtp_boom)
+            smtp_cfg = WorkerSettings(smtp_enabled=True, smtp_host="smtp.local", max_retries=2)
+            payload_smtp = json.dumps({"destinatarios": ["a@test.com"], "asunto": "S", "cuerpo": "C"})
+            assert await procesar_mensaje_notificacion(payload_smtp, spy_r, smtp_cfg) is False
+            assert json.loads(spy_r.lists[_NOTIFICATIONS_QUEUE][-1])["intentos"] == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_shared_hooks_heartbeat_salud_backoff_y_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    # 1. write_worker_heartbeat y verify_worker_heartbeat
+    missing_hb = tmp_path / "missing_hb"
+    assert verify_worker_heartbeat(missing_hb) is False
+    dir_hb = tmp_path / "dir_hb"
+    dir_hb.mkdir()
+    assert verify_worker_heartbeat(dir_hb) is False
+
+    nested_hb = tmp_path / "sub" / "nested" / "heartbeat"
+    write_worker_heartbeat(nested_hb)
+    assert nested_hb.is_file()
+    parsed_ts = datetime.fromisoformat(nested_hb.read_text(encoding="utf-8"))
+    assert parsed_ts.tzinfo is not None
+    assert verify_worker_heartbeat(nested_hb) is True
+
+    future_ts = time.time() + 120.0
+    nested_hb.touch()
+    os.utime(nested_hb, (future_ts, future_ts))
+    assert verify_worker_heartbeat(nested_hb) is False
+
+    stale_ts = time.time() - 95.0
+    os.utime(nested_hb, (stale_ts, stale_ts))
+    assert verify_worker_heartbeat(nested_hb) is False
+    assert verify_worker_heartbeat(nested_hb, max_age_seconds=120.0) is True
+
+    ev_wait = asyncio.Event()
+    await _esperar_o_detener(ev_wait, 0.005)
+    assert not ev_wait.is_set()
+    ev_wait.set()
+    await _esperar_o_detener(ev_wait, 5.0)
+
+    # 2. _is_task_healthy e is_supervisor_healthy
+    async def _ok() -> None:
+        return None
+
+    async def _fail() -> None:
+        raise RuntimeError("boom")
+
+    async def _sleep_forever() -> None:
+        await asyncio.sleep(10)
+
+    t_opt_ok = asyncio.create_task(_ok(), name="media_avif_consumer")
+    t_opt_err = asyncio.create_task(_fail(), name="media_avif_consumer")
+    t_mand_ok = asyncio.create_task(_ok(), name="notifications_consumer")
+    t_running = asyncio.create_task(_sleep_forever(), name="daily_tasks_scheduler")
+    t_cancelled = asyncio.create_task(_sleep_forever(), name="cancelled_worker")
+    t_cancelled.cancel()
+    await asyncio.sleep(0)
+
+    assert is_supervisor_healthy({"media_avif_consumer": t_opt_ok, "daily_tasks_scheduler": t_running}) is True
+    assert is_supervisor_healthy({"media_avif_consumer": t_opt_err}) is False
+    assert is_supervisor_healthy({"notifications_consumer": t_mand_ok}) is False
+    assert is_supervisor_healthy({"cancelled_worker": t_cancelled}) is False
+
+    t_running.cancel()
+    await asyncio.gather(t_opt_ok, t_opt_err, t_mand_ok, t_running, t_cancelled, return_exceptions=True)
+
+    # 3. Backoff exponencial en _loop_notificaciones, _loop_media_opcional y _loop_scheduler_diario
+    espera_calls: list[float] = []
+
+    async def _fake_esperar(stop_event: asyncio.Event, timeout_seconds: float) -> None:
+        espera_calls.append(timeout_seconds)
+        if len(espera_calls) >= 7:
+            stop_event.set()
+
+    class _BackoffRedis:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.stop_event: asyncio.Event | None = None
+
+        async def blmove(
+            self,
+            src: str,
+            dst: str,
+            timeout: int,
+            src_dir: str,
+            dst_dir: str,
+        ) -> None:
+            del src, dst, timeout, src_dir, dst_dir
+            self.calls += 1
+            if self.calls <= 6:
+                raise (RedisError("r"), OSError("o"), RuntimeError("rt"))[(self.calls - 1) % 3]
+            if self.calls == 7:
+                return None
+            if self.calls == 8:
+                raise RedisError("reset-check")
+            if self.stop_event is not None:
+                self.stop_event.set()
+            return None
+
+    backoff_cfg = WorkerSettings(media_enabled=True, poll_seconds=0.5, scheduler_interval_seconds=42.0)
+
+    with monkeypatch.context() as mp_loops:
+        mp_loops.setattr(worker_mod, "_esperar_o_detener", _fake_esperar)
+
+        r_notif = _BackoffRedis()
+        stop_n = asyncio.Event()
+        r_notif.stop_event = stop_n
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="src.worker"):
+            await _loop_notificaciones(backoff_cfg, stop_n, lambda: r_notif)
+        assert espera_calls == [0.5, 1.0, 2.0, 4.0, 5.0, 5.0, 0.5]
+        assert "Error transitorio en consumidor KeyDB de notificaciones:" in caplog.text
+
+        espera_calls.clear()
+        r_media = _BackoffRedis()
+        stop_m = asyncio.Event()
+        r_media.stop_event = stop_m
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="src.worker"):
+            await _loop_media_opcional(backoff_cfg, stop_m, lambda: r_media)
+        assert espera_calls == [0.5, 1.0, 2.0, 4.0, 5.0, 5.0, 0.5]
+        assert "Error transitorio en cola de medios AVIF:" in caplog.text
+
+        espera_calls.clear()
+        stop_sched = asyncio.Event()
+
+        async def _fake_esperar_once(stop_event: asyncio.Event, timeout_seconds: float) -> None:
+            espera_calls.append(timeout_seconds)
+            stop_event.set()
+
+        mp_loops.setattr(worker_mod, "_esperar_o_detener", _fake_esperar_once)
+
+        class _FailingSessionCtx:
+            async def __aenter__(self) -> Any:
+                raise SQLAlchemyError("db temporalmente caída")
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="src.worker"):
+            await _loop_scheduler_diario(backoff_cfg, stop_sched, _FailingSessionCtx)
+        assert espera_calls == [42.0]
+        assert "Error transitorio generando tareas diarias:" in caplog.text
+
+    # 4. _alcanzo_max_ticks, _supervisar_ciclo_worker no saludable y run_worker_orchestrator
+    assert _alcanzo_max_ticks(0, None) is False
+    assert _alcanzo_max_ticks(0, 1) is False
+    assert _alcanzo_max_ticks(1, 1) is True
+    assert _alcanzo_max_ticks(2, 1) is True
+
+    dead_hb = tmp_path / "dead_hb"
+    dead_hb.write_text("alive", encoding="utf-8")
+    t_dead = asyncio.create_task(_fail(), name="notifications_consumer")
+    await asyncio.sleep(0)
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="src.worker"):
+        rc_unhealthy = await _supervisar_ciclo_worker(
+            WorkerSettings(heartbeat_path=dead_hb, poll_seconds=0.01),
+            asyncio.Event(),
+            {"notifications_consumer": t_dead},
+            max_ticks=2,
+        )
+    assert rc_unhealthy == 1
+    assert not dead_hb.exists()
+    assert "Supervisor worker detectó estado no saludable." in caplog.text
+    await asyncio.gather(t_dead, return_exceptions=True)
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SECRET_KEY", "inseguro")
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        await run_worker_orchestrator()
+
+    db_file = tmp_path / "hito21.db"
+    orch_hb = tmp_path / "orch_hb"
+    engine, factory = await _crear_sqlite_fk(tmp_path)
+
+    class _IdleRedis:
+        async def blmove(
+            self,
+            src: str,
+            dst: str,
+            timeout: int,
+            src_dir: str,
+            dst_dir: str,
+        ) -> None:
+            del src, dst, timeout, src_dir, dst_dir
+            await asyncio.sleep(0)
+            return None
+
+    try:
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("SECRET_KEY", secrets.token_hex(32))
+        monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_file}")
+        monkeypatch.setenv("WORKER_HEARTBEAT_PATH", str(orch_hb))
+        monkeypatch.setenv("WORKER_POLL_SECONDS", "0.005")
+        monkeypatch.setenv("WORKER_MEDIA_ENABLED", "false")
+        rc_orch = await run_worker_orchestrator(
+            max_ticks=2,
+            session_factory=factory,
+            redis_getter=lambda: _IdleRedis(),
+        )
+        assert rc_orch == 0
+        assert orch_hb.is_file()
+
+        stop_sup = asyncio.Event()
+        sup_tasks = _crear_tareas_supervisor(
+            WorkerSettings(media_enabled=True, poll_seconds=0.01),
+            stop_sup,
+            factory,
+            lambda: _IdleRedis(),
+        )
+        assert {k: t.get_name() for k, t in sup_tasks.items()} == {
+            "daily_tasks_scheduler": "daily_tasks_scheduler",
+            "notifications_consumer": "notifications_consumer",
+            "media_avif_consumer": "media_avif_consumer",
+        }
+        stop_sup.set()
+        await _cancelar_tareas(sup_tasks)
+        assert all(t.done() for t in sup_tasks.values())
+    finally:
+        await engine.dispose()
+
+    # 5. _run_with_signals (SIGINT/SIGTERM y fallback NotImplementedError)
+    async def _fake_orch(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+    loop = asyncio.get_running_loop()
+    reg_signals: list[signal.Signals] = []
+    monkeypatch.setattr(loop, "add_signal_handler", lambda sig, _cb: reg_signals.append(sig))
+    monkeypatch.setattr(worker_mod, "run_worker_orchestrator", _fake_orch)
+    assert await _run_with_signals(WorkerSettings(), 1) == 0
+    assert reg_signals == [signal.SIGINT, signal.SIGTERM]
+
+    def _no_signals(_sig: signal.Signals, _cb: Any) -> None:
+        raise NotImplementedError
+
+    monkeypatch.setattr(loop, "add_signal_handler", _no_signals)
+    assert await _run_with_signals(WorkerSettings(), 1) == 0
+
+
+def test_worker_shared_hooks_cli_main_sync(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Valida parser CLI, healthcheck por heartbeat y ejecución síncrona de main() sin loop activo."""
+    parser = _build_cli_parser()
+    assert parser.prog == "python -m src.worker"
+    assert parser.parse_args([]).once is False
+    assert parser.parse_args(["--once"]).once is True
+    assert parser.parse_args(["--check-health"]).check_health is True
+
+    cli_hb = tmp_path / "cli_hb"
+    monkeypatch.setenv("WORKER_HEARTBEAT_PATH", str(cli_hb))
+    monkeypatch.setenv("WORKER_HEARTBEAT_MAX_AGE_SECONDS", "5.0")
+    assert main(["--check-health"]) == 1
+    write_worker_heartbeat(cli_hb)
+    assert main(["--check-health"]) == 0
+    os.utime(cli_hb, (time.time() - 10.0, time.time() - 10.0))
+    assert main(["--check-health"]) == 1
+
+    run_calls: list[int | None] = []
+
+    async def _fake_run_with_signals(_cfg: WorkerSettings, max_ticks: int | None) -> int:
+        run_calls.append(max_ticks)
+        return 0
+
+    with monkeypatch.context() as mp_cli:
+        mp_cli.setattr(worker_mod, "_run_with_signals", _fake_run_with_signals)
+        assert main([]) == 0
+        assert main(["--once"]) == 0
+    assert run_calls == [None, 1]
