@@ -1,4 +1,4 @@
-.PHONY: qa-lint qa-unit qa-orphans qa-mutation qa-perf qa-lighthouse qa-e2e qa-a11y qa-bdd qa-ui-bdd qa-all build-ui clean-cache
+.PHONY: qa-lint qa-unit qa-orphans qa-mutation qa-perf qa-lighthouse qa-e2e qa-a11y qa-bdd qa-ui-bdd qa-all build-ui ensure-deps clean-cache
 
 # ==============================================================================
 # MAKEFILE QA VUE 3 — CONDOMINIO APP (ESTÁNDAR CORPORATIVO 11X)
@@ -27,6 +27,12 @@ build-ui:
 	fi
 	docker compose -f $(COMPOSE_FILE) up -d --force-recreate ui-api-mock ui-prod chrome-cdp
 
+ensure-deps:
+	@if [ ! -x node_modules/.bin/playwright ] || [ ! -x node_modules/.bin/lhci ]; then \
+		echo "📦 Instalando dependencias frontend bloqueadas (pnpm install --frozen-lockfile)..."; \
+		docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile"; \
+	fi
+
 qa-lint:
 	@echo "🔍 [11X] Ejecutando Auditoría de CVEs, Type-Check, Prettier y ESLint (SonarJS)..."
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile && pnpm run audit:deps && pnpm run type-check && pnpm run format:check && pnpm run lint"
@@ -44,13 +50,13 @@ qa-mutation:
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(SERVICE_NAME) bash -c "$(PNPM_STORE_SETUP) && pnpm install --frozen-lockfile"
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) -e NODE_PATH="" $(E2E_SERVICE) bash -c "./node_modules/.bin/stryker run stryker.conf.json"
 
-qa-perf: build-ui
+qa-perf: build-ui ensure-deps
 	@echo "⚡ [11X] Ejecutando Auditoría de Rendimiento (Lighthouse CI)..."
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/lhci autorun"
 
 qa-lighthouse: qa-perf
 
-qa-e2e: build-ui
+qa-e2e: build-ui ensure-deps
 	@echo "🎭 [11X] Ejecutando Regresión Visual, Geometría Anti-JSDOM y Accesibilidad WCAG 2.1 AA..."
 	docker compose -f $(COMPOSE_FILE) run --rm -T $(NODE_USER_FLAGS) $(E2E_SERVICE) bash -c "$(PNPM_STORE_SETUP) && ./node_modules/.bin/playwright test"
 

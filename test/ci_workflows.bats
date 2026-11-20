@@ -70,3 +70,14 @@ setup() {
   run grep -Fq 'UI_SKIP_BUILD' "${REPO_ROOT}/frontend/Makefile"
   assert_success
 }
+
+@test "frontend/Makefile asegura node_modules bloqueados antes de qa-perf y qa-e2e bajo UI_SKIP_BUILD=1" {
+  run grep -Fq 'ensure-deps:' "${REPO_ROOT}/frontend/Makefile"
+  assert_success
+  run grep -Fq 'pnpm install --frozen-lockfile' "${REPO_ROOT}/frontend/Makefile"
+  assert_success
+  run grep -Eq '^qa-perf:[[:space:]]*build-ui[[:space:]]+ensure-deps' "${REPO_ROOT}/frontend/Makefile"
+  assert_success
+  run grep -Eq '^qa-e2e:[[:space:]]*build-ui[[:space:]]+ensure-deps' "${REPO_ROOT}/frontend/Makefile"
+  assert_success
+}
